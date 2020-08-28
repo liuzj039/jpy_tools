@@ -1,0 +1,45 @@
+nohup: ignoring input
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 128
+Rules claiming more threads will be scaled down.
+Job counts:
+	count	jobs
+	1	all
+	1	getUsefulRegion
+	2
+
+[Wed Aug 12 22:12:05 2020]
+rule getUsefulRegion:
+    input: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step2_getOverlapInfo/overlapInfo.tsv
+    output: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getUsefulRegion/step3Finished.empty
+    jobid: 1
+    threads: 64
+
+
+cd /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/scripts/
+jpy_qsub.py --sm -t 64 -n 1 -N getUsefulRegion --inline 'python step03_getUsefulRegion.py -i /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step2_getOverlapInfo/overlapInfo.tsv -o /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getUsefulRegion/lmdbFile/ -t 64 &&    touch /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getUsefulRegion/step3Finished.empty'
+        
+444592.master01
+#PBS -N getUsefulRegion_814130
+#PBS -o /public/home/liuzj/pbslog/$PBS_JOBNAME.o$PBS_JOBID
+#PBS -e /public/home/liuzj/pbslog/$PBS_JOBNAME.e$PBS_JOBID
+#PBS -l nodes=1:ppn=64
+#PBS -l mem=97gb
+#PBS -l walltime=831:00:00
+#PBS -V
+cd $PBS_O_WORKDIR
+time python step03_getUsefulRegion.py -i /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step2_getOverlapInfo/overlapInfo.tsv -o /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getUsefulRegion/lmdbFile/ -t 64 &&    touch /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getUsefulRegion/step3Finished.empty || jpy_sendMessage.py --title 'IPF上的☆getUsefulRegion_814130☆似乎出现了意外情况' --content '看不到我看不到我看不到我'
+[Wed Aug 12 22:18:49 2020]
+Finished job 1.
+1 of 2 steps (50%) done
+
+[Wed Aug 12 22:18:49 2020]
+localrule all:
+    input: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getUsefulRegion/step3Finished.empty
+    jobid: 0
+
+[Wed Aug 12 22:18:49 2020]
+Finished job 0.
+2 of 2 steps (100%) done
+Complete log: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/snakemake/.snakemake/log/2020-08-12T221205.185579.snakemake.log

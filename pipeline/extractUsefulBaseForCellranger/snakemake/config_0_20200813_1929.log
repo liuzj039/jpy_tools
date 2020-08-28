@@ -1,0 +1,27 @@
+nohup: ignoring input
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 128
+Rules claiming more threads will be scaled down.
+Job counts:
+	count	jobs
+	1	all
+	1	extractSeq
+	1	getOverlapInfo
+	1	getUsefulRegion
+	1	splitBam
+	5
+
+[Thu Aug 13 19:29:46 2020]
+rule splitBam:
+    input: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step1_runCellRanger/step1Finished.empty
+    output: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step2_splitBam/step2Finished.empty
+    jobid: 4
+
+RuleException in line 25 of /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/snakemake/snakefile:
+'Params' object has no attribute 'step1ResultDir'
+  File "/public/home/liuzj/softwares/anaconda3/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 111, in run_jobs
+  File "/public/home/liuzj/softwares/anaconda3/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 402, in run
+  File "/public/home/liuzj/softwares/anaconda3/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 203, in _run
+  File "/public/home/liuzj/softwares/anaconda3/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 131, in _run
+  File "/public/home/liuzj/softwares/anaconda3/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 137, in printjob

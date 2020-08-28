@@ -1,0 +1,148 @@
+nohup: ignoring input
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 128
+Rules claiming more threads will be scaled down.
+Job counts:
+	count	jobs
+	1	all
+	1	extractSeq
+	1	getOverlapInfo
+	1	getUsefulRegion
+	1	rerunCellRanger
+	1	splitBam
+	6
+
+[Fri Aug 14 15:48:05 2020]
+rule splitBam:
+    input: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step1_runCellRanger/step1Finished.empty
+    output: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step2_splitBam/step2Finished.empty
+    jobid: 5
+
+
+cd /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/scripts/
+jpy_qsub.py --sm -t 1 -n 1 -N splitBam --inline 'python step02_splitBam.py -i /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step1_runCellRanger//cellRangerDir/cellranger/outs/possorted_genome_bam.bam -o /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step2_splitBam/splitedDir/ -t 64 &&    touch /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step2_splitBam/step2Finished.empty'
+        
+444890.master01
+#PBS -N splitBam_412839
+#PBS -o /public/home/liuzj/pbslog/$PBS_JOBNAME.o$PBS_JOBID
+#PBS -e /public/home/liuzj/pbslog/$PBS_JOBNAME.e$PBS_JOBID
+#PBS -l nodes=1:ppn=1
+#PBS -l mem=2gb
+#PBS -l walltime=831:00:00
+#PBS -V
+cd $PBS_O_WORKDIR
+time python step02_splitBam.py -i /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step1_runCellRanger//cellRangerDir/cellranger/outs/possorted_genome_bam.bam -o /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step2_splitBam/splitedDir/ -t 64 &&    touch /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step2_splitBam/step2Finished.empty || jpy_sendMessage.py --title 'IPF上的☆splitBam_412839☆似乎出现了意外情况' --content '看不到我看不到我看不到我'
+[Fri Aug 14 15:50:25 2020]
+Finished job 5.
+1 of 6 steps (17%) done
+
+[Fri Aug 14 15:50:25 2020]
+rule getOverlapInfo:
+    input: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step2_splitBam/step2Finished.empty
+    output: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getOverlapInfo/overlapInfo.tsv
+    jobid: 4
+    threads: 64
+
+
+cd /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/scripts/
+jpy_qsub.py --sm -t 64 -n 1 -N getOverlapInfo --inline 'python step03_getOverlapInfo.py -i /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step2_splitBam/splitedDir/ -o /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getOverlapInfo/overlapInfo.tsv -t 64'
+        
+444891.master01
+#PBS -N getOverlapInfo_373971
+#PBS -o /public/home/liuzj/pbslog/$PBS_JOBNAME.o$PBS_JOBID
+#PBS -e /public/home/liuzj/pbslog/$PBS_JOBNAME.e$PBS_JOBID
+#PBS -l nodes=1:ppn=64
+#PBS -l mem=97gb
+#PBS -l walltime=831:00:00
+#PBS -V
+cd $PBS_O_WORKDIR
+time python step03_getOverlapInfo.py -i /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step2_splitBam/splitedDir/ -o /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getOverlapInfo/overlapInfo.tsv -t 64 || jpy_sendMessage.py --title 'IPF上的☆getOverlapInfo_373971☆似乎出现了意外情况' --content '看不到我看不到我看不到我'
+[Fri Aug 14 15:51:16 2020]
+Finished job 4.
+2 of 6 steps (33%) done
+
+[Fri Aug 14 15:51:16 2020]
+rule getUsefulRegion:
+    input: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getOverlapInfo/overlapInfo.tsv
+    output: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step4_getUsefulRegion/step4Finished.empty
+    jobid: 3
+    threads: 64
+
+
+cd /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/scripts/
+jpy_qsub.py --sm -t 64 -n 1 -N getUsefulRegion --inline 'python step04_getUsefulRegion.py -i /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getOverlapInfo/overlapInfo.tsv -o /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step4_getUsefulRegion/lmdbFile/ -t 64 &&    touch /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step4_getUsefulRegion/step4Finished.empty'
+        
+444892.master01
+#PBS -N getUsefulRegion_380176
+#PBS -o /public/home/liuzj/pbslog/$PBS_JOBNAME.o$PBS_JOBID
+#PBS -e /public/home/liuzj/pbslog/$PBS_JOBNAME.e$PBS_JOBID
+#PBS -l nodes=1:ppn=64
+#PBS -l mem=97gb
+#PBS -l walltime=831:00:00
+#PBS -V
+cd $PBS_O_WORKDIR
+time python step04_getUsefulRegion.py -i /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getOverlapInfo/overlapInfo.tsv -o /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step4_getUsefulRegion/lmdbFile/ -t 64 &&    touch /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step4_getUsefulRegion/step4Finished.empty || jpy_sendMessage.py --title 'IPF上的☆getUsefulRegion_380176☆似乎出现了意外情况' --content '看不到我看不到我看不到我'
+[Fri Aug 14 15:55:50 2020]
+Finished job 3.
+3 of 6 steps (50%) done
+
+[Fri Aug 14 15:55:50 2020]
+rule extractSeq:
+    input: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step4_getUsefulRegion/step4Finished.empty, /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/rawData/inputFastq/
+    output: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step5_extractSeq/step5Finished.empty
+    jobid: 2
+    threads: 64
+
+
+cd /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/scripts/
+jpy_qsub.py --sm -t 64 -n 1 -N extractSeq --inline 'python step05_extractSeq.py -i /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/rawData/inputFastq/ -o /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step5_extractSeq/usefulRegionFastq/ -l /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step4_getUsefulRegion/lmdbFile/ -t 64 -s &&    touch /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step5_extractSeq/step5Finished.empty'
+        
+444893.master01
+#PBS -N extractSeq_962576
+#PBS -o /public/home/liuzj/pbslog/$PBS_JOBNAME.o$PBS_JOBID
+#PBS -e /public/home/liuzj/pbslog/$PBS_JOBNAME.e$PBS_JOBID
+#PBS -l nodes=1:ppn=64
+#PBS -l mem=97gb
+#PBS -l walltime=831:00:00
+#PBS -V
+cd $PBS_O_WORKDIR
+time python step05_extractSeq.py -i /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/rawData/inputFastq/ -o /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step5_extractSeq/usefulRegionFastq/ -l /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step4_getUsefulRegion/lmdbFile/ -t 64 -s &&    touch /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step5_extractSeq/step5Finished.empty || jpy_sendMessage.py --title 'IPF上的☆extractSeq_962576☆似乎出现了意外情况' --content '看不到我看不到我看不到我'
+[Fri Aug 14 15:56:40 2020]
+Finished job 2.
+4 of 6 steps (67%) done
+
+[Fri Aug 14 15:56:40 2020]
+rule rerunCellRanger:
+    input: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step5_extractSeq/step5Finished.empty
+    output: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step6_rerunCellRanger/step6Finished.empty
+    jobid: 1
+    threads: 64
+
+
+cd /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/scripts/
+jpy_qsub.py --sm -t 64 -n 1 -N rerunCellRanger --inline 'mkdir /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step6_rerunCellRanger/rerunCellRangerDir/ &&     cd /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step6_rerunCellRanger/rerunCellRangerDir/ &&         cellranger count --id=cellranger --fastqs=/public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step5_extractSeq/usefulRegionFastq/ --transcriptome=/public/home/liuzj/projects/singleCell/00_data/00_endospermUseData/tair10 --localcores=64 --r1-length=28 &&             touch /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step6_rerunCellRanger/step6Finished.empty'
+        
+444894.master01
+#PBS -N rerunCellRanger_720766
+#PBS -o /public/home/liuzj/pbslog/$PBS_JOBNAME.o$PBS_JOBID
+#PBS -e /public/home/liuzj/pbslog/$PBS_JOBNAME.e$PBS_JOBID
+#PBS -l nodes=1:ppn=64
+#PBS -l mem=97gb
+#PBS -l walltime=831:00:00
+#PBS -V
+cd $PBS_O_WORKDIR
+time mkdir /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step6_rerunCellRanger/rerunCellRangerDir/ &&     cd /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step6_rerunCellRanger/rerunCellRangerDir/ &&         cellranger count --id=cellranger --fastqs=/public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step5_extractSeq/usefulRegionFastq/ --transcriptome=/public/home/liuzj/projects/singleCell/00_data/00_endospermUseData/tair10 --localcores=64 --r1-length=28 &&             touch /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step6_rerunCellRanger/step6Finished.empty || jpy_sendMessage.py --title 'IPF上的☆rerunCellRanger_720766☆似乎出现了意外情况' --content '看不到我看不到我看不到我'
+[Fri Aug 14 16:26:18 2020]
+Finished job 1.
+5 of 6 steps (83%) done
+
+[Fri Aug 14 16:26:18 2020]
+localrule all:
+    input: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step6_rerunCellRanger/step6Finished.empty
+    jobid: 0
+
+[Fri Aug 14 16:26:18 2020]
+Finished job 0.
+6 of 6 steps (100%) done
+Complete log: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/snakemake/.snakemake/log/2020-08-14T154805.131939.snakemake.log

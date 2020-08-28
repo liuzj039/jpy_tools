@@ -1,0 +1,336 @@
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cluster nodes: 128
+Job counts:
+	count	jobs
+	1	all
+	3	calIrRatio
+	3	deDuplicates
+	1	extractGeneCounts
+	3	extractRnaRpkm
+	3	gatherIrRpkm
+	3	mappingUsingHisat
+	3	runStringTie
+	20
+
+[Mon Aug 24 21:43:39 2020]
+rule mappingUsingHisat:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/rawData/Total3_1.fastq.gz, /public/home/liuzj/scripts/pipeline/analyzeNGSData/rawData/Total3_2.fastq.gz
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total3_sortedBam.bam
+    jobid: 18
+    wildcards: sample=Total3
+    threads: 16
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+hisat2 -x /public/home/liuzj/data/Araport11/HISAT2INDEX -p 16 --min-intronlen 20 --max-intronlen 10000 --dta --time -1 /public/home/liuzj/scripts/pipeline/analyzeNGSData/rawData/Total3_1.fastq.gz -2 /public/home/liuzj/scripts/pipeline/analyzeNGSData/rawData/Total3_2.fastq.gz -S /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total3_unsortedSam.sam &&     samtools sort /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total3_unsortedSam.sam -@ 16 -O bam -o /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total3_sortedBam.bam &&         samtools index /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total3_sortedBam.bam &&             rm /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total3_unsortedSam.sam
+        
+Submitted job 18 with external jobid '446099.master01'.
+
+[Mon Aug 24 21:43:41 2020]
+rule mappingUsingHisat:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/rawData/Total4_1.fastq.gz, /public/home/liuzj/scripts/pipeline/analyzeNGSData/rawData/Total4_2.fastq.gz
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total4_sortedBam.bam
+    jobid: 19
+    wildcards: sample=Total4
+    threads: 16
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+hisat2 -x /public/home/liuzj/data/Araport11/HISAT2INDEX -p 16 --min-intronlen 20 --max-intronlen 10000 --dta --time -1 /public/home/liuzj/scripts/pipeline/analyzeNGSData/rawData/Total4_1.fastq.gz -2 /public/home/liuzj/scripts/pipeline/analyzeNGSData/rawData/Total4_2.fastq.gz -S /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total4_unsortedSam.sam &&     samtools sort /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total4_unsortedSam.sam -@ 16 -O bam -o /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total4_sortedBam.bam &&         samtools index /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total4_sortedBam.bam &&             rm /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total4_unsortedSam.sam
+        
+Submitted job 19 with external jobid '446100.master01'.
+
+[Mon Aug 24 21:43:41 2020]
+rule mappingUsingHisat:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/rawData/Total2_1.fastq.gz, /public/home/liuzj/scripts/pipeline/analyzeNGSData/rawData/Total2_2.fastq.gz
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total2_sortedBam.bam
+    jobid: 17
+    wildcards: sample=Total2
+    threads: 16
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+hisat2 -x /public/home/liuzj/data/Araport11/HISAT2INDEX -p 16 --min-intronlen 20 --max-intronlen 10000 --dta --time -1 /public/home/liuzj/scripts/pipeline/analyzeNGSData/rawData/Total2_1.fastq.gz -2 /public/home/liuzj/scripts/pipeline/analyzeNGSData/rawData/Total2_2.fastq.gz -S /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total2_unsortedSam.sam &&     samtools sort /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total2_unsortedSam.sam -@ 16 -O bam -o /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total2_sortedBam.bam &&         samtools index /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total2_sortedBam.bam &&             rm /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total2_unsortedSam.sam
+        
+Submitted job 17 with external jobid '446101.master01'.
+[Mon Aug 24 22:08:50 2020]
+Finished job 19.
+1 of 20 steps (5%) done
+
+[Mon Aug 24 22:08:50 2020]
+rule deDuplicates:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total4_sortedBam.bam
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total4_sortedDedupBam.bam
+    jobid: 15
+    wildcards: sample=Total4
+    threads: 8
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+java -jar /public/apps/picard_2.20.2/picard.jar MarkDuplicates VALIDATION_STRINGENCY=SILENT REMOVE_DUPLICATES=true SORTING_COLLECTION_SIZE_RATIO=0.01 I=/public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total4_sortedBam.bam O=/public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total4_sortedDedupBam.bam M=/public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total4_sortedDedupMat.txt &&    samtools index /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total4_sortedDedupBam.bam
+        
+Submitted job 15 with external jobid '446105.master01'.
+[Mon Aug 24 22:13:31 2020]
+Finished job 17.
+2 of 20 steps (10%) done
+
+[Mon Aug 24 22:13:31 2020]
+rule deDuplicates:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total2_sortedBam.bam
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total2_sortedDedupBam.bam
+    jobid: 11
+    wildcards: sample=Total2
+    threads: 8
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+java -jar /public/apps/picard_2.20.2/picard.jar MarkDuplicates VALIDATION_STRINGENCY=SILENT REMOVE_DUPLICATES=true SORTING_COLLECTION_SIZE_RATIO=0.01 I=/public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total2_sortedBam.bam O=/public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total2_sortedDedupBam.bam M=/public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total2_sortedDedupMat.txt &&    samtools index /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total2_sortedDedupBam.bam
+        
+Submitted job 11 with external jobid '446106.master01'.
+[Mon Aug 24 22:15:21 2020]
+Finished job 18.
+3 of 20 steps (15%) done
+
+[Mon Aug 24 22:15:21 2020]
+rule deDuplicates:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total3_sortedBam.bam
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total3_sortedDedupBam.bam
+    jobid: 13
+    wildcards: sample=Total3
+    threads: 8
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+java -jar /public/apps/picard_2.20.2/picard.jar MarkDuplicates VALIDATION_STRINGENCY=SILENT REMOVE_DUPLICATES=true SORTING_COLLECTION_SIZE_RATIO=0.01 I=/public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step1_mappingUsingHisat/Total3_sortedBam.bam O=/public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total3_sortedDedupBam.bam M=/public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total3_sortedDedupMat.txt &&    samtools index /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total3_sortedDedupBam.bam
+        
+Submitted job 13 with external jobid '446107.master01'.
+[Mon Aug 24 22:33:42 2020]
+Finished job 11.
+4 of 20 steps (20%) done
+
+[Mon Aug 24 22:33:42 2020]
+rule runStringTie:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total2_sortedDedupBam.bam, /public/home/liuzj/data/Araport11/gene.gff
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total2/geneStringtieMerge.gtf, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total2/geneStringtieAbund.tsv
+    jobid: 12
+    wildcards: sample=Total2
+    threads: 16
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+stringtie -A /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total2/geneStringtieAbund.tsv -e --rf -B -p 16 -G /public/home/liuzj/data/Araport11/gene.gff -o /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total2/geneStringtieMerge.gtf /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total2_sortedDedupBam.bam
+        
+Submitted job 12 with external jobid '446108.master01'.
+
+[Mon Aug 24 22:33:46 2020]
+rule calIrRatio:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total2_sortedDedupBam.bam, /public/home/liuzj/data/Araport11/represent.proteinIdPos.txt
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step6_calIrRatio/Total2_irRatio.tsv
+    jobid: 5
+    wildcards: sample=Total2
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+python cal_ir_ratio.from_bam.by_splicing_Read_type.version2.py /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total2_sortedDedupBam.bam /public/home/liuzj/data/Araport11/represent.proteinIdPos.txt /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step6_calIrRatio/Total2_irRatio.tsv 1 4 1
+        
+Submitted job 5 with external jobid '446109.master01'.
+[Mon Aug 24 22:36:22 2020]
+Finished job 12.
+5 of 20 steps (25%) done
+
+[Mon Aug 24 22:36:22 2020]
+rule extractRnaRpkm:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total2/geneStringtieMerge.gtf
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total2_rpkmRna.tsv, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total2_rpkmGene.tsv
+    jobid: 6
+    wildcards: sample=Total2
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+Rscript extract_rpkm_from_ballgown.R Total2  /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total2 /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total2_rpkmRna.tsv /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total2_rpkmGene.tsv
+        
+Submitted job 6 with external jobid '446110.master01'.
+[Mon Aug 24 22:37:22 2020]
+Finished job 6.
+6 of 20 steps (30%) done
+[Mon Aug 24 22:38:12 2020]
+Finished job 13.
+7 of 20 steps (35%) done
+
+[Mon Aug 24 22:38:12 2020]
+rule calIrRatio:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total3_sortedDedupBam.bam, /public/home/liuzj/data/Araport11/represent.proteinIdPos.txt
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step6_calIrRatio/Total3_irRatio.tsv
+    jobid: 7
+    wildcards: sample=Total3
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+python cal_ir_ratio.from_bam.by_splicing_Read_type.version2.py /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total3_sortedDedupBam.bam /public/home/liuzj/data/Araport11/represent.proteinIdPos.txt /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step6_calIrRatio/Total3_irRatio.tsv 1 4 1
+        
+Submitted job 7 with external jobid '446111.master01'.
+
+[Mon Aug 24 22:38:14 2020]
+rule runStringTie:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total3_sortedDedupBam.bam, /public/home/liuzj/data/Araport11/gene.gff
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total3/geneStringtieMerge.gtf, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total3/geneStringtieAbund.tsv
+    jobid: 14
+    wildcards: sample=Total3
+    threads: 16
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+stringtie -A /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total3/geneStringtieAbund.tsv -e --rf -B -p 16 -G /public/home/liuzj/data/Araport11/gene.gff -o /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total3/geneStringtieMerge.gtf /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total3_sortedDedupBam.bam
+        
+Submitted job 14 with external jobid '446112.master01'.
+[Mon Aug 24 22:41:22 2020]
+Finished job 14.
+8 of 20 steps (40%) done
+
+[Mon Aug 24 22:41:22 2020]
+rule extractRnaRpkm:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total3/geneStringtieMerge.gtf
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total3_rpkmRna.tsv, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total3_rpkmGene.tsv
+    jobid: 8
+    wildcards: sample=Total3
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+Rscript extract_rpkm_from_ballgown.R Total3  /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total3 /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total3_rpkmRna.tsv /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total3_rpkmGene.tsv
+        
+Submitted job 8 with external jobid '446113.master01'.
+[Mon Aug 24 22:42:02 2020]
+Finished job 8.
+9 of 20 steps (45%) done
+[Mon Aug 24 22:45:12 2020]
+Finished job 5.
+10 of 20 steps (50%) done
+
+[Mon Aug 24 22:45:12 2020]
+rule gatherIrRpkm:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step6_calIrRatio/Total2_irRatio.tsv, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total2_rpkmGene.tsv
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step7_gatherIrRpkm/Total2_gatherIrRpkm.tsv
+    jobid: 1
+    wildcards: sample=Total2
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+python gatherIrRpkm.py -i /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step6_calIrRatio/Total2_irRatio.tsv -R /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total2_rpkmGene.tsv -o /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step7_gatherIrRpkm/Total2_gatherIrRpkm.tsv
+        
+Submitted job 1 with external jobid '446114.master01'.
+[Mon Aug 24 22:45:22 2020]
+Finished job 1.
+11 of 20 steps (55%) done
+[Mon Aug 24 22:48:23 2020]
+Finished job 15.
+12 of 20 steps (60%) done
+
+[Mon Aug 24 22:48:23 2020]
+rule runStringTie:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total4_sortedDedupBam.bam, /public/home/liuzj/data/Araport11/gene.gff
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total4/geneStringtieMerge.gtf, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total4/geneStringtieAbund.tsv
+    jobid: 16
+    wildcards: sample=Total4
+    threads: 16
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+stringtie -A /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total4/geneStringtieAbund.tsv -e --rf -B -p 16 -G /public/home/liuzj/data/Araport11/gene.gff -o /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total4/geneStringtieMerge.gtf /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total4_sortedDedupBam.bam
+        
+Submitted job 16 with external jobid '446115.master01'.
+
+[Mon Aug 24 22:48:25 2020]
+rule calIrRatio:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total4_sortedDedupBam.bam, /public/home/liuzj/data/Araport11/represent.proteinIdPos.txt
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step6_calIrRatio/Total4_irRatio.tsv
+    jobid: 9
+    wildcards: sample=Total4
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+python cal_ir_ratio.from_bam.by_splicing_Read_type.version2.py /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step2_deDuplicates/Total4_sortedDedupBam.bam /public/home/liuzj/data/Araport11/represent.proteinIdPos.txt /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step6_calIrRatio/Total4_irRatio.tsv 1 4 1
+        
+Submitted job 9 with external jobid '446116.master01'.
+[Mon Aug 24 22:52:03 2020]
+Finished job 7.
+13 of 20 steps (65%) done
+
+[Mon Aug 24 22:52:03 2020]
+rule gatherIrRpkm:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step6_calIrRatio/Total3_irRatio.tsv, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total3_rpkmGene.tsv
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step7_gatherIrRpkm/Total3_gatherIrRpkm.tsv
+    jobid: 2
+    wildcards: sample=Total3
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+python gatherIrRpkm.py -i /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step6_calIrRatio/Total3_irRatio.tsv -R /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total3_rpkmGene.tsv -o /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step7_gatherIrRpkm/Total3_gatherIrRpkm.tsv
+        
+Submitted job 2 with external jobid '446117.master01'.
+[Mon Aug 24 22:52:13 2020]
+Finished job 2.
+14 of 20 steps (70%) done
+[Mon Aug 24 22:53:43 2020]
+Finished job 16.
+15 of 20 steps (75%) done
+
+[Mon Aug 24 22:53:43 2020]
+rule extractRnaRpkm:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total4/geneStringtieMerge.gtf
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total4_rpkmRna.tsv, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total4_rpkmGene.tsv
+    jobid: 10
+    wildcards: sample=Total4
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+Rscript extract_rpkm_from_ballgown.R Total4  /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/Total4 /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total4_rpkmRna.tsv /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total4_rpkmGene.tsv
+        
+Submitted job 10 with external jobid '446118.master01'.
+[Mon Aug 24 22:54:33 2020]
+Finished job 10.
+16 of 20 steps (80%) done
+
+[Mon Aug 24 22:54:33 2020]
+rule extractGeneCounts:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total2_rpkmRna.tsv, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total3_rpkmRna.tsv, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total4_rpkmRna.tsv
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step5_extractGeneCounts/allSampleGeneCounts.csv, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step5_extractGeneCounts/allSampleTransCounts.csv
+    jobid: 4
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+prepDE.py -g /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step5_extractGeneCounts/allSampleGeneCounts.csv -t /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step5_extractGeneCounts/allSampleTransCounts.csv -i /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step3_runStringTie/
+        
+Submitted job 4 with external jobid '446119.master01'.
+[Mon Aug 24 22:54:53 2020]
+Finished job 4.
+17 of 20 steps (85%) done
+[Mon Aug 24 23:08:54 2020]
+Finished job 9.
+18 of 20 steps (90%) done
+
+[Mon Aug 24 23:08:54 2020]
+rule gatherIrRpkm:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step6_calIrRatio/Total4_irRatio.tsv, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total4_rpkmGene.tsv
+    output: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step7_gatherIrRpkm/Total4_gatherIrRpkm.tsv
+    jobid: 3
+    wildcards: sample=Total4
+
+
+cd /public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/
+python gatherIrRpkm.py -i /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step6_calIrRatio/Total4_irRatio.tsv -R /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step4_extractRnaRpkm/Total4_rpkmGene.tsv -o /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step7_gatherIrRpkm/Total4_gatherIrRpkm.tsv
+        
+Submitted job 3 with external jobid '446120.master01'.
+[Mon Aug 24 23:09:24 2020]
+Finished job 3.
+19 of 20 steps (95%) done
+
+[Mon Aug 24 23:09:24 2020]
+localrule all:
+    input: /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step7_gatherIrRpkm/Total2_gatherIrRpkm.tsv, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step7_gatherIrRpkm/Total3_gatherIrRpkm.tsv, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step7_gatherIrRpkm/Total4_gatherIrRpkm.tsv, /public/home/liuzj/scripts/pipeline/analyzeNGSData/results/step5_extractGeneCounts/allSampleGeneCounts.csv
+    jobid: 0
+
+[Mon Aug 24 23:09:24 2020]
+Finished job 0.
+20 of 20 steps (100%) done
+Complete log: /public/home/liuzj/scripts/pipeline/analyzeNGSData/snakemake/.snakemake/log/2020-08-24T214339.201574.snakemake.log

@@ -1,0 +1,1 @@
+/public/home/liuzj/projects/singleCell/01_pipeline/pipeline_planC/01_scripts/step15_calculateGeneIntronRatio.py

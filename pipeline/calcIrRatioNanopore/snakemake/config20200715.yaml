@@ -1,0 +1,10 @@
+pipelineDir:
+  '/public/home/liuzj/scripts/pipeline/calcIrRatioNanopore/scripts/'
+resultDir:
+  '/public/home/liuzj/scripts/pipeline/calcIrRatioNanopore/results/'
+molMappingResult:
+  '/public/home/liuzj/scripts/pipeline/calcIrRatioNanopore/rawData/molMappingResult.bam'
+refAnnotaBed:
+  '/public/home/liuzj/data/Araport11/gene.bed'
+repreAnnotaBed:
+  '/public/home/liuzj/data/Araport11/araport11.representative.gene_model.bed'

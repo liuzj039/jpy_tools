@@ -1,0 +1,114 @@
+configfile: "/public/home/liuzj/scripts/pipeline/analyzeNGSData/snakemake/config.yaml"
+pipelineDir = config['pipelineDir']
+rawDataPath = config['rawDataPath']
+
+
+rule all:
+    input:
+        [f"{config['resultDir']}step7_gatherIrRpkm/{sample}_gatherIrRpkm.tsv" for sample in config['sampleList']],
+        allSampleGeneCounts = f"{config['resultDir']}step5_extractGeneCounts/allSampleGeneCounts.csv"
+
+rule mappingUsingHisat:
+    input:
+        readOne = f'{rawDataPath}{{sample}}_1.fastq.gz',
+        readTwo = f'{rawDataPath}{{sample}}_2.fastq.gz'
+    output:
+        sortedBam = f"{config['resultDir']}step1_mappingUsingHisat/{{sample}}_sortedBam.bam"
+    params:
+        unsortedSam = f"{config['resultDir']}step1_mappingUsingHisat/{{sample}}_unsortedSam.sam",
+        genome = config['genome']
+    threads:16
+    shell:
+        """
+cd {pipelineDir}
+hisat2 -x {params.genome} -p {threads} --min-intronlen 20 --max-intronlen 10000 --dta --time -1 {input.readOne} -2 {input.readTwo} -S {params.unsortedSam} &&     samtools sort {params.unsortedSam} -@ {threads} -O bam -o {output.sortedBam} &&         samtools index {output.sortedBam} &&             rm {params.unsortedSam}
+        """
+
+rule deDuplicates:
+    input:
+        sortedBam = f"{config['resultDir']}step1_mappingUsingHisat/{{sample}}_sortedBam.bam"
+    output:
+        sortedDedupBam = f"{config['resultDir']}step2_deDuplicates/{{sample}}_sortedDedupBam.bam"
+    params:
+        sortedDedupMat = f"{config['resultDir']}step2_deDuplicates/{{sample}}_sortedDedupMat.txt"
+    threads:8
+    shell:
+        """
+cd {pipelineDir}
+java -jar /public/apps/picard_2.20.2/picard.jar MarkDuplicates VALIDATION_STRINGENCY=SILENT REMOVE_DUPLICATES=true SORTING_COLLECTION_SIZE_RATIO=0.01 I={input.sortedBam} O={output.sortedDedupBam} M={params.sortedDedupMat} &&    samtools index {output.sortedDedupBam}
+        """
+
+rule runStringTie:
+    input:
+        sortedDedupBam = f"{config['resultDir']}step2_deDuplicates/{{sample}}_sortedDedupBam.bam",
+        annoGff = config['annoGff']
+    output:
+        geneStringtieMerge = f"{config['resultDir']}step3_runStringTie/{{sample}}/geneStringtieMerge.gtf",
+        geneStringtieAbund = f"{config['resultDir']}step3_runStringTie/{{sample}}/geneStringtieAbund.tsv"
+
+    threads:16
+    shell:
+        """
+cd {pipelineDir}
+stringtie -A {output.geneStringtieAbund} -e --rf -B -p {threads} -G {input.annoGff} -o {output.geneStringtieMerge} {input.sortedDedupBam}
+        """
+
+rule extractRnaRpkm:
+    input:
+        geneStringtieMerge = f"{config['resultDir']}step3_runStringTie/{{sample}}/geneStringtieMerge.gtf"
+    output:
+        rpkmRna = f"{config['resultDir']}step4_extractRnaRpkm/{{sample}}_rpkmRna.tsv",
+        rpkmGene = f"{config['resultDir']}step4_extractRnaRpkm/{{sample}}_rpkmGene.tsv"
+    params:
+        step4Label = '{sample}',
+        step3ResultDir = f"{config['resultDir']}step3_runStringTie/"
+    threads:1
+    shell:
+        """
+cd {pipelineDir}
+Rscript extract_rpkm_from_ballgown.R {params.step4Label}  {params.step3ResultDir}{params.step4Label} {output.rpkmRna} {output.rpkmGene}
+        """
+
+rule extractGeneCounts:
+    input:
+        allRnaRpkm = [f"{config['resultDir']}step4_extractRnaRpkm/{sample}_rpkmRna.tsv" for sample in config['sampleList']]
+    output:
+        allSampleGeneCounts = f"{config['resultDir']}step5_extractGeneCounts/allSampleGeneCounts.csv",
+        allSampleTransCounts = f"{config['resultDir']}step5_extractGeneCounts/allSampleTransCounts.csv"
+    params:
+        step3ResultDir = f"{config['resultDir']}step3_runStringTie/"
+    threads:1
+    shell:
+        """
+cd {pipelineDir}
+prepDE.py -g {output.allSampleGeneCounts} -t {output.allSampleTransCounts} -i {params.step3ResultDir}
+        """
+
+rule calIrRatio:
+    input:
+        sortedDedupBam = f"{config['resultDir']}step2_deDuplicates/{{sample}}_sortedDedupBam.bam",
+        repreTrans = config['repreTrans']
+    output:
+        irRatio = f"{config['resultDir']}step6_calIrRatio/{{sample}}_irRatio.tsv"
+
+    threads:1
+    shell:
+        """
+cd {pipelineDir}
+python cal_ir_ratio.from_bam.by_splicing_Read_type.version2.py {input.sortedDedupBam} {input.repreTrans} {output.irRatio} 1 4 1
+        """
+
+rule gatherIrRpkm:
+    input:
+        irRatio = f"{config['resultDir']}step6_calIrRatio/{{sample}}_irRatio.tsv",
+        rpkmGene = f"{config['resultDir']}step4_extractRnaRpkm/{{sample}}_rpkmGene.tsv"
+    output:
+        gatherIrRpkm = f"{config['resultDir']}step7_gatherIrRpkm/{{sample}}_gatherIrRpkm.tsv"
+
+    threads:1
+    shell:
+        """
+cd {pipelineDir}
+python gatherIrRpkm.py -i {input.irRatio} -R {input.rpkmGene} -o {output.gatherIrRpkm}
+        """
+

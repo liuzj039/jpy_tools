@@ -1,0 +1,77 @@
+configfile: "/public/home/liuzj/scripts/pipeline/calcIrRatioNanopore/snakemake/config20200715.yaml"
+pipelineDir = config['pipelineDir']
+
+
+rule all:
+    input:
+        irRatio = f"{config['resultDir']}step5_calculateGeneIntronRatio/irRatio.tsv"
+
+rule extractOverlapWithAnno:
+    input:
+        molMappingResult = config['molMappingResult'],
+        refAnnotaBed = config['refAnnotaBed']
+    output:
+        molOverlapResult = f"{config['resultDir']}step1_extractOverlapWithAnno/molOverlapResult.bed"
+
+    threads:1
+    shell:
+        """
+cd {pipelineDir}
+bedtools intersect -abam {input.molMappingResult} -b {input.refAnnotaBed} -wo -s -split -bed > {output.molOverlapResult}
+        """
+
+rule parseBedtoolsOutput:
+    input:
+        molOverlapResult = f"{config['resultDir']}step1_extractOverlapWithAnno/molOverlapResult.bed"
+    output:
+        parseBedtoolsResult = f"{config['resultDir']}step2_parseBedtoolsOutput/parseBedtoolsResult.pkl"
+
+    threads:1
+    shell:
+        """
+cd {pipelineDir}
+python step11_parseBedtoolsOutput.py -i {input.molOverlapResult} -o {output.parseBedtoolsResult}
+        """
+
+rule getSplieStats:
+    input:
+        molMappingResult = config['molMappingResult'],
+        repreAnnotaBed = config['repreAnnotaBed']
+    output:
+        overlapWithRefBed = f"{config['resultDir']}step3_getSplieStats/overlapWithRefBed.bed",
+        intronRetationInfo = f"{config['resultDir']}step3_getSplieStats/intronRetationInfo.tsv"
+
+    threads:1
+    shell:
+        """
+cd {pipelineDir}
+bedtools intersect -abam {input.molMappingResult} -b {input.repreAnnotaBed} -wo -s -split -bed > {output.overlapWithRefBed} &&    python step13_getSpliceStats.py -i {output.overlapWithRefBed} -o {output.intronRetationInfo}
+        """
+
+rule getIrInfo:
+    input:
+        parseBedtoolsResult = f"{config['resultDir']}step2_parseBedtoolsOutput/parseBedtoolsResult.pkl",
+        intronRetationInfo = f"{config['resultDir']}step3_getSplieStats/intronRetationInfo.tsv"
+    output:
+        irInfo = f"{config['resultDir']}step4_getIrInfo/irInfo.tsv"
+
+    threads:1
+    shell:
+        """
+cd {pipelineDir}
+python step14_getIrInfo.py -i {input.intronRetationInfo} -g {input.parseBedtoolsResult} -o {output.irInfo}
+        """
+
+rule calculateGeneIntronRatio:
+    input:
+        irInfo = f"{config['resultDir']}step4_getIrInfo/irInfo.tsv"
+    output:
+        irRatio = f"{config['resultDir']}step5_calculateGeneIntronRatio/irRatio.tsv"
+
+    threads:1
+    shell:
+        """
+cd {pipelineDir}
+python step15_calculateGeneIntronRatio.py -i {input.irInfo} -o {output.irRatio}
+        """
+

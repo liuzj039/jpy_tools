@@ -1,0 +1,71 @@
+nohup: ignoring input
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 128
+Rules claiming more threads will be scaled down.
+Job counts:
+	count	jobs
+	1	all
+	1	extractSeq
+	1	getOverlapInfo
+	1	getUsefulRegion
+	1	rerunCellRanger
+	1	runCellRanger
+	6
+
+[Fri Aug 14 14:59:40 2020]
+rule runCellRanger:
+    input: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/rawData/inputFastq/
+    output: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step1_runCellRanger/step1Finished.empty
+    jobid: 5
+    threads: 64
+
+
+cd /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/scripts/
+jpy_qsub.py --sm -t 64 -n 1 -N runCellRanger --inline 'mkdir /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step1_runCellRanger/cellRangerDir/ &&     cd /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step1_runCellRanger/cellRangerDir/ &&         cellranger count --id=cellranger --fastqs=/public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/rawData/inputFastq/ --transcriptome=/public/home/liuzj/projects/singleCell/00_data/00_endospermUseData/tair10 --localcores=64 --r1-length=28 &&             touch /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step1_runCellRanger/step1Finished.empty'
+        
+444880.master01
+#PBS -N runCellRanger_615857
+#PBS -o /public/home/liuzj/pbslog/$PBS_JOBNAME.o$PBS_JOBID
+#PBS -e /public/home/liuzj/pbslog/$PBS_JOBNAME.e$PBS_JOBID
+#PBS -l nodes=1:ppn=64
+#PBS -l mem=97gb
+#PBS -l walltime=831:00:00
+#PBS -V
+cd $PBS_O_WORKDIR
+time mkdir /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step1_runCellRanger/cellRangerDir/ &&     cd /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step1_runCellRanger/cellRangerDir/ &&         cellranger count --id=cellranger --fastqs=/public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/rawData/inputFastq/ --transcriptome=/public/home/liuzj/projects/singleCell/00_data/00_endospermUseData/tair10 --localcores=64 --r1-length=28 &&             touch /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step1_runCellRanger/step1Finished.empty || jpy_sendMessage.py --title 'IPF上的☆runCellRanger_615857☆似乎出现了意外情况' --content '看不到我看不到我看不到我'
+[Fri Aug 14 15:45:20 2020]
+Finished job 5.
+1 of 6 steps (17%) done
+
+[Fri Aug 14 15:45:20 2020]
+rule getOverlapInfo:
+    input: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step1_runCellRanger/step1Finished.empty
+    output: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getOverlapInfo/overlapInfo.tsv
+    jobid: 4
+    threads: 64
+
+
+cd /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/scripts/
+jpy_qsub.py --sm -t 64 -n 1 -N getOverlapInfo --inline 'python step03_getOverlapInfo.py -i /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step2_splitBam/splitedDir/ -o /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getOverlapInfo/overlapInfo.tsv -t 64'
+        
+444889.master01
+#PBS -N getOverlapInfo_229057
+#PBS -o /public/home/liuzj/pbslog/$PBS_JOBNAME.o$PBS_JOBID
+#PBS -e /public/home/liuzj/pbslog/$PBS_JOBNAME.e$PBS_JOBID
+#PBS -l nodes=1:ppn=64
+#PBS -l mem=97gb
+#PBS -l walltime=831:00:00
+#PBS -V
+cd $PBS_O_WORKDIR
+time python step03_getOverlapInfo.py -i /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step2_splitBam/splitedDir/ -o /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getOverlapInfo/overlapInfo.tsv -t 64 || jpy_sendMessage.py --title 'IPF上的☆getOverlapInfo_229057☆似乎出现了意外情况' --content '看不到我看不到我看不到我'
+Waiting at most 1 seconds for missing files.
+MissingOutputException in line 42 of /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/snakemake/snakefile:
+Job completed successfully, but some output files are missing. Missing files after 1 seconds:
+/public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/step3_getOverlapInfo/overlapInfo.tsv
+This might be due to filesystem latency. If that is the case, consider to increase the wait time with --latency-wait.
+  File "/public/home/liuzj/softwares/anaconda3/lib/python3.7/site-packages/snakemake/executors/__init__.py", line 544, in handle_job_success
+  File "/public/home/liuzj/softwares/anaconda3/lib/python3.7/site-packages/snakemake/executors/__init__.py", line 231, in handle_job_success
+Shutting down, this might take some time.
+Exiting because a job execution failed. Look above for error message
+Complete log: /public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/snakemake/.snakemake/log/2020-08-14T145940.131605.snakemake.log

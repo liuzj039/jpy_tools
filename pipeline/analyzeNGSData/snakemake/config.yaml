@@ -1,0 +1,18 @@
+resultDir:
+  '/public/home/liuzj/scripts/pipeline/analyzeNGSData/results/'
+pipelineDir:
+  '/public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/'
+rawDataPath:
+  '/public/home/liuzj/scripts/pipeline/analyzeNGSData/rawData/'
+sampleList:
+  - 'Total2'
+  - 'Total3'
+  - 'Total4'
+genome:
+  '/public/home/liuzj/data/Araport11/HISAT2INDEX'
+annoGtf:
+  '/public/home/liuzj/data/Araport11/gene.gtf'
+annoGff:
+  '/public/home/liuzj/data/Araport11/gene.gff'
+repreTrans:
+  '/public/home/liuzj/data/Araport11/represent.proteinIdPos.txt'
