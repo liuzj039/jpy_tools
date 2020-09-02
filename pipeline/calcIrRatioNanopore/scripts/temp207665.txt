@@ -1,9 +1,0 @@
-#PBS -N extractOverlapWithAnno_207665
-#PBS -o /public/home/liuzj/pbslog/$PBS_JOBNAME.o$PBS_JOBID
-#PBS -e /public/home/liuzj/pbslog/$PBS_JOBNAME.e$PBS_JOBID
-#PBS -l nodes=1:ppn=1
-#PBS -l mem=2gb
-#PBS -l walltime=831:00:00
-#PBS -V
-cd $PBS_O_WORKDIR
-time bedtools intersect -abam /public/home/liuzj/scripts/pipeline/calcIrRatioNanopore/rawData/molMappingResult.bam -b /public/home/liuzj/data/Araport11/gene.bed -wo -s -split -bed > /public/home/liuzj/scripts/pipeline/calcIrRatioNanopore/results/step1_extractOverlapWithAnno/molOverlapResult.bed || jpy_sendMessage.py --title 'IPF上的☆extractOverlapWithAnno_207665☆似乎出现了意外情况' --content '看不到我看不到我看不到我'
