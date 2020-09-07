@@ -14,12 +14,11 @@ rule runCellRanger:
     params:
         cellRangerRef = config['cellRangerRef'],
         cellRangerDir = f"{config['resultDir']}step1_runCellRanger/cellRangerDir/"
-    threads:56
+    threads:64
     shell:
         """
-jpy_qsub.py --sm -t {threads} -n 1 -N runCellRanger --inline '\
 cd {pipelineDir}
-mkdir {params.cellRangerDir} &&     cd {params.cellRangerDir} &&         cellranger count --id=cellranger --fastqs={input.inputFastqDir} --transcriptome={params.cellRangerRef} --localcores={threads} --r1-length=28 &&             touch {output.step1Finished}'
+mkdir {params.cellRangerDir} && cd {params.cellRangerDir} && cellranger count --id=cellranger --fastqs={input.inputFastqDir} --transcriptome={params.cellRangerRef} --localcores={threads} --r1-length=28 && touch {output.step1Finished}
         """
 
 rule splitBam:
@@ -30,13 +29,12 @@ rule splitBam:
     params:
         splitedDir = f"{config['resultDir']}step2_splitBam/splitedDir/",
         step1ResultDir = f"{config['resultDir']}step1_runCellRanger/",
-        step01SplitedCounts = 56
+        step01SplitedCounts = 64
     threads:1
     shell:
         """
-jpy_qsub.py --sm -t {threads} -n 1 -N splitBam --inline '\
 cd {pipelineDir}
-python step02_splitBam.py -i {params.step1ResultDir}/cellRangerDir/cellranger/outs/possorted_genome_bam.bam -o {params.splitedDir} -t {params.step01SplitedCounts} &&    touch {output.step2Finished}'
+python step02_splitBam.py -i {params.step1ResultDir}/cellRangerDir/cellranger/outs/possorted_genome_bam.bam -o {params.splitedDir} -t {params.step01SplitedCounts} &&    touch {output.step2Finished}
         """
 
 rule getOverlapInfo:
@@ -46,12 +44,11 @@ rule getOverlapInfo:
         overlapInfo = f"{config['resultDir']}step3_getOverlapInfo/overlapInfo.tsv"
     params:
         splitedDir = f"{config['resultDir']}step2_splitBam/splitedDir/"
-    threads:56
+    threads:64
     shell:
         """
-jpy_qsub.py --sm -t {threads} -n 1 -N getOverlapInfo --inline '\
 cd {pipelineDir}
-python step03_getOverlapInfo.py -i {params.splitedDir} -o {output.overlapInfo} -t {threads}'
+python step03_getOverlapInfo.py -i {params.splitedDir} -o {output.overlapInfo} -t {threads}
         """
 
 rule getUsefulRegion:
@@ -61,12 +58,11 @@ rule getUsefulRegion:
         step4Finished = f"{config['resultDir']}step4_getUsefulRegion/step4Finished.empty"
     params:
         lmdbFile = f"{config['resultDir']}step4_getUsefulRegion/lmdbFile/"
-    threads:56
+    threads:64
     shell:
         """
-jpy_qsub.py --sm -t {threads} -n 1 -N getUsefulRegion --inline '\
 cd {pipelineDir}
-python step04_getUsefulRegion.py -i {input.overlapInfo} -o {params.lmdbFile} -t {threads} &&    touch {output.step4Finished}'
+python step04_getUsefulRegion.py -i {input.overlapInfo} -o {params.lmdbFile} -t {threads} &&    touch {output.step4Finished}
         """
 
 rule extractSeq:
@@ -78,12 +74,11 @@ rule extractSeq:
     params:
         lmdbFile = f"{config['resultDir']}step4_getUsefulRegion/lmdbFile/",
         usefulRegionFastq = f"{config['resultDir']}step5_extractSeq/usefulRegionFastq/"
-    threads:56
+    threads:64
     shell:
         """
-jpy_qsub.py --sm -t {threads} -n 1 -N extractSeq --inline '\
 cd {pipelineDir}
-python step05_extractSeq.py -i {input.inputFastqDir} -o {params.usefulRegionFastq} -l {params.lmdbFile} -t {threads} -s &&    touch {output.step5Finished}'
+python step05_extractSeq.py -i {input.inputFastqDir} -o {params.usefulRegionFastq} -l {params.lmdbFile} -t {threads} -s &&    touch {output.step5Finished}
         """
 
 rule rerunCellRanger:
@@ -95,11 +90,10 @@ rule rerunCellRanger:
         usefulRegionFastq = f"{config['resultDir']}step5_extractSeq/usefulRegionFastq/",
         rerunCellRangerDir = f"{config['resultDir']}step6_rerunCellRanger/rerunCellRangerDir/",
         cellRangerRef = config['cellRangerRef']
-    threads:56
+    threads:64
     shell:
         """
-jpy_qsub.py --sm -t {threads} -n 1 -N rerunCellRanger --inline '\
 cd {pipelineDir}
-mkdir {params.rerunCellRangerDir} &&     cd {params.rerunCellRangerDir} &&         cellranger count --id=cellranger --fastqs={params.usefulRegionFastq} --transcriptome={params.cellRangerRef} --localcores={threads} --r1-length=28 &&             touch {output.step6Finished}'
+mkdir {params.rerunCellRangerDir} &&     cd {params.rerunCellRangerDir} &&         cellranger count --id=cellranger --fastqs={params.usefulRegionFastq} --transcriptome={params.cellRangerRef} --localcores={threads} --r1-length=28 &&             touch {output.step6Finished}
         """
 

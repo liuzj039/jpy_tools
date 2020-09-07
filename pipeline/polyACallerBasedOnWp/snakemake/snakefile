@@ -16,7 +16,7 @@ rule buildIndex:
         f5Dir = config['f5Dir'],
         f5Summary = config['f5Summary'],
         geneAnno = config['geneAnno']
-    threads:1
+    threads:56
     shell:
         """
 cd {pipelineDir}
@@ -29,7 +29,7 @@ rule polyACaller:
     output:
         exampleAddPolyALength = f"{config['resultDir']}step2_polyACaller/exampleAddPolyALength.h5"
 
-    threads:1
+    threads:56
     shell:
         """
 cd {pipelineDir}

@@ -12,7 +12,6 @@ import pandas as pd
 import numpy as np
 from functools import reduce
 
-
 def parseOneRead(line):
     lineIntrons = line.ExonOverlapInfo.split(',')
     lineIntrons = np.array(lineIntrons).astype(int)
