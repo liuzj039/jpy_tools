@@ -1,0 +1,14 @@
+resultDir:
+ /public/home/liuzj/scripts/pipeline/polyACallerBasedOnWp/results/
+pipelineDir:
+ /public/home/liuzj/scripts/pipeline/polyACallerBasedOnWp/scripts/
+rawSeq:
+ /public/home/liuzj/scripts/pipeline/polyACallerBasedOnWp/data/example.fa
+genome:
+ ~/data/Araport11/genome.fa
+f5Dir:
+ /public/home/liuzj/projects/singleCell/00_data/01_rootUseData/01_basecalledData/00_basecalledData/all/workspace/
+f5Summary:
+ /public/home/liuzj/projects/singleCell/00_data/01_rootUseData/01_basecalledData/00_basecalledData/all/sequencing_summary.txt
+geneAnno:
+ ~/data/Araport11/gene.bed

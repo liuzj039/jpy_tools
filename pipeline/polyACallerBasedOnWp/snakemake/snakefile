@@ -1,0 +1,38 @@
+configfile: "/public/home/liuzj/scripts/pipeline/polyACallerBasedOnWp/snakemake/config.yaml"
+pipelineDir = config['pipelineDir']
+
+
+rule all:
+    input:
+        exampleAddPolyALength = f"{config['resultDir']}step2_polyACaller/exampleAddPolyALength.h5"
+
+rule buildIndex:
+    input:
+        rawSeq = config['rawSeq']
+    output:
+        exampleIndex = f"{config['resultDir']}step1_buildIndex/exampleIndex.h5"
+    params:
+        genome = config['genome'],
+        f5Dir = config['f5Dir'],
+        f5Summary = config['f5Summary'],
+        geneAnno = config['geneAnno']
+    threads:1
+    shell:
+        """
+cd {pipelineDir}
+python step1_buildIndex.py -i {input.rawSeq} --genome {params.genome} -t {threads} --f5dir {params.f5Dir} --f5summary {params.f5Summary} --bed {params.geneAnno} -o {output.exampleIndex}
+        """
+
+rule polyACaller:
+    input:
+        exampleIndex = f"{config['resultDir']}step1_buildIndex/exampleIndex.h5"
+    output:
+        exampleAddPolyALength = f"{config['resultDir']}step2_polyACaller/exampleAddPolyALength.h5"
+
+    threads:1
+    shell:
+        """
+cd {pipelineDir}
+python step2_polyACaller.py -i {input.exampleIndex} -o {output.exampleAddPolyALength} -t {threads}
+        """
+
