@@ -12,6 +12,8 @@ rule extractOverlapWithAnno:
         refAnnotaBed = config['refAnnotaBed']
     output:
         molOverlapResult = f"{config['resultDir']}step1_extractOverlapWithAnno/molOverlapResult.bed"
+    params:
+        gpu = "0"
 
     threads:1
     shell:
@@ -25,6 +27,8 @@ rule parseBedtoolsOutput:
         molOverlapResult = f"{config['resultDir']}step1_extractOverlapWithAnno/molOverlapResult.bed"
     output:
         parseBedtoolsResult = f"{config['resultDir']}step2_parseBedtoolsOutput/parseBedtoolsResult.pkl"
+    params:
+        gpu = "0"
 
     threads:1
     shell:
@@ -40,6 +44,8 @@ rule getSplieStats:
     output:
         overlapWithRefBed = f"{config['resultDir']}step3_getSplieStats/overlapWithRefBed.bed",
         intronRetationInfo = f"{config['resultDir']}step3_getSplieStats/intronRetationInfo.tsv"
+    params:
+        gpu = "0"
 
     threads:1
     shell:
@@ -54,6 +60,8 @@ rule getIrInfo:
         intronRetationInfo = f"{config['resultDir']}step3_getSplieStats/intronRetationInfo.tsv"
     output:
         irInfo = f"{config['resultDir']}step4_getIrInfo/irInfo.tsv"
+    params:
+        gpu = "0"
 
     threads:1
     shell:
@@ -67,6 +75,8 @@ rule calculateGeneIntronRatio:
         irInfo = f"{config['resultDir']}step4_getIrInfo/irInfo.tsv"
     output:
         irRatio = f"{config['resultDir']}step5_calculateGeneIntronRatio/irRatio.tsv"
+    params:
+        gpu = "0"
 
     threads:1
     shell:

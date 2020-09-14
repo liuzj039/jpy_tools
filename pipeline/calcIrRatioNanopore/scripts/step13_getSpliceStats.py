@@ -1,7 +1,7 @@
 '''
 @Date: 2020-07-27 16:47:47
-LastEditors: liuzj
-LastEditTime: 2020-08-24 20:43:27
+LastEditors: Liuzj
+LastEditTime: 2020-09-12 10:00:21
 @Description: file content
 @Author: liuzj
 FilePath: /liuzj/scripts/pipeline/calcIrRatioNanopore/scripts/step13_getSpliceStats.py
@@ -120,7 +120,10 @@ def getOverlapIntronAndExon(line, needOverlap):
                     overlapIntronsInfo.update(overlapIrIntronsInfo)
                     overlapIntronsInfo = [f'{x}:{y}' for x, y in overlapIntronsInfo.items()]
             break
-    return overlapExons, overlapIntrons, overlapIntronsInfo
+    if needOverlap:
+        return overlapExons, overlapIntrons, overlapIntronsInfo
+    else:
+        return overlapExons, overlapIntrons
 
 
 @click.command()
