@@ -13,8 +13,10 @@ rule runCellRanger:
         step1Finished = f"{config['resultDir']}step1_runCellRanger/step1Finished.empty"
     params:
         cellRangerRef = config['cellRangerRef'],
-        cellRangerDir = f"{config['resultDir']}step1_runCellRanger/cellRangerDir/"
-    threads:64
+        cellRangerDir = f"{config['resultDir']}step1_runCellRanger/cellRangerDir/",
+        gpu = "0"
+
+    threads:56
     shell:
         """
 cd {pipelineDir}
@@ -29,7 +31,9 @@ rule splitBam:
     params:
         splitedDir = f"{config['resultDir']}step2_splitBam/splitedDir/",
         step1ResultDir = f"{config['resultDir']}step1_runCellRanger/",
-        step01SplitedCounts = 64
+        step01SplitedCounts = 64,
+        gpu = "0"
+
     threads:1
     shell:
         """
@@ -43,8 +47,10 @@ rule getOverlapInfo:
     output:
         overlapInfo = f"{config['resultDir']}step3_getOverlapInfo/overlapInfo.tsv"
     params:
-        splitedDir = f"{config['resultDir']}step2_splitBam/splitedDir/"
-    threads:64
+        splitedDir = f"{config['resultDir']}step2_splitBam/splitedDir/",
+        gpu = "0"
+
+    threads:56
     shell:
         """
 cd {pipelineDir}
@@ -57,8 +63,10 @@ rule getUsefulRegion:
     output:
         step4Finished = f"{config['resultDir']}step4_getUsefulRegion/step4Finished.empty"
     params:
-        lmdbFile = f"{config['resultDir']}step4_getUsefulRegion/lmdbFile/"
-    threads:64
+        lmdbFile = f"{config['resultDir']}step4_getUsefulRegion/lmdbFile/",
+        gpu = "0"
+
+    threads:56
     shell:
         """
 cd {pipelineDir}
@@ -73,8 +81,10 @@ rule extractSeq:
         step5Finished = f"{config['resultDir']}step5_extractSeq/step5Finished.empty"
     params:
         lmdbFile = f"{config['resultDir']}step4_getUsefulRegion/lmdbFile/",
-        usefulRegionFastq = f"{config['resultDir']}step5_extractSeq/usefulRegionFastq/"
-    threads:64
+        usefulRegionFastq = f"{config['resultDir']}step5_extractSeq/usefulRegionFastq/",
+        gpu = "0"
+
+    threads:56
     shell:
         """
 cd {pipelineDir}
@@ -89,8 +99,10 @@ rule rerunCellRanger:
     params:
         usefulRegionFastq = f"{config['resultDir']}step5_extractSeq/usefulRegionFastq/",
         rerunCellRangerDir = f"{config['resultDir']}step6_rerunCellRanger/rerunCellRangerDir/",
-        cellRangerRef = config['cellRangerRef']
-    threads:64
+        cellRangerRef = config['cellRangerRef'],
+        gpu = "0"
+
+    threads:56
     shell:
         """
 cd {pipelineDir}
