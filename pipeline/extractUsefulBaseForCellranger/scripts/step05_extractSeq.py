@@ -1,7 +1,7 @@
 '''
 Date: 2020-08-12 11:28:09
-LastEditors: liuzj
-LastEditTime: 2020-08-19 11:27:05
+LastEditors: Liuzj
+LastEditTime: 2020-09-16 10:12:40
 Description: file content
 Author: liuzj
 FilePath: /liuzj/scripts/pipeline/extractUsefulBaseForCellranger/scripts/step05_extractSeq.py
@@ -14,6 +14,7 @@ import glob
 import lmdb
 import click
 import numpy as np
+from loguru import logger
 from concurrent.futures import ProcessPoolExecutor as multiP
 from jpy_tools.ReadProcess import writeFastq, readFastq, getSubFastq
 
@@ -39,24 +40,36 @@ def processOneFastq(singleR1Path, singleR2Path, lmdbPath, outDir):
 @click.option('-t', 'threads', type=int)
 @click.option('-s', 'splitInput', is_flag=True)
 def main(fastqDir, outDir, lmdbPath, threads, splitInput):
-    os.mkdir(outDir)
+    try:
+        os.mkdir(outDir)
+    except:
+        logger.warning(f'{outDir} existed!!')
     if not splitInput:
         allR1Path = glob.glob(f'{fastqDir}*R1*')
         allR2Path = [x.replace('R1', 'R2') for x in allR1Path]
     else:
 
-        fastqTemp = fastqDir + 'tempSplited/'
-        sh.mkdir(fastqTemp)
+        fastqTemp = outDir + 'tempSplited/'
+        try:
+            sh.mkdir(fastqTemp)
+        except:
+            logger.warning(f'{fastqTemp} existed!!')
 
         allR1Path = glob.glob(f'{fastqDir}*R1*')
         allR2Path = [x.replace('R1', 'R2') for x in allR1Path]
         allSplitedPath = [fastqTemp + re.search(r'(?<=/)\w+?(?=_R1)', x)[0] + '/' for x in allR1Path]
+
+        if allR1Path[0].endswith('.gz'):
+            formatGz = True
 
         splitedNum = threads // len(allSplitedPath)
         
         if splitedNum <= 1 :
             allR1Path = glob.glob(f'{fastqDir}*R1*')
             allR2Path = [x.replace('R1', 'R2') for x in allR1Path]
+            if allR1Path[0].endswith('.gz'):
+                logger.error('format gz, please uncompress it.')
+                1/0
         else:
             mPResults = []
             with multiP(threads//2) as mP:
@@ -73,10 +86,19 @@ def main(fastqDir, outDir, lmdbPath, threads, splitInput):
                 sampleId = sampleId.pop()
 
             i = 0
+            formatGzUseThreadContents = []
             for tempSingleSplitedR1Path, tempSingleSplitedR2Path in zip(tempAllSplitedR1Path, tempAllSplitedR2Path):
                 i += 1
-                sh.mv(tempSingleSplitedR1Path, f'{fastqTemp}{sampleId}_L{i:03}_R1_001.fastq')
-                sh.mv(tempSingleSplitedR2Path, f'{fastqTemp}{sampleId}_L{i:03}_R2_001.fastq')
+                if formatGz:
+                    sh.mv(tempSingleSplitedR1Path, f'{fastqTemp}{sampleId}_L{i:03}_R1_001.fastq.gz')
+                    sh.mv(tempSingleSplitedR2Path, f'{fastqTemp}{sampleId}_L{i:03}_R2_001.fastq.gz')
+                    formatGzUseThreadContents.append(sh.gzip('-d', f'{fastqTemp}{sampleId}_L{i:03}_R1_001.fastq.gz', _bg=True))
+                    formatGzUseThreadContents.append(sh.gzip('-d', f'{fastqTemp}{sampleId}_L{i:03}_R2_001.fastq.gz', _bg=True))
+                else:
+                    sh.mv(tempSingleSplitedR1Path, f'{fastqTemp}{sampleId}_L{i:03}_R1_001.fastq')
+                    sh.mv(tempSingleSplitedR2Path, f'{fastqTemp}{sampleId}_L{i:03}_R2_001.fastq')
+            if formatGz:
+                [x.wait() for x in formatGzUseThreadContents]
 
             for singleTempDir in glob.glob(f'{fastqTemp}*/'):
                 sh.rmdir(singleTempDir)

@@ -185,10 +185,11 @@ def main(tsvPath, lmdbPath, threads):
         while True:
             try:
                 with multiT(2) as mT:
-                    mT.submit(writeResult, mdbFile, severalChunkResult)
+                    writeThread = mT.submit(writeResult, mdbFile, severalChunkResult)
                     severalChunkResult = mT.submit(
                         processSeveralChunks, bedFileChunked, threads
                     ).result()
+                    writeThread.result()
             except StopIteration:
                 break
         mdbFile.commit()
