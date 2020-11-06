@@ -1,0 +1,6 @@
+REPRE_BED_PATH:
+  '/public/home/liuzj/data/Araport11/araport11.representative.gene_model.bed'
+SELECTED_GENE:
+  '/public/home/liuzj/projects/singleCell/00_data/select_mRNA_by_Cyto.txt'
+SELECTED_INTRON:
+  '/public/home/liuzj/projects/singleCell/00_data/select_intron_by_Cyto.id.txt'
