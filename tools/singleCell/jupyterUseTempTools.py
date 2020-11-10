@@ -421,6 +421,7 @@ def cellTypeAnnoByMarker(adata, allMarkerUse, expressionMtx, zscoreby = 'cluster
 def cellTypeAnnoByClusterEnriched(arrayExpressDf_StageTissue, clusterEnrichedGeneDf, useCluster='all', useGeneCounts=10):
     """
     使用cluster enriched基因在bulk数据中的表达情况对cluster进行注释
+    暂时只能用在胚乳数据上 待进一步优化
     
     arrayExpressDf_StageTissue: dataframe, 形如
                                              AT1G01010  AT1G01030  AT1G01040
