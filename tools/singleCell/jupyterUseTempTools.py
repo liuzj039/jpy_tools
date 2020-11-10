@@ -6,6 +6,7 @@ import seaborn as sns
 import anndata
 from scipy.stats import spearmanr, pearsonr, zscore
 from loguru import logger
+from concurrent.futures import ProcessPoolExecutor as Mtp
 import sh
 
 
@@ -19,6 +20,7 @@ def mkdir(dirPath):
     except:
         logger.warning(f'{dirPath} existed!!')
 
+        
 def plotCellScatter(adata):
     """
     绘制anndata基本情况
@@ -73,6 +75,55 @@ def mergeAdataExpress(adata, groupby='louvain', useRaw=True, logTransformed=True
     return groupbyExpressAd
 
 
+def calculateExpressionRatio(adata, clusterby):
+    """
+    逐个计算adata中每个基因在每个cluster中的表达比例
+    
+    adata:
+        需要含有raw
+    clusterby:
+        adata.obs中的某个列名
+    """
+    transformAdataRawToAd = lambda adata: anndata.AnnData(X = adata.raw.X, obs = adata.obs, var = adata.raw.var)
+    rawAd = transformAdataRawToAd(adata)
+    expressionOrNotdf = (rawAd.to_df() > 0).astype(int)
+    expressionOrNotdf[clusterby] = rawAd.obs[clusterby]
+    expressionRatioDf = expressionOrNotdf.groupby(clusterby).agg('sum')/expressionOrNotdf.groupby(clusterby).agg('count')
+    return expressionRatioDf
+
+
+def calculateGeneAverageEx(expressionMtxDf, geneDt, method='mean'):
+    """
+    根据geneDt对expressionMtxDf计算平均值或中位数
+    
+    expressionMtxDf:
+        形如adata.to_df()
+        
+    geneDt:
+        形如:{
+    "type1": [
+        "AT5G42235",
+        "AT4G00540",
+        ],
+    "type2": [
+        "AT1G55650",
+        "AT5G45980",
+        ],
+    }
+    method:
+        'mean|median'
+            
+    """
+    averageExLs = []
+    for typeName, geneLs in geneDt.items():
+        typeAvgExpress = expressionMtxDf.reindex(geneLs, axis=1).mean(1) if method == 'mean' else expressionMtxDf.reindex(geneLs, axis=1).median(1)
+        typeAvgExpress.name = typeName
+        averageExLs.append(typeAvgExpress)
+    averageExDf = pd.concat(averageExLs, axis=1)
+    
+    return averageExDf
+
+
 def getClusterEnrichedGene(adata, useAttri = ['names', 'pvals', 'pvals_adj', 'logfoldchanges'], geneAnno = False, geneMarker = False):
     """
     获得每个cluster enriched的基因 
@@ -116,6 +167,73 @@ def getClusterEnrichedGene(adata, useAttri = ['names', 'pvals', 'pvals_adj', 'lo
 #     allLouvainUseAttri.dropna(inplace=True)
     return allLouvainUseAttri.query("pvals_adj > 0.05")
 
+
+def __shuffleLabel(adata, label, i):
+    """
+    used for getEnrichedScore
+    """
+    shuffleAd = adata.copy()
+    #     shuffleAd.obs[label] = adata.obs[label].sample(frac=1).reset_index(drop=True)
+    shuffleAd.obs[label] = adata.obs[label].sample(frac=1, random_state=i).values
+    #     print(shuffleAd.obs.iloc[0])
+    shuffleClusterDf = (
+        mergeAdataExpress(shuffleAd).to_df().reset_index().assign(label=i)
+    )
+
+    return shuffleClusterDf
+
+
+def getEnrichedScore(adata, label, geneLs, threads=12, times=100):
+    """
+    获得ES值。ES值是通过对adata.obs中的label进行重排times次，然后计算原始label的zscore获得
+
+    adata:
+        必须有raw且为log-transformed
+
+    label:
+        adata.obs中的列名
+
+    geneLs:
+        需要计算的基因
+
+    threads:
+        使用核心数
+
+    times:
+        重排的次数
+    """
+
+    geneLs = geneLs[:]
+    geneLs[0:0] = [label]
+    adata = adata.copy()
+
+
+    allShuffleClusterExpressLs = []
+    with Mtp(threads) as mtp:
+        for time in range(1, times + 1):
+            allShuffleClusterExpressLs.append(
+                mtp.submit(__shuffleLabel, adata, label, time)
+            )
+
+    allShuffleClusterExpressLs = [x.result() for x in allShuffleClusterExpressLs]
+    originalClusterDf = (
+        mergeAdataExpress(adata).to_df().reset_index().assign(label=0)
+    )
+    allShuffleClusterExpressLs.append(originalClusterDf)
+    allShuffleClusterExpressDf = (
+        pd.concat(allShuffleClusterExpressLs).set_index("label").reindex(geneLs, axis=1)
+    )
+    logger.info(f"start calculate z score")
+    allShuffleClusterZscoreDf = (
+        allShuffleClusterExpressDf.groupby(label)
+        .apply(lambda x: x.set_index(label, append=True).apply(zscore))
+        .reset_index(level=0, drop=True)
+    )
+
+    clusterZscoreDf = allShuffleClusterZscoreDf.query("label == 0").reset_index(
+        level=0, drop=True
+    ).fillna(0)
+    return clusterZscoreDf
 
 #################
 ## 细胞注释 
@@ -361,3 +479,37 @@ def cellTypeAnnoByClusterEnriched(arrayExpressDf_StageTissue, clusterEnrichedGen
     
     EnrichedGeneExpressPatternInBulkDf = clusterEnrichedGeneName_FilteredDf.map(lambda x:arrayExpressDf_StageTissue.loc[:, x].median(1).idxmax())
     return EnrichedGeneExpressPatternInBulkDf
+
+
+def cellTypeAnnoByEnrichedScore(adata, label, markerGeneDt, threads=12, times=100):
+    """
+    通过enriched score对cluster进行注释
+    
+    adata:
+        必须有raw且为log-transformed
+
+    label:
+        adata.obs中的列名
+
+    markerGeneDt:
+        形如:{
+    "type1": [
+        "AT5G42235",
+        "AT4G00540",
+        ],
+    "type2": [
+        "AT1G55650",
+        "AT5G45980",
+        ],
+    }
+
+    threads:
+        使用核心数
+
+    times:
+        重排的次数
+    """
+    markerGeneLs = list(set([y for x in markerGeneDt.values() for y in x]))
+    clusterEnrichedScoreDf = getEnrichedScore(adata, label, markerGeneLs,threads, times)
+    clusterTypeAvgEnrichedScoreDf = calculateGeneAverageEx(clusterEnrichedScoreDf, markerGeneDt)
+    return clusterTypeAvgEnrichedScoreDf
