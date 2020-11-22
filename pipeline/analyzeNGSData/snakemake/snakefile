@@ -8,20 +8,46 @@ rule all:
         [f"{config['resultDir']}step7_gatherIrRpkm/{sample}_gatherIrRpkm.tsv" for sample in config['sampleList']],
         allSampleGeneCounts = f"{config['resultDir']}step5_extractGeneCounts/allSampleGeneCounts.csv"
 
-rule mappingUsingHisat:
+rule fastpQC:
     input:
         readOne = f'{rawDataPath}{{sample}}_1.fastq.gz',
         readTwo = f'{rawDataPath}{{sample}}_2.fastq.gz'
     output:
-        sortedBam = f"{config['resultDir']}step1_mappingUsingHisat/{{sample}}_sortedBam.bam"
+        AfterQC_1 = f"{config['resultDir']}step0_fastpQC/{{sample}}_AfterQC_1.fastq.gz",
+        AfterQC_2 = f"{config['resultDir']}step0_fastpQC/{{sample}}_AfterQC_2.fastq.gz"
     params:
-        unsortedSam = f"{config['resultDir']}step1_mappingUsingHisat/{{sample}}_unsortedSam.sam",
-        genome = config['genome']
+        useQC = config['useQC'],
+        qcReport = f"{config['resultDir']}step0_fastpQC/{{sample}}_qcReport.html",
+        gpu = "0"
+
     threads:16
     shell:
         """
 cd {pipelineDir}
-hisat2 -x {params.genome} -p {threads} --min-intronlen 20 --max-intronlen 10000 --dta --time -1 {input.readOne} -2 {input.readTwo} -S {params.unsortedSam} &&     samtools sort {params.unsortedSam} -@ {threads} -O bam -o {output.sortedBam} &&         samtools index {output.sortedBam} &&             rm {params.unsortedSam}
+if [ {params.useQC} == True ]
+then
+    fastp -i {input.readOne} -o {output.AfterQC_1} -I {input.readTwo} -O {output.AfterQC_2} -w {threads} -h {params.qcReport} --detect_adapter_for_pe
+else
+    cp {input.readOne} {output.AfterQC_1} && cp {input.readTwo} {output.AfterQC_2}
+fi
+        """
+
+rule mappingUsingHisat:
+    input:
+        AfterQC_1 = f"{config['resultDir']}step0_fastpQC/{{sample}}_AfterQC_1.fastq.gz",
+        AfterQC_2 = f"{config['resultDir']}step0_fastpQC/{{sample}}_AfterQC_2.fastq.gz"
+    output:
+        sortedBam = f"{config['resultDir']}step1_mappingUsingHisat/{{sample}}_sortedBam.bam"
+    params:
+        unsortedSam = f"{config['resultDir']}step1_mappingUsingHisat/{{sample}}_unsortedSam.sam",
+        genome = config['genome'],
+        gpu = "0"
+
+    threads:16
+    shell:
+        """
+cd {pipelineDir}
+hisat2 -x {params.genome} -p {threads} --min-intronlen 20 --max-intronlen 10000 --dta --time -1 {input.AfterQC_1} -2 {input.AfterQC_2} -S {params.unsortedSam} &&     samtools sort {params.unsortedSam} -@ {threads} -O bam -o {output.sortedBam} &&         samtools index {output.sortedBam} &&             rm {params.unsortedSam}
         """
 
 rule deDuplicates:
@@ -30,7 +56,9 @@ rule deDuplicates:
     output:
         sortedDedupBam = f"{config['resultDir']}step2_deDuplicates/{{sample}}_sortedDedupBam.bam"
     params:
-        sortedDedupMat = f"{config['resultDir']}step2_deDuplicates/{{sample}}_sortedDedupMat.txt"
+        sortedDedupMat = f"{config['resultDir']}step2_deDuplicates/{{sample}}_sortedDedupMat.txt",
+        gpu = "0"
+
     threads:8
     shell:
         """
@@ -45,6 +73,8 @@ rule runStringTie:
     output:
         geneStringtieMerge = f"{config['resultDir']}step3_runStringTie/{{sample}}/geneStringtieMerge.gtf",
         geneStringtieAbund = f"{config['resultDir']}step3_runStringTie/{{sample}}/geneStringtieAbund.tsv"
+    params:
+        gpu = "0"
 
     threads:16
     shell:
@@ -61,7 +91,9 @@ rule extractRnaRpkm:
         rpkmGene = f"{config['resultDir']}step4_extractRnaRpkm/{{sample}}_rpkmGene.tsv"
     params:
         step4Label = '{sample}',
-        step3ResultDir = f"{config['resultDir']}step3_runStringTie/"
+        step3ResultDir = f"{config['resultDir']}step3_runStringTie/",
+        gpu = "0"
+
     threads:1
     shell:
         """
@@ -76,7 +108,9 @@ rule extractGeneCounts:
         allSampleGeneCounts = f"{config['resultDir']}step5_extractGeneCounts/allSampleGeneCounts.csv",
         allSampleTransCounts = f"{config['resultDir']}step5_extractGeneCounts/allSampleTransCounts.csv"
     params:
-        step3ResultDir = f"{config['resultDir']}step3_runStringTie/"
+        step3ResultDir = f"{config['resultDir']}step3_runStringTie/",
+        gpu = "0"
+
     threads:1
     shell:
         """
@@ -90,6 +124,8 @@ rule calIrRatio:
         repreTrans = config['repreTrans']
     output:
         irRatio = f"{config['resultDir']}step6_calIrRatio/{{sample}}_irRatio.tsv"
+    params:
+        gpu = "0"
 
     threads:1
     shell:
@@ -104,6 +140,8 @@ rule gatherIrRpkm:
         rpkmGene = f"{config['resultDir']}step4_extractRnaRpkm/{{sample}}_rpkmGene.tsv"
     output:
         gatherIrRpkm = f"{config['resultDir']}step7_gatherIrRpkm/{{sample}}_gatherIrRpkm.tsv"
+    params:
+        gpu = "0"
 
     threads:1
     shell:

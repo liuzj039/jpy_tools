@@ -1,5 +1,7 @@
 resultDir:
   '/public/home/liuzj/scripts/pipeline/analyzeNGSData/results/'
+useQC:
+  True
 pipelineDir:
   '/public/home/liuzj/scripts/pipeline/analyzeNGSData/scripts/'
 rawDataPath:

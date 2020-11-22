@@ -5,6 +5,8 @@ import collections
 import gzip
 import os
 from collections import Counter
+import pandas as pd
+
 
 def get_header(filein):
     header = ""

@@ -1,8 +1,8 @@
 pipelineDir:
-  '/public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/scripts/'
+  './scripts/'
 resultDir:
-  '/public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/results/'
+  './results/'
 inputFastqDir:
-  '/public/home/liuzj/scripts/pipeline/extractUsefulBaseForCellranger/rawData/inputFastq/'
+  '/rawData/inputFastq/'
 cellRangerRef:
-  '/public/home/liuzj/projects/singleCell/00_data/00_endospermUseData/tair10'
+  '/tair10'

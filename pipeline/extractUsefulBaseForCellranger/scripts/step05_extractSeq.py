@@ -1,7 +1,7 @@
 '''
 Date: 2020-08-12 11:28:09
 LastEditors: Liuzj
-LastEditTime: 2020-09-16 10:12:40
+LastEditTime: 2020-10-08 12:50:57
 Description: file content
 Author: liuzj
 FilePath: /liuzj/scripts/pipeline/extractUsefulBaseForCellranger/scripts/step05_extractSeq.py
@@ -18,7 +18,7 @@ from loguru import logger
 from concurrent.futures import ProcessPoolExecutor as multiP
 from jpy_tools.ReadProcess import writeFastq, readFastq, getSubFastq
 
-def processOneFastq(singleR1Path, singleR2Path, lmdbPath, outDir):
+def processOneFastq(singleR1Path, singleR2Path, lmdbPath, outDir, cutoff):
     singleR1File, singleR2File = readFastq(singleR1Path), readFastq(singleR2Path)
     singleR1OutFile, singleR2OutFile = outDir + singleR1Path.split('/')[-1], outDir + singleR2Path.split('/')[-1]
     with lmdb.open(lmdbPath, map_size=1099511627776) as mdbDataBase, open(singleR1OutFile, 'w') as fh1, open(singleR2OutFile, 'w') as fh2:
@@ -28,7 +28,7 @@ def processOneFastq(singleR1Path, singleR2Path, lmdbPath, outDir):
             if singleUsefulRegion:
                 singleUsefulRegion = np.frombuffer(singleUsefulRegion, dtype=int).reshape(-1, 2)
                 singleRead2Corrected=getSubFastq(singleRead2, singleUsefulRegion)
-                if len(singleRead2Corrected.seq) >= 75 :
+                if len(singleRead2Corrected.seq) >= cutoff :
                     writeFastq(singleRead1, fh1)
                     writeFastq(singleRead2Corrected, fh2)
 
@@ -39,7 +39,8 @@ def processOneFastq(singleR1Path, singleR2Path, lmdbPath, outDir):
 @click.option('-l', 'lmdbPath', help = 'lmdbPath')
 @click.option('-t', 'threads', type=int)
 @click.option('-s', 'splitInput', is_flag=True)
-def main(fastqDir, outDir, lmdbPath, threads, splitInput):
+@click.option('-c', 'cutoff', type=int, default=75)
+def main(fastqDir, outDir, lmdbPath, threads, splitInput, cutoff):
     try:
         os.mkdir(outDir)
     except:
@@ -55,12 +56,14 @@ def main(fastqDir, outDir, lmdbPath, threads, splitInput):
         except:
             logger.warning(f'{fastqTemp} existed!!')
 
-        allR1Path = glob.glob(f'{fastqDir}*R1*')
+        allR1Path = glob.glob(f'{fastqDir}*_R1*')
         allR2Path = [x.replace('R1', 'R2') for x in allR1Path]
         allSplitedPath = [fastqTemp + re.search(r'(?<=/)\w+?(?=_R1)', x)[0] + '/' for x in allR1Path]
 
         if allR1Path[0].endswith('.gz'):
             formatGz = True
+        else:
+            formatGz = False
 
         splitedNum = threads // len(allSplitedPath)
         
@@ -110,7 +113,7 @@ def main(fastqDir, outDir, lmdbPath, threads, splitInput):
     allSubProcess = []
     with multiP(threads) as mP:
         for singleR1Path, singleR2Path in zip(allR1Path, allR2Path):
-            allSubProcess.append(mP.submit(processOneFastq, singleR1Path, singleR2Path, lmdbPath, outDir))
+            allSubProcess.append(mP.submit(processOneFastq, singleR1Path, singleR2Path, lmdbPath, outDir, cutoff))
     [x.result() for x in allSubProcess]
     
     if not splitInput:

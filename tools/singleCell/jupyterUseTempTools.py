@@ -21,6 +21,24 @@ def mkdir(dirPath):
         logger.warning(f'{dirPath} existed!!')
 
         
+def getAdataColor(adata, label):
+    """
+    获得adata中label的颜色
+    """
+    return {x: y for x, y in zip(adata.obs[label].cat.categories, adata.uns[f"{label}_colors"])}
+
+
+def setAdataColor(adata, label, colorDt, hex=True):
+    """
+    设置adata中label的颜色
+    """
+    if not hex:
+        from matplotlib.colors import to_hex
+        colorDt = {x:hex(y) for x,y in colorDt.items()}
+    adata.uns[f'{label}_colors'] = [colorDt[x] for x in adata.obs[label].cat.categories]
+    return adata
+
+
 def plotCellScatter(adata):
     """
     绘制anndata基本情况
@@ -177,7 +195,7 @@ def __shuffleLabel(adata, label, i):
     shuffleAd.obs[label] = adata.obs[label].sample(frac=1, random_state=i).values
     #     print(shuffleAd.obs.iloc[0])
     shuffleClusterDf = (
-        mergeAdataExpress(shuffleAd).to_df().reset_index().assign(label=i)
+        mergeAdataExpress(shuffleAd, label).to_df().reset_index().assign(label=i)
     )
 
     return shuffleClusterDf
@@ -217,7 +235,7 @@ def getEnrichedScore(adata, label, geneLs, threads=12, times=100):
 
     allShuffleClusterExpressLs = [x.result() for x in allShuffleClusterExpressLs]
     originalClusterDf = (
-        mergeAdataExpress(adata).to_df().reset_index().assign(label=0)
+        mergeAdataExpress(adata, label).to_df().reset_index().assign(label=0)
     )
     allShuffleClusterExpressLs.append(originalClusterDf)
     allShuffleClusterExpressDf = (
@@ -229,8 +247,8 @@ def getEnrichedScore(adata, label, geneLs, threads=12, times=100):
         .apply(lambda x: x.set_index(label, append=True).apply(zscore))
         .reset_index(level=0, drop=True)
     )
-
-    clusterZscoreDf = allShuffleClusterZscoreDf.query("label == 0").reset_index(
+#     import pdb;pdb.set_trace()
+    clusterZscoreDf = allShuffleClusterZscoreDf.query(f"label == 0").reset_index(
         level=0, drop=True
     ).fillna(0)
     return clusterZscoreDf
@@ -514,3 +532,140 @@ def cellTypeAnnoByEnrichedScore(adata, label, markerGeneDt, threads=12, times=10
     clusterEnrichedScoreDf = getEnrichedScore(adata, label, markerGeneLs,threads, times)
     clusterTypeAvgEnrichedScoreDf = calculateGeneAverageEx(clusterEnrichedScoreDf, markerGeneDt)
     return clusterTypeAvgEnrichedScoreDf
+
+
+def cellTypeAnnoByCellScore(adata, markerGenesDt, clusterLabel):
+    """
+    利用cellscore计算每个细胞的type
+    
+    adata:
+        anndata
+    markerGenesDt:
+        {type:[genes]}
+    clusterLabel:
+        cluster label
+        
+    return:
+        cellScoreByGenesDf:
+            每个细胞的cellScore
+        clusterTypeRatio:
+            每个cluster的type比例
+    """
+    adata = adata.copy()
+    for name, genes in markerGenesDt.items():
+        sc.tl.score_genes(adata, genes, score_name=name, use_raw=True)
+
+    cellScoreByGenesDf = adata.obs[markerGenesDt.keys()]
+    cellScoreByGenesDf['maxType'], cellScoreByGenesDf['maxScore'] = cellScoreByGenesDf.idxmax(1), cellScoreByGenesDf.max(1)
+    cellScoreByGenesDf['typeName'] = cellScoreByGenesDf['maxType']
+    cellScoreByGenesDf.loc[cellScoreByGenesDf.loc[:, 'maxScore'] < 0, 'typeName'] = 'Unknown'
+
+    adata.obs['typeName'] = cellScoreByGenesDf['typeName']
+    
+    clusterTypeRatio = adata.obs.groupby(clusterLabel)['typeName'].apply(
+        lambda x: x.value_counts() / len(x)).unstack()
+    return cellScoreByGenesDf, clusterTypeRatio
+
+
+#######
+#绘图
+#######
+
+def plotLabelPercentageInCluster(adata, groupby, label, labelColor):
+    """
+    根据label在adata.obs中groupby的占比绘图
+    
+    groupby:
+        表明cluster。需要存在于adata.obs
+    label:
+        展示的占比。需要存在于adata.obs
+    labelColor:
+        label的颜色
+    """
+    groupbyWithLabelCountsDf = adata.obs.groupby(groupby)[label].apply(lambda x:x.value_counts()).unstack()
+    groupbyWithLabelCounts_CumsumPercDf = groupbyWithLabelCountsDf.pipe(lambda x: x.cumsum(1).div(x.sum(1), 0) * 100)
+    legendHandleLs = []
+    legendLabelLs = []
+    for singleLabel in groupbyWithLabelCounts_CumsumPercDf.columns[::-1]:
+        ax = sns.barplot(
+            x=groupbyWithLabelCounts_CumsumPercDf.index,
+            y=groupbyWithLabelCounts_CumsumPercDf[singleLabel],
+            color=labelColor[singleLabel],
+        )
+        legendHandleLs.append(
+            plt.Rectangle((0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none")
+        )
+        legendLabelLs.append(singleLabel)
+    legendHandleLs, legendLabelLs = legendHandleLs[::-1], legendLabelLs[::-1]
+    plt.legend(legendHandleLs, legendLabelLs, bbox_to_anchor=[1, 1], frameon=False)
+    plt.xlabel(groupby.capitalize())
+    plt.ylabel(f'Percentage')
+    return ax
+
+
+##########
+##整合数据
+##########
+def combineAdataUseScanorama(adataLs, batchKey, batchCateLs, subSample=False, subSampleCounts = 0):
+    """
+    利用Scanorama整合不同adata
+    adataLs:
+        [adata1, adata2]
+    batchKey:
+        添加的label
+    batchCateLs:
+        每个batch的名称 需要和adataLs一致
+    subSampleCounts:
+        下采样的样本数。
+    return:
+        整合后的adata
+    """
+    import scanorama
+    
+    adataLs = [x.copy() for x in adataLs]
+    if subSample:
+        sampleSize = min([x.shape[0] for x in adataLs])
+        if subSampleCounts:
+            sampleSize = min(sampleSize, subSampleCounts)
+        logger.info(f"sample size: {sampleSize}")
+        [sc.pp.subsample(x, n_obs=sampleSize) for x in adataLs]
+    
+    combineAdata = adataLs[0].concatenate(adataLs[1:], batch_key=batchKey, batch_categories=batchCateLs)
+
+    sc.pp.normalize_per_cell(combineAdata, counts_per_cell_after=1e4)
+    sc.pp.log1p(combineAdata)
+
+    sc.pp.highly_variable_genes(combineAdata, min_mean=0.0125, max_mean=3, min_disp=1.5, batch_key=batchKey)
+    sc.pl.highly_variable_genes(combineAdata)
+
+    varGenes = combineAdata.var.highly_variable
+
+    varGenes = varGenes[varGenes].keys()
+
+    varGenes = list(varGenes)
+
+    alldata = {}
+
+    for oneBatchName in combineAdata.obs[batchKey].unique():
+        alldata[oneBatchName] = combineAdata[combineAdata.obs[batchKey] == oneBatchName, varGenes]
+
+    combineAdataLs = list(alldata.values())
+    
+    print(f'↓↓↓↓↓↓↓↓↓{batchCateLs}↓↓↓↓↓↓↓↓')
+    combineScanoramaLs = scanorama.integrate_scanpy(combineAdataLs, dimred=50, verbose=2)
+    print(f'↑↑↑↑↑↑↑↑↑{batchCateLs}↑↑↑↑↑↑↑↑')
+
+    combineScanoramaAr = np.concatenate(combineScanoramaLs)
+
+    combineAdata.obsm["SC"] = combineScanoramaAr
+
+    combineAdata.raw = combineAdata
+    combineAdata = combineAdata[:, varGenes]
+    sc.pp.scale(combineAdata, max_value=10)
+    sc.tl.pca(combineAdata, svd_solver="arpack", n_comps=50)
+    sc.pl.pca(combineAdata)
+
+    sc.pp.neighbors(combineAdata, n_pcs =50, use_rep = "SC")
+    sc.tl.umap(combineAdata)
+
+    return combineAdata
