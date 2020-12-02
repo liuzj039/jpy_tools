@@ -1,0 +1,58 @@
+configfile: "/public/home/liuzj/scripts/pipeline/polyACallerJb/snakemake/config.yaml"
+pipelineDir = config['pipelineDir']
+
+
+rule all:
+    input:
+        polyATailResult = f"{config['resultDir']}step3_polyacaller/polyATailResult.tsv"
+
+rule mappingGenome:
+    input:
+        nanoporeFa = config['nanoporeFa']
+    output:
+        mappingBam = f"{config['resultDir']}step1_mappingGenome/mappingBam.bam"
+    params:
+        genomeFa = config['genomeFa'],
+        gpu = "0"
+
+    threads:56
+    shell:
+        """
+cd {pipelineDir}
+minimap2 -t {threads} -ax splice --secondary=no -G 12000 {params.genomeFa} {input.nanoporeFa} | samtools sort -@ {threads} -o {output.mappingBam} -
+samtools index -@ {threads} {output.mappingBam}
+        """
+
+rule findAdapter:
+    input:
+        nanoporeFa = config['nanoporeFa'],
+        mappingBam = f"{config['resultDir']}step1_mappingGenome/mappingBam.bam"
+    output:
+        adapterResult = f"{config['resultDir']}step2_findAdapter/adapterResult.tsv"
+    params:
+        gpu = "0"
+
+    threads:56
+    shell:
+        """
+cd {pipelineDir}
+python adapterFinder.py --inbam {input.mappingBam} --inseq {input.nanoporeFa} --out {output.adapterResult} --threads {threads}
+        """
+
+rule polyacaller:
+    input:
+        adapterResult = f"{config['resultDir']}step2_findAdapter/adapterResult.tsv",
+        nanoporeSum = config['nanoporeSum'],
+        nanoporeWorkSpace = config['nanoporeWorkSpace']
+    output:
+        polyATailResult = f"{config['resultDir']}step3_polyacaller/polyATailResult.tsv"
+    params:
+        gpu = "0"
+
+    threads:56
+    shell:
+        """
+cd {pipelineDir}
+python PolyACaller.py --inadapter {input.adapterResult} --summary {input.nanoporeSum}  --fast5dir {input.nanoporeWorkSpace} --out {output.polyATailResult} --threads {threads}
+        """
+

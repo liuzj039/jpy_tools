@@ -1,0 +1,12 @@
+pipelineDir:
+  '/public/home/liuzj/scripts/pipeline/polyACallerJb/script/'
+resultDir:
+  '/public/home/liuzj/scripts/pipeline/polyACallerJb/results/'
+nanoporeFa:
+  '/public/home/liuzj/scripts/pipeline/polyACallerJb/data/nanopore.fa'
+nanoporeSum:
+  '/public/home/liuzj/scripts/pipeline/polyACallerJb/data/nanoporeSeqSummary.txt'
+nanoporeWorkSpace:
+  '/public/home/liuzj/scripts/pipeline/polyACallerJb/data/workspace/'
+genomeFa:
+  '/public/home/liuzj/data/Araport11/genome.fa'
