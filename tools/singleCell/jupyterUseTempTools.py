@@ -265,6 +265,101 @@ def getEnrichedScore(adata, label, geneLs, threads=12, times=100):
     ).fillna(0)
     return clusterZscoreDf
 
+#####解析snuupy结果####
+
+def getSpliceInfoOnIntronLevel(irInfoPath, useIntronPath=None):
+    """
+    从intron水平获得剪接情况
+    irInfoPath:
+        snuupy getSpliceInfo的结果
+    useIntronPath:
+        使用的intron列表，需要表头'intron_id'
+    
+    return:
+        adata:
+            X: unsplice + splice
+            layer[unspliced]
+    """
+    irInfoDf = pd.read_table(irInfoPath)
+    intronCountMtxDt = {}
+    intronRetenMtxDt = {}
+    #输入 0base
+    #输出 1base
+    allLinesCounts = len(irInfoDf)
+    for i,line in enumerate(irInfoDf.itertuples()):
+        barcode = line.Name.split('_')[0]
+        lineCountMtxDt = intronCountMtxDt.get(barcode, {})
+        lineRetenMtxDt = intronRetenMtxDt.get(barcode, {})
+
+        exonOverlapInfo = [int(x) for x in line.ExonOverlapInfo.split(',')]
+        minIntron = min(exonOverlapInfo)
+        maxIntron = max(exonOverlapInfo)
+        intronCov = list(range(minIntron, maxIntron))
+
+        if pd.isna(line.IntronOverlapInfo):
+            intronOverlapInfo = []
+        else:
+            intronOverlapInfo = [int(x) for x in line.IntronOverlapInfo.split(',')]
+
+        intronCov.extend(intronOverlapInfo)
+        intronCov = set(intronCov)
+
+        for intronCovNum in intronCov:
+            lineCountMtxDt[
+                f'{line.geneId}_intron_{intronCovNum+1}'] = lineCountMtxDt.get(
+                    f'{line.geneId}_intron_{intronCovNum+1}', 0) + 1
+        for intronRentNum in intronOverlapInfo:
+            lineRetenMtxDt[
+                f'{line.geneId}_intron_{intronRentNum+1}'] = lineRetenMtxDt.get(
+                    f'{line.geneId}_intron_{intronRentNum+1}', 0) + 1
+
+        intronCountMtxDt[barcode] = lineCountMtxDt
+        intronRetenMtxDt[barcode] = lineRetenMtxDt
+        if i % 1e5 == 0:
+            logger.info(f"{i}/{allLinesCounts}")
+    intronCountMtxDf = pd.DataFrame.from_dict(intronCountMtxDt, 'index')
+    intronRetenMtxDf = pd.DataFrame.from_dict(intronRetenMtxDt, 'index')
+    if useIntronPath:
+        useIntronDf = pd.read_table(useIntronPath)
+        useIntronLs = list(useIntronDf['intron_id'].str.split('.').str[0] + '_intron_' + useIntronDf['intron_id'].str.split('intron').str[1])
+        intronRetenMtxDf = intronRetenMtxDf.loc[:, intronRetenMtxDf.columns.isin(useIntronLs)]
+        intronCountMtxDf = intronCountMtxDf.loc[:, intronCountMtxDf.columns.isin(useIntronLs)]
+    intronCountMtxDf.index = intronCountMtxDf.index  + '-1'
+    intronRetenMtxDf.index = intronRetenMtxDf.index  + '-1'
+    intronRetenMtxDf = intronRetenMtxDf.fillna(0)
+    intronCountMtxDf = intronCountMtxDf.fillna(0)
+    intronCountMtxAd = creatAnndataFromDf(intronCountMtxDf)
+    intronRetenMtxAd = creatAnndataFromDf(intronRetenMtxDf)
+    
+    useIntronLs = list(intronRetenMtxAd.var.index | intronCountMtxAd.var.index)
+    useCellLs = list(intronRetenMtxAd.obs.index & intronCountMtxAd.obs.index)
+    
+    intronRetenMtxDf = intronRetenMtxAd.to_df().reindex(useIntronLs, axis=1).reindex(useCellLs).fillna(0)
+    intronCountMtxDf = intronCountMtxAd.to_df().reindex(useIntronLs, axis=1).reindex(useCellLs).fillna(0)
+    
+    return creatAnndataFromDf(intronCountMtxDf, unspliced=intronRetenMtxDf)
+
+
+def getSpliceInfoFromSnuupyAd(nanoporeAd):
+    """
+    用于从snuupy crMode产生的NanoporeMtx中提取产生splice和unsplice的read
+    
+    return:
+        adata:
+            X: unsplice + splice
+            layer[unspliced, spliced]
+    """
+    nanoporeCountAd = nanoporeAd[:,~nanoporeAd.var.index.str.contains('_')]
+    unsplicedAd = nanoporeAd[:,nanoporeAd.var.index.str.contains('False_fullySpliced')]
+    unsplicedAd.var.index = unsplicedAd.var.index.str.split('_').str[0]
+    splicedAd = nanoporeAd[:,nanoporeAd.var.index.str.contains('True_fullySpliced')]
+    splicedAd.var.index = splicedAd.var.index.str.split('_').str[0]
+    useGeneLs = sorted(list(set(splicedAd.var.index) | set(unsplicedAd.var.index)))
+    unsplicedDf = unsplicedAd.to_df().reindex(useGeneLs, axis=1).fillna(0)
+    splicedDf = splicedAd.to_df().reindex(useGeneLs, axis=1).fillna(0)
+    allSpliceDf = splicedDf + unsplicedDf
+    return creatAnndataFromDf(allSpliceDf, spliced = splicedDf, unspliced = unsplicedDf)
+    
 #################
 ## 细胞注释 
 #################
