@@ -11,7 +11,6 @@ from concurrent.futures import ProcessPoolExecutor as Mtp
 import sh
 import h5py
 
-
 #################
 ##一些简单的工具###
 #################
@@ -24,7 +23,20 @@ def mkdir(dirPath):
     except:
         logger.warning(f'{dirPath} existed!!')
 
-        
+
+def normalizeMultiAd(multiAd, removeAmbiguous=True):
+    """
+    对二代三代数据分开normalize, 最终获得的每个细胞有3e4的reads
+    """
+    multiCountAd = multiAd[:, ~multiAd.var.index.str.contains('_')]
+    multiOtherAd = multiAd[:, multiAd.var.index.str.contains('_')]
+    sc.pp.normalize_total(multiCountAd, target_sum=1e4)
+    sc.pp.normalize_total(multiOtherAd, target_sum=2e4)
+    multiAd = sc.concat([multiCountAd, multiOtherAd], axis=1)
+    if removeAmbiguous:
+        multiAd = multiAd[:,~(multiAd.var.index.str.contains('Ambiguous') | multiAd.var.index.str.contains('_N_'))]
+    return multiAd
+
 def getAdataColor(adata, label):
     """
     获得adata中label的颜色
@@ -36,10 +48,23 @@ def setAdataColor(adata, label, colorDt, hex=True):
     """
     设置adata中label的颜色
     """
+    adata.obs[label] = adata.obs[label].astype('category')
     if not hex:
         from matplotlib.colors import to_hex
         colorDt = {x:hex(y) for x,y in colorDt.items()}
     adata.uns[f'{label}_colors'] = [colorDt[x] for x in adata.obs[label].cat.categories]
+    return adata
+
+
+def onlyKeepAdCount(adata):
+    """
+    去除adata和adata.raw中含有`_`的index
+    """
+    adata = adata.copy()
+    adata = adata[:, ~adata.var.index.str.contains('_')]
+    adataRaw = adata.raw.to_adata()
+    adataRaw = adataRaw[:, ~adataRaw.var.index.str.contains('_')]
+    adata.raw = adataRaw
     return adata
 
 
@@ -80,7 +105,6 @@ def creatAnndataFromDf(df, **layerInfoDt):
         
     return transformedAd
 
-
 def mergeAdataExpress(adata, groupby='louvain', useRaw=True, logTransformed=True, method='mean'):
     """
     通过adata.obs中的<groupby>对表达量合并
@@ -103,6 +127,29 @@ def mergeAdataExpress(adata, groupby='louvain', useRaw=True, logTransformed=True
     groupbyExpressAd = __creatAnndataFromDf(groupbyExpressDf)
     
     return groupbyExpressAd
+
+
+def mergeAdata(adata, groupby, mergeLayer=[], method='sum'):
+    """
+    通过adata.obs中的<groupby>合并X和layer
+    """
+    adataXDf = adata.to_df()
+    groupbyXDf = adataXDf.join(adata.obs[groupby]).groupby(groupby).agg(method)
+    
+    adataLayerDfDt = {}
+    for singleLayer in mergeLayer:
+        adataLayerDfDt[singleLayer] = adata.to_df(singleLayer).join(adata.obs[groupby]).groupby(groupby).agg(method)
+    return creatAnndataFromDf(groupbyXDf, **adataLayerDfDt)
+
+def getEnrichedGensDf(adata, name, useUns='rank_genes_groups_filtered'):
+    """
+    从adata的uns中获得富集基因
+    """
+    adataGeneInfoDt = adata.uns[useUns]
+    useAttr = ['names', 'scores', 'pvals', 'pvals_adj', 'logfoldchanges']
+    nameUseInfoLs = [adataGeneInfoDt[x][name] for x in useAttr]
+    nameEnrichedDf = pd.DataFrame(nameUseInfoLs, index=useAttr).T.dropna()
+    return nameEnrichedDf.query("pvals_adj <= 0.05")
 
 
 def calculateExpressionRatio(adata, clusterby):
@@ -265,7 +312,7 @@ def getEnrichedScore(adata, label, geneLs, threads=12, times=100):
     ).fillna(0)
     return clusterZscoreDf
 
-#####解析snuupy结果####
+#####解析IR结果####
 
 def getSpliceInfoOnIntronLevel(irInfoPath, useIntronPath=None):
     """
@@ -278,7 +325,7 @@ def getSpliceInfoOnIntronLevel(irInfoPath, useIntronPath=None):
     return:
         adata:
             X: unsplice + splice
-            layer[unspliced]
+            layer[unspliced, spliced]
     """
     irInfoDf = pd.read_table(irInfoPath)
     intronCountMtxDt = {}
@@ -332,12 +379,12 @@ def getSpliceInfoOnIntronLevel(irInfoPath, useIntronPath=None):
     intronRetenMtxAd = creatAnndataFromDf(intronRetenMtxDf)
     
     useIntronLs = list(intronRetenMtxAd.var.index | intronCountMtxAd.var.index)
-    useCellLs = list(intronRetenMtxAd.obs.index & intronCountMtxAd.obs.index)
+    useCellLs = list(intronRetenMtxAd.obs.index | intronCountMtxAd.obs.index)
     
     intronRetenMtxDf = intronRetenMtxAd.to_df().reindex(useIntronLs, axis=1).reindex(useCellLs).fillna(0)
     intronCountMtxDf = intronCountMtxAd.to_df().reindex(useIntronLs, axis=1).reindex(useCellLs).fillna(0)
     
-    return creatAnndataFromDf(intronCountMtxDf, unspliced=intronRetenMtxDf)
+    return creatAnndataFromDf(intronCountMtxDf, unspliced=intronRetenMtxDf, spliced=intronCountMtxDf-intronRetenMtxDf)
 
 
 def getSpliceInfoFromSnuupyAd(nanoporeAd):
@@ -359,7 +406,83 @@ def getSpliceInfoFromSnuupyAd(nanoporeAd):
     splicedDf = splicedAd.to_df().reindex(useGeneLs, axis=1).fillna(0)
     allSpliceDf = splicedDf + unsplicedDf
     return creatAnndataFromDf(allSpliceDf, spliced = splicedDf, unspliced = unsplicedDf)
-    
+
+
+def getDiffSplicedIntron(
+    snSpliceIntronInfoAd,
+    groupby,
+    minCount,
+    minDiff=0.1,
+    threads=24,
+    winflatPath="/public/home/jiajb/soft/IRFinder/IRFinder-1.2.5/bin/util/winflat",
+):
+    from pandarallel import pandarallel
+    from statsmodels.stats import multitest
+    import os
+    pandarallel.initialize(nb_workers=threads)
+
+    def calcuPvalue(line):
+        nonlocal winflatPath
+        xUnsplice = line.iloc[2]
+        yUnsplice = line.iloc[3]
+        xTotal = line.iloc[0]
+        yTotal = line.iloc[1]
+        resultStr = (
+            os.popen(
+                f"{winflatPath} -xvalue {xUnsplice} -yvalue {yUnsplice} -diff {xTotal} {yTotal}"
+            )
+            .read()
+            .strip()
+        )
+        if not resultStr:
+            return 1.0
+        resultFloat = [
+            float(x)
+            for x in [x.strip().split("=")[-1].strip() for x in resultStr.split("\n")]
+        ][1]
+        
+        return resultFloat
+
+    allClusterDiffDt = {}
+    for singleCluster in snSpliceIntronInfoAd.obs[groupby].unique():
+        snSpliceIntronInfoAd.obs = snSpliceIntronInfoAd.obs.assign(
+            cate=lambda df: df[groupby].map(
+                lambda x: {singleCluster: singleCluster}.get(x, f"non-{singleCluster}")
+            )
+        )
+        clusterSpliceIntronInfoAd = mergeAdata(
+            snSpliceIntronInfoAd, 'cate', ["unspliced", "spliced"]
+        )
+        clusterSpliceIntronInfoAd = clusterSpliceIntronInfoAd[
+            :, clusterSpliceIntronInfoAd.to_df().min(0) >= minCount
+        ]
+        
+        clusterSpliceIntronInfoDf = pd.concat(
+            [
+                clusterSpliceIntronInfoAd.to_df("unspliced").T,
+                clusterSpliceIntronInfoAd.to_df().T,
+            ],
+            axis=1,
+        )
+        clusterSpliceIntronInfoDf.columns = [
+            "unspliced",
+            "non-unspliced",
+            "total",
+            "non-total",
+        ]
+        
+        clusterSpliceIntronInfoDf['pvalue'] = clusterSpliceIntronInfoDf.parallel_apply(calcuPvalue, axis=1)
+        clusterSpliceIntronInfoDf['fdr'] = multitest.fdrcorrection(clusterSpliceIntronInfoDf['pvalue'], 0.05)[1]
+        
+        clusterSpliceIntronInfoDf = clusterSpliceIntronInfoDf.assign(
+            diffRatio=lambda df: df["unspliced"] / df["total"]
+            - df["non-unspliced"] / df["non-total"]
+        )
+        
+        clusterSpliceIntronInfoDf = clusterSpliceIntronInfoDf.eval(f"significantDiff = (fdr <= 0.05) & (diffRatio >= {minDiff})")
+        allClusterDiffDt[singleCluster] = clusterSpliceIntronInfoDf
+        logger.info(f"{singleCluster} processed; {len(clusterSpliceIntronInfoDf)} input; {clusterSpliceIntronInfoDf['significantDiff'].sum()} output")
+    return allClusterDiffDt
 #################
 ## 细胞注释 
 #################
@@ -635,6 +758,12 @@ def cellTypeAnnoByEnrichedScore(adata, label, markerGeneDt, threads=12, times=10
     times:
         重排的次数
     """
+    adata = adata.copy()
+    adata = adata[:, ~adata.var.index.str.contains('_')]
+    adataRaw = adata.raw.to_adata()
+    adataRaw = adataRaw[:, ~adataRaw.var.index.str.contains('_')]
+    adata.raw = adataRaw
+    
     markerGeneLs = list(set([y for x in markerGeneDt.values() for y in x]))
     clusterEnrichedScoreDf = getEnrichedScore(adata, label, markerGeneLs,threads, times)
     clusterTypeAvgEnrichedScoreDf = calculateGeneAverageEx(clusterEnrichedScoreDf, markerGeneDt)
@@ -659,6 +788,11 @@ def cellTypeAnnoByCellScore(adata, markerGenesDt, clusterLabel):
             每个cluster的type比例
     """
     adata = adata.copy()
+    adata = adata[:, ~adata.var.index.str.contains('_')]
+    adataRaw = adata.raw.to_adata()
+    adataRaw = adataRaw[:, ~adataRaw.var.index.str.contains('_')]
+    adata.raw = adataRaw
+    
     for name, genes in markerGenesDt.items():
         sc.tl.score_genes(adata, genes, score_name=name, use_raw=True)
 
@@ -759,22 +893,21 @@ def combineAdataUseScanorama(adataLs, batchKey, batchCateLs, subSample=False, su
     combineAdataLs = list(alldata.values())
     
     print(f'↓↓↓↓↓↓↓↓↓{batchCateLs}↓↓↓↓↓↓↓↓')
-    combineScanoramaLs = scanorama.integrate_scanpy(combineAdataLs, dimred=50, verbose=2)
+    combineScanoramaLs = scanorama.correct_scanpy(combineAdataLs, return_dimred=True)
     print(f'↑↑↑↑↑↑↑↑↑{batchCateLs}↑↑↑↑↑↑↑↑')
+    combineAdata = sc.concat(combineScanoramaLs)
+#     import pdb; pdb.set_trace()
+#     combineScanoramaAr = np.concatenate(combineScanoramaLs)
 
-    combineScanoramaAr = np.concatenate(combineScanoramaLs)
+#     combineAdata.obsm["SC"] = combineScanoramaAr
 
-    combineAdata.obsm["SC"] = combineScanoramaAr
-
-    combineAdata.raw = combineAdata
-    combineAdata = combineAdata[:, varGenes]
-    sc.pp.scale(combineAdata, max_value=10)
-    sc.tl.pca(combineAdata, svd_solver="arpack", n_comps=50)
-    sc.pl.pca(combineAdata)
-
-    sc.pp.neighbors(combineAdata, n_pcs =50, use_rep = "SC")
+#     combineAdata.raw = combineAdata
+#     combineAdata = combineAdata[:, varGenes]
+#     sc.pp.scale(combineAdata, max_value=10)
+#     sc.tl.pca(combineAdata, svd_solver="arpack", n_comps=50)
+#     sc.pl.pca(combineAdata)
+    sc.pp.neighbors(combineAdata, n_pcs =50, use_rep = "X_scanorama")
     sc.tl.umap(combineAdata)
-
     return combineAdata
 
 
