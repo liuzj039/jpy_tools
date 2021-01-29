@@ -178,9 +178,9 @@ def main(contents, cluster, inline, snakemake, time, queue, name, mem, threads,
         mem = int(threads * 1.5) + 1
         mem = f'{mem}gb'
 
-    today = datetime.date.today().strftime('%y%m%d')
+    today = datetime.date.today().strftime('%m%d')
     randomId = random.randint(10000, 100000)
-    name = f'{today}_{name}_{randomId}'
+    name = f'{today}:{name}_{randomId}'
 
     scriptContent = getScriptContent(snakemake, inline, contents, name,
                                      cluster)
@@ -212,7 +212,7 @@ def main(contents, cluster, inline, snakemake, time, queue, name, mem, threads,
     print(f'jsub Id: {jobId}')
 
     if snakemake:
-        tm.sleep(random.randint(0, 3))
+        tm.sleep(random.randint(0, 1))
 
 
 main()
