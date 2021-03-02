@@ -1,15 +1,25 @@
 '''
 @Date: 2020-06-05 22:08:50
-@LastEditors: liuzj
-@LastEditTime: 2020-07-27 20:38:58
+LastEditors: liuzj
+LastEditTime: 2021-01-29 13:20:18
 @Description: 无法归类的工具
 @Author: liuzj
-@FilePath: /liuzj/softwares/python_scripts/jpy_modules/jpy_tools/otherTools.py
+FilePath: /jpy_tools/otherTools.py
 '''
 import os
+import sh
 import pandas as pd
+from loguru import logger
 
 
+
+def mkdir(dirPath):
+    try:
+        sh.mkdir(dirPath)
+    except:
+        logger.warning(f"{dirPath} existed!!")
+
+        
 class Jinterval:
     '''
     自己写的区间操作， 极其不完善

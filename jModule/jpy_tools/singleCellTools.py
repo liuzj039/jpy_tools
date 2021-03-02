@@ -82,7 +82,7 @@ def plotCellScatter(adata):
     """
     绘制anndata基本情况
     """
-    sc.pp.filter_genes(adata, min_cells=3)
+    sc.pp.filter_genes(adata, min_cells=0)
     sc.pp.filter_cells(adata, min_genes=0)
 
     adata.obs["n_count"] = adata.X.sum(axis=1)
@@ -92,7 +92,9 @@ def plotCellScatter(adata):
     adata.obs["percent_ct"] = np.sum(adata[:, ctGene].X, axis=1) / np.sum(
         adata.X, axis=1
     )
-    sc.pl.violin(adata, ["n_count", "n_genes", "percent_ct"], multi_panel=True, jitter=0.4)
+    sc.pl.violin(
+        adata, ["n_count", "n_genes", "percent_ct"], multi_panel=True, jitter=0.4
+    )
     # fig, axs = plt.subplots(1, 3, figsize=(15, 3))
     # for x, y in zip(["n_count", "n_genes", "percent_ct"], axs):
     #     sc.pl.violin(adata, x, jitter=0.4, ax=y, show=False)
@@ -372,257 +374,87 @@ def getEnrichedScore(adata, label, geneLs, threads=12, times=100):
     return clusterZscoreDf
 
 
-#####解析IR结果####
-
-
-def getSpliceInfoOnIntronLevel(irInfoPath, useIntronPath=None):
-    """
-    从intron水平获得剪接情况
-    irInfoPath:
-        snuupy getSpliceInfo的结果
-    useIntronPath:
-        使用的intron列表，需要表头'intron_id'
-
-    return:
-        adata:
-            X: unsplice + splice
-            layer[unspliced, spliced]
-    """
-    irInfoDf = pd.read_table(irInfoPath)
-    intronCountMtxDt = {}
-    intronRetenMtxDt = {}
-    # 输入 0base
-    # 输出 1base
-    allLinesCounts = len(irInfoDf)
-    for i, line in enumerate(irInfoDf.itertuples()):
-        barcode = line.Name.split("_")[0]
-        lineCountMtxDt = intronCountMtxDt.get(barcode, {})
-        lineRetenMtxDt = intronRetenMtxDt.get(barcode, {})
-
-        exonOverlapInfo = [int(x) for x in line.ExonOverlapInfo.split(",")]
-        minIntron = min(exonOverlapInfo)
-        maxIntron = max(exonOverlapInfo)
-        intronCov = list(range(minIntron, maxIntron))
-
-        if pd.isna(line.IntronOverlapInfo):
-            intronOverlapInfo = []
-        else:
-            intronOverlapInfo = [int(x) for x in line.IntronOverlapInfo.split(",")]
-
-        intronCov.extend(intronOverlapInfo)
-        intronCov = set(intronCov)
-
-        for intronCovNum in intronCov:
-            lineCountMtxDt[f"{line.geneId}_intron_{intronCovNum+1}"] = (
-                lineCountMtxDt.get(f"{line.geneId}_intron_{intronCovNum+1}", 0) + 1
-            )
-        for intronRentNum in intronOverlapInfo:
-            lineRetenMtxDt[f"{line.geneId}_intron_{intronRentNum+1}"] = (
-                lineRetenMtxDt.get(f"{line.geneId}_intron_{intronRentNum+1}", 0) + 1
-            )
-
-        intronCountMtxDt[barcode] = lineCountMtxDt
-        intronRetenMtxDt[barcode] = lineRetenMtxDt
-        if i % 1e5 == 0:
-            logger.info(f"{i}/{allLinesCounts}")
-    intronCountMtxDf = pd.DataFrame.from_dict(intronCountMtxDt, "index")
-    intronRetenMtxDf = pd.DataFrame.from_dict(intronRetenMtxDt, "index")
-    if useIntronPath:
-        useIntronDf = pd.read_table(useIntronPath)
-        useIntronLs = list(
-            useIntronDf["intron_id"].str.split(".").str[0]
-            + "_intron_"
-            + useIntronDf["intron_id"].str.split("intron").str[1]
-        )
-        intronRetenMtxDf = intronRetenMtxDf.loc[
-            :, intronRetenMtxDf.columns.isin(useIntronLs)
-        ]
-        intronCountMtxDf = intronCountMtxDf.loc[
-            :, intronCountMtxDf.columns.isin(useIntronLs)
-        ]
-    intronCountMtxDf.index = intronCountMtxDf.index + "-1"
-    intronRetenMtxDf.index = intronRetenMtxDf.index + "-1"
-    intronRetenMtxDf = intronRetenMtxDf.fillna(0)
-    intronCountMtxDf = intronCountMtxDf.fillna(0)
-    intronCountMtxAd = creatAnndataFromDf(intronCountMtxDf)
-    intronRetenMtxAd = creatAnndataFromDf(intronRetenMtxDf)
-
-    useIntronLs = list(intronRetenMtxAd.var.index | intronCountMtxAd.var.index)
-    useCellLs = list(intronRetenMtxAd.obs.index | intronCountMtxAd.obs.index)
-
-    intronRetenMtxDf = (
-        intronRetenMtxAd.to_df()
-        .reindex(useIntronLs, axis=1)
-        .reindex(useCellLs)
-        .fillna(0)
-    )
-    intronCountMtxDf = (
-        intronCountMtxAd.to_df()
-        .reindex(useIntronLs, axis=1)
-        .reindex(useCellLs)
-        .fillna(0)
-    )
-
-    return creatAnndataFromDf(
-        intronCountMtxDf,
-        unspliced=intronRetenMtxDf,
-        spliced=intronCountMtxDf - intronRetenMtxDf,
-    )
-
-
-def getSpliceInfoFromSnuupyAd(nanoporeAd):
-    """
-    用于从snuupy crMode产生的NanoporeMtx中提取产生splice和unsplice的read
-
-    return:
-        adata:
-            X: unsplice + splice
-            layer[unspliced, spliced]
-    """
-    nanoporeCountAd = nanoporeAd[:, ~nanoporeAd.var.index.str.contains("_")]
-    unsplicedAd = nanoporeAd[:, nanoporeAd.var.index.str.contains("False_fullySpliced")]
-    unsplicedAd.var.index = unsplicedAd.var.index.str.split("_").str[0]
-    splicedAd = nanoporeAd[:, nanoporeAd.var.index.str.contains("True_fullySpliced")]
-    splicedAd.var.index = splicedAd.var.index.str.split("_").str[0]
-    useGeneLs = sorted(list(set(splicedAd.var.index) | set(unsplicedAd.var.index)))
-    unsplicedDf = unsplicedAd.to_df().reindex(useGeneLs, axis=1).fillna(0)
-    splicedDf = splicedAd.to_df().reindex(useGeneLs, axis=1).fillna(0)
-    allSpliceDf = splicedDf + unsplicedDf
-    return creatAnndataFromDf(allSpliceDf, spliced=splicedDf, unspliced=unsplicedDf)
-
-
-def getDiffSplicedIntron(
-    snSpliceIntronInfoAd,
-    groupby,
-    minCount,
-    minDiff=0.0,
-    threads=24,
-    useMethod='winflat',
-    fdrMethod='indep',
-    winflatPath="/public/home/jiajb/soft/IRFinder/IRFinder-1.2.5/bin/util/winflat",
-    fisherMethod='two-sided'
-):
-    """
-    snSpliceIntronInfoAd: 
-        adata: layer['spliced', 'unspliced']
-    groupby:
-        data will be groupbyed by this label
-    minCount:
-        read total counts lower than this cutoff will be filtered
-    minDiff:
-        unspliced read ratio lower than this cutoff will be filtered
-    useMethod:
-        winflat|fisher
-    fdrMethod:
-        indep|negcorr
-        FH or FY
-    fisherMethod:
-        two-sided|less|greater
-        less: used to calculate these intron enriched in this group
-        greater: used to calculate these intron excluded in this group
-    """
-    from pandarallel import pandarallel
-    from statsmodels.stats import multitest
-    from scipy.stats import fisher_exact
-    import os
-
-    pandarallel.initialize(nb_workers=threads)
-
-    def calcuPvalueByWinflat(line):
-        nonlocal winflatPath
-        xUnsplice = line.iloc[0]
-        yUnsplice = line.iloc[1]
-        xTotal = line.iloc[2]
-        yTotal = line.iloc[3]
-        resultStr = (
-            os.popen(
-                f"{winflatPath} -xvalue {xUnsplice} -yvalue {yUnsplice} -diff {xTotal} {yTotal}"
-            )
-            .read()
-            .strip()
-        )
-        if not resultStr:
-            return 1.0
-        resultFloat = [
-            float(x)
-            for x in [x.strip().split("=")[-1].strip() for x in resultStr.split("\n")]
-        ][1]
-
-        return resultFloat
-    
-    
-    def calcuPvalueByFisher(line):
-        nonlocal fisherMethod
-        xUnsplice = line.iloc[0]
-        yUnsplice = line.iloc[1]
-        xTotal = line.iloc[2]
-        yTotal = line.iloc[3]
-        xSplice = xTotal - xUnsplice
-        ySplice = yTotal - yUnsplice
-        return fisher_exact([[xUnsplice, xSplice], [yUnsplice, ySplice]], fisherMethod)[1]
-    
-    
-    allClusterDiffDt = {}
-    calcuPvalue = {
-        "winflat": calcuPvalueByWinflat,
-        "fisher": calcuPvalueByFisher
-    }[useMethod]
-    
-    for singleCluster in snSpliceIntronInfoAd.obs[groupby].unique():
-        snSpliceIntronInfoAd.obs = snSpliceIntronInfoAd.obs.assign(
-            cate=lambda df: np.select(
-                [df[groupby].isin([singleCluster])],
-                [singleCluster], f'non-{singleCluster}'
-            )
-        )
-        clusterSpliceIntronInfoAd = mergeAdata(
-            snSpliceIntronInfoAd, "cate", ["unspliced", "spliced"]
-        )
-        clusterSpliceIntronInfoAd = clusterSpliceIntronInfoAd[
-            :, clusterSpliceIntronInfoAd.to_df().min(0) >= minCount
-        ]
-
-        clusterSpliceIntronInfoDf = pd.concat(
-            [
-                clusterSpliceIntronInfoAd.to_df("unspliced").T,
-                clusterSpliceIntronInfoAd.to_df().T,
-            ],
-            axis=1,
-        )
-#         import pdb; pdb.set_trace()
-        clusterSpliceIntronInfoDf.columns = [
-            "unspliced",
-            "non-unspliced",
-            "total",
-            "non-total",
-        ]
-
-        clusterSpliceIntronInfoDf["pvalue"] = clusterSpliceIntronInfoDf.parallel_apply(
-            calcuPvalue, axis=1
-        )
-        clusterSpliceIntronInfoDf["fdr"] = multitest.fdrcorrection(
-            clusterSpliceIntronInfoDf["pvalue"], 0.05, fdrMethod
-        )[1]
-
-        clusterSpliceIntronInfoDf = clusterSpliceIntronInfoDf.assign(
-            diffRatio=lambda df: df["unspliced"] / df["total"]
-            - df["non-unspliced"] / df["non-total"]
-        )
-
-        clusterSpliceIntronInfoDf = clusterSpliceIntronInfoDf.eval(
-            f"significantDiff = (fdr <= 0.05) & (diffRatio >= {minDiff})"
-        )
-        allClusterDiffDt[singleCluster] = clusterSpliceIntronInfoDf
-        logger.info(
-            f"group {singleCluster} processed; {len(clusterSpliceIntronInfoDf)} input; {clusterSpliceIntronInfoDf['significantDiff'].sum()} output"
-        )
-    return allClusterDiffDt
-
-
 #################
 ## 细胞注释
 #################
 
+
+def cellTypeAnnoByICI(
+    adata,
+    specDfPath,
+    cutoff_adjPvalue,
+    layer=None,
+    copy=False,
+    threads=1,
+    logTransformed=True,
+    addName="ICI",
+):
+    """
+    use ICI method annotate cell type
+
+    adata:
+        anndata, normalized but not log-transformed.
+    specDfPath:
+        ICITools::compute_spec_table result
+    """
+    import rpy2.rinterface_lib.callbacks
+    from rpy2.robjects import pandas2ri
+    import rpy2.robjects as ro
+
+    pandas2ri.activate()
+
+    adata = adata.copy() if copy else adata
+
+    adataDf = adata.to_df(layer).T.rename_axis("Locus")
+    if logTransformed:
+        adataDf = np.exp(adataDf) - 1
+    logger.info("Start transfer dataframe to R")
+    ro.globalenv["adataDf"] = adataDf
+    if threads > 1:
+        ro.r(f"""
+        future::plan(strategy = "multiprocess", workers = {threads})
+        1
+        """)
+
+    logger.info("Start calculate ICI score")
+    ro.r(
+        f"""
+    specDf <- readRDS('{specDfPath}')
+    adataDf <- tibble::as_tibble(adataDf, rownames = 'Locus')
+    adataAnnoDf_melted <- ICITools::compute_ici_scores(expression_data = adataDf,
+                                        spec_table = specDf,
+                                        min_spec_score = 0.15,
+                                        information_level = 50, sig = TRUE)
+    1
+    """
+    )
+    logger.info("Start transfer ICI score result to python")
+    adataAnnoDf_wide = ro.globalenv["adataAnnoDf_melted"]
+    
+    logger.info("Start parse ICI score result")
+    adata.obsm[f"{addName}-adjPvalue"] = adataAnnoDf_wide.pivot_table(
+        "p_adj", "Cell", "Cell_Type"
+    ).reindex(adata.obs_names)
+    adata.obsm[f"{addName}-score"] = adataAnnoDf_wide.pivot_table(
+        "ici_score", "Cell", "Cell_Type"
+    ).reindex(adata.obs_names)
+
+    adata.obsm[f"{addName}-score_masked"] = pd.DataFrame(
+        np.select(
+            [adata.obsm[f"{addName}-adjPvalue"] < cutoff_adjPvalue], [adata.obsm[f"{addName}-score"]], 0
+        ),
+        index=adata.obsm[f"{addName}-score"].index,
+        columns=adata.obsm[f"{addName}-score"].columns,
+    )
+
+    adata.obs[f"{addName}-anno"] = np.select(
+        [adata.obsm[f"{addName}-score_masked"].max(1) > 0],
+        [adata.obsm[f"{addName}-score_masked"].idxmax(1)],
+        "Unknown",
+    )
+    
+    if copy:
+        return adata
 
 def cellTypeAnnoByCorr(
     adata,
@@ -1530,3 +1362,353 @@ def extractReadCountsByUmiFromTenX(molInfoPath, kitVersion="v2", filtered=True):
     allUmiCount = allUmiCount.reindex(["barcodeUmi", 3, 2], axis=1, copy=False)
     allUmiCount.columns = ["barcodeUmi", "featureName", "readCount"]
     return allUmiCount
+
+
+### multilayer use
+#####解析IR结果####
+
+
+def updateOldMultiAd(adata):
+    """
+    update MultiAd from old version (all data deposit in X) to the 1.0 version (data deposit in obsm)
+    """
+    adata = adata.copy()
+
+    def __addMatToObsm(adata, keyword):
+        """
+        read var name of adata, and add data matched the keyword to uns of adata
+        """
+        if keyword == "Abundance":
+            subIndex = ~adata.var.index.str.contains("APA|Spliced")
+        else:
+            subIndex = adata.var.index.str.contains(keyword)
+        subAd = adata[:, subIndex]
+        adata.obsm[keyword] = subAd.X
+        adata.uns[f"{keyword}_label"] = subAd.var.index
+
+    __addMatToObsm(adata, "APA")
+    __addMatToObsm(adata, "Spliced")
+    __addMatToObsm(adata, "Abundance")
+    adata = adata[:, ~adata.var.index.str.contains("APA|Spliced")]
+    return adata
+
+
+def getMatFromObsm(
+    adata,
+    keyword,
+    minCell=5,
+    useGeneLs=[],
+    normalize=True,
+    logScale=True,
+    ignoreN=False,
+    clear=False,
+):
+    """
+    use MAT deposited in obsm replace the X MAT
+
+    params:
+        adata:
+            version 1.0 multiAd
+        keyword:
+            stored in obsm
+        minCell:
+            filter feature which expressed not more than <minCell> cells
+        useGeneLs:
+            if not specified useGeneLs, all features will be output, otherwise only features associated with those gene will be output
+        normalize:
+            normalize the obtained Mtx or not
+        logScale:
+            log-transformed or not
+        ignoreN:
+            ignore ambiguous APA/Splice info
+        clear:
+            data not stored in obs or var will be removed
+    return:
+        anndata
+    """
+    if clear:
+        transformedAd = anndata.AnnData(
+            X=adata.obsm[keyword].copy(),
+            obs=adata.obs,
+            var=adata.uns[f"{keyword}_label"].to_frame().drop(0, axis=1),
+        )
+    else:
+        transformedAd = anndata.AnnData(
+            X=adata.obsm[keyword].copy(),
+            obs=adata.obs,
+            var=adata.uns[f"{keyword}_label"].to_frame().drop(0, axis=1),
+            obsp=adata.obsp,
+            obsm=adata.obsm,
+            uns=adata.uns,
+        )
+
+    sc.pp.filter_genes(transformedAd, min_cells=minCell)
+
+    if normalize:
+        sc.pp.normalize_total(transformedAd, target_sum=1e4)
+    if logScale:
+        sc.pp.log1p(transformedAd)
+
+    useGeneLs = list(useGeneLs)
+    if not useGeneLs:
+        transformedAd = transformedAd
+    else:
+        transformedAdFeatureSr = transformedAd.var.index
+        transformedAdFeatureFilterBl = (
+            transformedAdFeatureSr.str.split("_").str[0].isin(useGeneLs)
+        )
+        transformedAd = transformedAd[:, transformedAdFeatureFilterBl]
+
+    if ignoreN:
+        transformedAdFeatureSr = transformedAd.var.index
+        transformedAdFeatureFilterBl = (
+            ~transformedAdFeatureSr.str.split("_").str[1].isin(["N", "Ambiguous"])
+        )
+
+        transformedAd = transformedAd[:, transformedAdFeatureFilterBl]
+
+    return transformedAd
+
+
+def getSpliceInfoOnIntronLevel(irInfoPath, useIntronPath=None):
+    """
+    从intron水平获得剪接情况
+    irInfoPath:
+        snuupy getSpliceInfo的结果
+    useIntronPath:
+        使用的intron列表，需要表头'intron_id'
+
+    return:
+        adata:
+            X: unsplice + splice
+            layer[unspliced, spliced]
+    """
+    irInfoDf = pd.read_table(irInfoPath)
+    intronCountMtxDt = {}
+    intronRetenMtxDt = {}
+    # 输入 0base
+    # 输出 1base
+    allLinesCounts = len(irInfoDf)
+    for i, line in enumerate(irInfoDf.itertuples()):
+        barcode = line.Name.split("_")[0]
+        lineCountMtxDt = intronCountMtxDt.get(barcode, {})
+        lineRetenMtxDt = intronRetenMtxDt.get(barcode, {})
+
+        exonOverlapInfo = [int(x) for x in line.ExonOverlapInfo.split(",")]
+        minIntron = min(exonOverlapInfo)
+        maxIntron = max(exonOverlapInfo)
+        intronCov = list(range(minIntron, maxIntron))
+
+        if pd.isna(line.IntronOverlapInfo):
+            intronOverlapInfo = []
+        else:
+            intronOverlapInfo = [int(x) for x in line.IntronOverlapInfo.split(",")]
+
+        intronCov.extend(intronOverlapInfo)
+        intronCov = set(intronCov)
+
+        for intronCovNum in intronCov:
+            lineCountMtxDt[f"{line.geneId}_intron_{intronCovNum+1}"] = (
+                lineCountMtxDt.get(f"{line.geneId}_intron_{intronCovNum+1}", 0) + 1
+            )
+        for intronRentNum in intronOverlapInfo:
+            lineRetenMtxDt[f"{line.geneId}_intron_{intronRentNum+1}"] = (
+                lineRetenMtxDt.get(f"{line.geneId}_intron_{intronRentNum+1}", 0) + 1
+            )
+
+        intronCountMtxDt[barcode] = lineCountMtxDt
+        intronRetenMtxDt[barcode] = lineRetenMtxDt
+        if i % 1e5 == 0:
+            logger.info(f"{i}/{allLinesCounts}")
+    intronCountMtxDf = pd.DataFrame.from_dict(intronCountMtxDt, "index")
+    intronRetenMtxDf = pd.DataFrame.from_dict(intronRetenMtxDt, "index")
+    if useIntronPath:
+        useIntronDf = pd.read_table(useIntronPath)
+        useIntronLs = list(
+            useIntronDf["intron_id"].str.split(".").str[0]
+            + "_intron_"
+            + useIntronDf["intron_id"].str.split("intron").str[1]
+        )
+        intronRetenMtxDf = intronRetenMtxDf.loc[
+            :, intronRetenMtxDf.columns.isin(useIntronLs)
+        ]
+        intronCountMtxDf = intronCountMtxDf.loc[
+            :, intronCountMtxDf.columns.isin(useIntronLs)
+        ]
+    intronCountMtxDf.index = intronCountMtxDf.index + "-1"
+    intronRetenMtxDf.index = intronRetenMtxDf.index + "-1"
+    intronRetenMtxDf = intronRetenMtxDf.fillna(0)
+    intronCountMtxDf = intronCountMtxDf.fillna(0)
+    intronCountMtxAd = creatAnndataFromDf(intronCountMtxDf)
+    intronRetenMtxAd = creatAnndataFromDf(intronRetenMtxDf)
+
+    useIntronLs = list(intronRetenMtxAd.var.index | intronCountMtxAd.var.index)
+    useCellLs = list(intronRetenMtxAd.obs.index | intronCountMtxAd.obs.index)
+
+    intronRetenMtxDf = (
+        intronRetenMtxAd.to_df()
+        .reindex(useIntronLs, axis=1)
+        .reindex(useCellLs)
+        .fillna(0)
+    )
+    intronCountMtxDf = (
+        intronCountMtxAd.to_df()
+        .reindex(useIntronLs, axis=1)
+        .reindex(useCellLs)
+        .fillna(0)
+    )
+
+    return creatAnndataFromDf(
+        intronCountMtxDf,
+        unspliced=intronRetenMtxDf,
+        spliced=intronCountMtxDf - intronRetenMtxDf,
+    )
+
+
+def getSpliceInfoFromSnuupyAd(nanoporeAd):
+    """
+    用于从snuupy crMode产生的NanoporeMtx中提取产生splice和unsplice的read
+
+    return:
+        adata:
+            X: unsplice + splice
+            layer[unspliced, spliced]
+    """
+    nanoporeCountAd = nanoporeAd[:, ~nanoporeAd.var.index.str.contains("_")]
+    unsplicedAd = nanoporeAd[:, nanoporeAd.var.index.str.contains("False_fullySpliced")]
+    unsplicedAd.var.index = unsplicedAd.var.index.str.split("_").str[0]
+    splicedAd = nanoporeAd[:, nanoporeAd.var.index.str.contains("True_fullySpliced")]
+    splicedAd.var.index = splicedAd.var.index.str.split("_").str[0]
+    useGeneLs = sorted(list(set(splicedAd.var.index) | set(unsplicedAd.var.index)))
+    unsplicedDf = unsplicedAd.to_df().reindex(useGeneLs, axis=1).fillna(0)
+    splicedDf = splicedAd.to_df().reindex(useGeneLs, axis=1).fillna(0)
+    allSpliceDf = splicedDf + unsplicedDf
+    return creatAnndataFromDf(allSpliceDf, spliced=splicedDf, unspliced=unsplicedDf)
+
+
+def getDiffSplicedIntron(
+    snSpliceIntronInfoAd,
+    groupby,
+    minCount,
+    minDiff=0.0,
+    threads=24,
+    useMethod="winflat",
+    fdrMethod="indep",
+    winflatPath="/public/home/jiajb/soft/IRFinder/IRFinder-1.2.5/bin/util/winflat",
+    fisherMethod="two-sided",
+):
+    """
+    snSpliceIntronInfoAd:
+        adata: layer['spliced', 'unspliced']
+    groupby:
+        data will be groupbyed by this label
+    minCount:
+        read total counts lower than this cutoff will be filtered
+    minDiff:
+        unspliced read ratio lower than this cutoff will be filtered
+    useMethod:
+        winflat|fisher
+    fdrMethod:
+        indep|negcorr
+        FH or FY
+    fisherMethod:
+        two-sided|less|greater
+        less: used to calculate these intron enriched in this group
+        greater: used to calculate these intron excluded in this group
+    """
+    from pandarallel import pandarallel
+    from statsmodels.stats import multitest
+    from scipy.stats import fisher_exact
+    import os
+
+    pandarallel.initialize(nb_workers=threads)
+
+    def calcuPvalueByWinflat(line):
+        nonlocal winflatPath
+        xUnsplice = line.iloc[0]
+        yUnsplice = line.iloc[1]
+        xTotal = line.iloc[2]
+        yTotal = line.iloc[3]
+        resultStr = (
+            os.popen(
+                f"{winflatPath} -xvalue {xUnsplice} -yvalue {yUnsplice} -diff {xTotal} {yTotal}"
+            )
+            .read()
+            .strip()
+        )
+        if not resultStr:
+            return 1.0
+        resultFloat = [
+            float(x)
+            for x in [x.strip().split("=")[-1].strip() for x in resultStr.split("\n")]
+        ][1]
+
+        return resultFloat
+
+    def calcuPvalueByFisher(line):
+        nonlocal fisherMethod
+        xUnsplice = line.iloc[0]
+        yUnsplice = line.iloc[1]
+        xTotal = line.iloc[2]
+        yTotal = line.iloc[3]
+        xSplice = xTotal - xUnsplice
+        ySplice = yTotal - yUnsplice
+        return fisher_exact([[xUnsplice, xSplice], [yUnsplice, ySplice]], fisherMethod)[
+            1
+        ]
+
+    allClusterDiffDt = {}
+    calcuPvalue = {"winflat": calcuPvalueByWinflat, "fisher": calcuPvalueByFisher}[
+        useMethod
+    ]
+
+    for singleCluster in snSpliceIntronInfoAd.obs[groupby].unique():
+        snSpliceIntronInfoAd.obs = snSpliceIntronInfoAd.obs.assign(
+            cate=lambda df: np.select(
+                [df[groupby].isin([singleCluster])],
+                [singleCluster],
+                f"non-{singleCluster}",
+            )
+        )
+        clusterSpliceIntronInfoAd = mergeAdata(
+            snSpliceIntronInfoAd, "cate", ["unspliced", "spliced"]
+        )
+        clusterSpliceIntronInfoAd = clusterSpliceIntronInfoAd[
+            :, clusterSpliceIntronInfoAd.to_df().min(0) >= minCount
+        ]
+
+        clusterSpliceIntronInfoDf = pd.concat(
+            [
+                clusterSpliceIntronInfoAd.to_df("unspliced").T,
+                clusterSpliceIntronInfoAd.to_df().T,
+            ],
+            axis=1,
+        )
+        #         import pdb; pdb.set_trace()
+        clusterSpliceIntronInfoDf.columns = [
+            "unspliced",
+            "non-unspliced",
+            "total",
+            "non-total",
+        ]
+
+        clusterSpliceIntronInfoDf["pvalue"] = clusterSpliceIntronInfoDf.parallel_apply(
+            calcuPvalue, axis=1
+        )
+        clusterSpliceIntronInfoDf["fdr"] = multitest.fdrcorrection(
+            clusterSpliceIntronInfoDf["pvalue"], 0.05, fdrMethod
+        )[1]
+
+        clusterSpliceIntronInfoDf = clusterSpliceIntronInfoDf.assign(
+            diffRatio=lambda df: df["unspliced"] / df["total"]
+            - df["non-unspliced"] / df["non-total"]
+        )
+
+        clusterSpliceIntronInfoDf = clusterSpliceIntronInfoDf.eval(
+            f"significantDiff = (fdr <= 0.05) & (diffRatio >= {minDiff})"
+        )
+        allClusterDiffDt[singleCluster] = clusterSpliceIntronInfoDf
+        logger.info(
+            f"group {singleCluster} processed; {len(clusterSpliceIntronInfoDf)} input; {clusterSpliceIntronInfoDf['significantDiff'].sum()} output"
+        )
+    return allClusterDiffDt
