@@ -9,7 +9,6 @@
 '''
 import os
 import click
-
 @click.command()
 @click.option('-i','infile',required=True,help='sam file')
 @click.option('-o','outfile',required=True,help='bam file')

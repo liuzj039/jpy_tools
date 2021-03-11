@@ -43,6 +43,103 @@ def normalizeMultiAd(multiAd, removeAmbiguous=True):
     return multiAd
 
 
+def normalizeByScran(adata, logScaleOut=True):
+    """normalizeByScran: use scran normalize raw counts
+
+    Args:
+        adata (anndata): X stores raw counts
+        logScaleOut (bool, optional): log-transform the output or not. Defaults to True.
+
+    Returns:
+        anndata: raw counts is stored in layers['counts'] and X is updated by the normalized and log-transformed counts
+    """    
+    from scipy.sparse import csr_matrix
+    import rpy2.robjects as ro
+    from rpy2.robjects import pandas2ri
+    pandas2ri.activate()
+    ro.r("library(scran)")
+    
+    adata = adata.copy()
+    adataPP = adata.copy()
+    sc.pp.normalize_per_cell(adataPP, counts_per_cell_after=1e6)
+    sc.pp.log1p(adataPP)
+    sc.pp.pca(adataPP, n_comps=15)
+    sc.pp.neighbors(adataPP)
+    sc.tl.leiden(adataPP, key_added='groups', resolution=0.5)
+    inputGroupDf = adataPP.obs['groups']
+    dataMat = adata.X.T
+    
+    ro.globalenv["inputGroupDf"] = inputGroupDf
+    ro.globalenv["dataMat"] = dataMat
+
+    sizeFactorSr = ro.r("sizeFactors(computeSumFactors(SingleCellExperiment(list(counts=dataMat)), clusters=inputGroupDf, min.mean=0.1))")
+
+    adata.obs["sizeFactors"] = sizeFactorSr
+    adata.layers["counts"] = adata.X.copy()
+    adata.X /= adata.obs["sizeFactors"].values.reshape([-1,1])
+
+    if logScaleOut:
+        sc.pp.log1p(adata)
+
+    adata.X = csr_matrix(adata.X)
+    return adata
+
+
+
+def normalizeBySCT(adata, onlyKeepHVG=False, logScaleOut=True):
+    """normalizeBySCT: use SCTransform normalize raw counts
+
+    Args:
+        adata (anndata): The adata.X will be used for SCT regression
+        onlyKeepHVG (bool, optional): Only use HVG destined by SCT. Defaults to False.
+        logScaleOut (bool, optional): log-transform the layer['SCT_corrected'] or not. Defaults to True.
+
+    Returns:
+        anndata: The corrected UMI matrix will be stored in raw and layer['SCT_corrected']
+                   The residual value will be stored in X
+    """
+    import rpy2.robjects as ro
+    import anndata2ri
+    anndata2ri.activate()
+
+    adata = adata.copy()
+    del adata.obsm
+    del adata.uns
+
+    ro.globalenv["adata"] = adata
+    ro.r("library(Seurat)")
+    ro.r(
+    """
+    seurat_obj <- as.Seurat(adata, counts="X", data = NULL)
+    res <- SCTransform(object=seurat_obj, return.only.var.genes = FALSE)
+    correctedMx <- res@assays$SCT@counts
+    scaledMx <- res@assays$SCT@scale.data
+    highVarGeneSr <- res@assays$SCT@var.features
+    allVarNameSr <- rownames(scaledMx)
+    1
+    """
+    )
+
+    correctedMx = ro.r("correctedMx")
+    scaledMx = ro.r("scaledMx")
+    highVarGeneSr = ro.r("highVarGeneSr")
+    allVarNameSr = ro.r("allVarNameSr")
+    
+    highVarGeneSr = pd.Series(highVarGeneSr).str.split('-').str.join('_')
+    allVarNameSr = pd.Series(allVarNameSr).str.split('-').str.join('_')
+
+    adata = adata[:, allVarNameSr]
+    adata.X.raw = correctedMx.T
+    adata.X = scaledMx.T
+    adata.layers["SCT_corrected"] = correctedMx.T
+    adata.var = adata.var.assign(SCT_SVG=lambda df: df.index.isin(highVarGeneSr))
+    if logScaleOut:
+        sc.pp.log1p(adata, layer="SCT_corrected")
+    if onlyKeepHVG:
+        adata = adata[:, highVarGeneSr]
+    return adata.copy()
+
+
 def getAdataColor(adata, label):
     """
     获得adata中label的颜色
@@ -411,10 +508,12 @@ def cellTypeAnnoByICI(
     logger.info("Start transfer dataframe to R")
     ro.globalenv["adataDf"] = adataDf
     if threads > 1:
-        ro.r(f"""
+        ro.r(
+            f"""
         future::plan(strategy = "multiprocess", workers = {threads})
         1
-        """)
+        """
+        )
 
     logger.info("Start calculate ICI score")
     ro.r(
@@ -430,7 +529,7 @@ def cellTypeAnnoByICI(
     )
     logger.info("Start transfer ICI score result to python")
     adataAnnoDf_wide = ro.globalenv["adataAnnoDf_melted"]
-    
+
     logger.info("Start parse ICI score result")
     adata.obsm[f"{addName}-adjPvalue"] = adataAnnoDf_wide.pivot_table(
         "p_adj", "Cell", "Cell_Type"
@@ -441,7 +540,9 @@ def cellTypeAnnoByICI(
 
     adata.obsm[f"{addName}-score_masked"] = pd.DataFrame(
         np.select(
-            [adata.obsm[f"{addName}-adjPvalue"] < cutoff_adjPvalue], [adata.obsm[f"{addName}-score"]], 0
+            [adata.obsm[f"{addName}-adjPvalue"] < cutoff_adjPvalue],
+            [adata.obsm[f"{addName}-score"]],
+            0,
         ),
         index=adata.obsm[f"{addName}-score"].index,
         columns=adata.obsm[f"{addName}-score"].columns,
@@ -452,9 +553,10 @@ def cellTypeAnnoByICI(
         [adata.obsm[f"{addName}-score_masked"].idxmax(1)],
         "Unknown",
     )
-    
+
     if copy:
         return adata
+
 
 def cellTypeAnnoByCorr(
     adata,
@@ -1363,6 +1465,27 @@ def extractReadCountsByUmiFromTenX(molInfoPath, kitVersion="v2", filtered=True):
     allUmiCount.columns = ["barcodeUmi", "featureName", "readCount"]
     return allUmiCount
 
+def addDfToObsm(adata, copy=False, **dataDt):
+    """addDfToObsm, add data to adata.obsm
+
+    Args:
+        adata ([anndata])
+        copy (bool, optional)
+        dataDt: {label: dataframe}, dataframe must have the same 
+
+    Returns:
+        adata if copy=True, otherwise None
+    """
+    adata = adata.copy() if copy else adata
+    for label, df in dataDt.items():
+        if (adata.obs.index != df.index).all():
+            logger.error(f'dataset {label} have a wrong shape/index')
+            0/0
+        adata.uns[f"{label}_label"] = df.columns
+        adata.obsm[label] = df.values
+    if copy:
+        return adata
+
 
 ### multilayer use
 #####解析IR结果####
@@ -1402,6 +1525,7 @@ def getMatFromObsm(
     logScale=True,
     ignoreN=False,
     clear=False,
+    raw=False
 ):
     """
     use MAT deposited in obsm replace the X MAT
@@ -1423,6 +1547,8 @@ def getMatFromObsm(
             ignore ambiguous APA/Splice info
         clear:
             data not stored in obs or var will be removed
+        raw:
+            return the raw dataset stored in the obsm.
     return:
         anndata
     """
@@ -1441,6 +1567,9 @@ def getMatFromObsm(
             obsm=adata.obsm,
             uns=adata.uns,
         )
+        
+    if raw:
+        return transformedAd
 
     sc.pp.filter_genes(transformedAd, min_cells=minCell)
 
@@ -1712,3 +1841,54 @@ def getDiffSplicedIntron(
             f"group {singleCluster} processed; {len(clusterSpliceIntronInfoDf)} input; {clusterSpliceIntronInfoDf['significantDiff'].sum()} output"
         )
     return allClusterDiffDt
+
+############################
+###parseMOFA################
+############################
+
+def transformEntToAd(ent):
+    """transformEntToAd parse trained ent object to anndata
+
+    Args:
+        ent ([entry_point]): only one group
+
+    Returns:
+        anndata: the X represents the sample-factor weights,
+                 the layer represents the feature-factor weight and variance-factor matrix,
+                 the uns['mofaR2_total] stored the total variance of factors could be explained
+    """
+    factorOrderLs = np.argsort(
+        np.array(ent.model.calculate_variance_explained()).sum(axis=(0, 1))
+    )[::-1]
+
+    sampleWeightDf = pd.DataFrame(ent.model.getExpectations()['Z']['E']).T
+    sampleWeightDf = sampleWeightDf.reindex(factorOrderLs).reset_index(drop=True)
+    sampleWeightDf.index = [f"factor_{x}" for x in range(1, len(factorOrderLs)+1)]
+    sampleWeightDf.columns = ent.data_opts['samples_names'][0]
+    mofaAd = creatAnndataFromDf(sampleWeightDf)
+
+    for label, featureSr, data in zip(ent.data_opts['views_names'], ent.data_opts['features_names'], ent.model.getExpectations()['W']):
+        df = pd.DataFrame(data['E']).T
+        featureSr = pd.Series(featureSr)
+        featureSr = featureSr.str.rstrip(label)
+        if label in ['APA', 'fullySpliced']:
+            featureSr = featureSr + label
+        df.columns = featureSr
+        df = df.reindex(factorOrderLs).reset_index(drop=True)
+        df.index = [f"factor_{x}" for x in range(1, len(factorOrderLs)+1)]
+        addDfToObsm(mofaAd, **{label: df})
+
+    r2Df = pd.DataFrame(ent.model.calculate_variance_explained()[0]).T
+    r2Df = r2Df.reindex(factorOrderLs).reset_index(drop=True)
+    r2Df.index = [f"factor_{x}" for x in range(1, len(factorOrderLs) + 1)]
+    r2Df.columns = ent.data_opts["views_names"]
+    addDfToObsm(mofaAd, mofaR2=r2Df)
+
+    mofaAd.uns["mofaR2_total"] = {
+        x: y
+        for x, y in zip(
+            ent.data_opts["views_names"], ent.model.calculate_variance_explained(True)[0]
+        )
+    }
+    return mofaAd
+
