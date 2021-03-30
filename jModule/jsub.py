@@ -12,7 +12,7 @@ from io import StringIO
 import tempfile
 
 
-def getScriptContent(snakemake, inline, contents, name, cluster):
+def getScriptContent(snakemake, inline, contents, name, cluster, noMessage):
     if inline:
         contents = ' '.join(contents)
         contents = 'time ' + contents
@@ -31,6 +31,8 @@ def getScriptContent(snakemake, inline, contents, name, cluster):
                               contents)
     if snakemake:
         suffixNoti = ""
+    elif noMessage:
+        suffixNoti = f"|| jpy_sendMessage.py --title \'{cluster}上的☆{name}☆似乎出现了意外情况哎\' --content \'看不到我看不到我看不到我\' "
     else:
         suffixNoti = f" && jpy_sendMessage.py --title \'已经完成了{cluster}上的☆{name}☆了哦\' --content \'看不到我看不到我看不到我\' \
             || jpy_sendMessage.py --title \'{cluster}上的☆{name}☆似乎出现了意外情况哎\' --content \'看不到我看不到我看不到我\' "
@@ -66,7 +68,9 @@ cd $PBS_O_WORKDIR
 #BSUB -n {threads}
 #BSUB -R "span[ptile={threads}]"
 #BSUB -q {queue}
-"""
+"""     
+        if node != '1':
+            serverContents += f'#BSUB -R "select[hname == {node}]"'
         serverContents = serverContents.strip() + '\n'
         if gpu != 0:
             serverContents = serverContents + f"#BSUB -gpu 'num={gpu}'\nmodule load cuda/10.0\n"
@@ -151,8 +155,10 @@ def parseLsfJobStatus():
 @click.option('--lsf', 'cluster', flag_value='lsf', help='lsf server')
 # contents
 @click.argument('contents', nargs=-1)
+# sendMessage or not
+@click.option("--no-message", "noMessage",is_flag=True, help="send message or not")
 def main(contents, cluster, inline, snakemake, time, queue, name, mem, threads,
-         gpu, node):
+         gpu, node, noMessage):
     """
     submit a job. compatible with lsf / pbs server.
 
@@ -183,7 +189,7 @@ def main(contents, cluster, inline, snakemake, time, queue, name, mem, threads,
     name = f'{today}:{name}_{randomId}'
 
     scriptContent = getScriptContent(snakemake, inline, contents, name,
-                                     cluster)
+                                     cluster, noMessage)
     serverScriptContent = getServerScriptContent(cluster, node, time, queue,
                                                  name, mem, threads, gpu)
     finalContent = serverScriptContent + scriptContent

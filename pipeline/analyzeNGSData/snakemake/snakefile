@@ -28,7 +28,7 @@ if [ {params.useQC} == True ]
 then
     fastp -i {input.readOne} -o {output.AfterQC_1} -I {input.readTwo} -O {output.AfterQC_2} -w {threads} -h {params.qcReport} --detect_adapter_for_pe
 else
-    cp {input.readOne} {output.AfterQC_1} && cp {input.readTwo} {output.AfterQC_2}
+    ln -s {input.readOne} {output.AfterQC_1} && ln -s {input.readTwo} {output.AfterQC_2}
 fi
         """
 

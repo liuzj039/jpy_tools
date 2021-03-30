@@ -1,3 +1,15 @@
+##########################################################################################
+#                                     Author: Liu ZJ                                     #
+#                         Creation Date: March 23, 2021 11:09 AM                         #
+#                         Last Updated: March 23, 2021 11:10 AM                          #
+#                                Source Language: python                                 #
+#               Repository: https://github.com/liuzj039/myPythonTools.git                #
+#                                                                                        #
+#                                --- Code Description ---                                #
+#                             Tools For Single Cell Analysis                             #
+##########################################################################################
+
+
 import pandas as pd
 import numpy as np
 import scanpy as sc
@@ -10,6 +22,17 @@ from io import StringIO
 from concurrent.futures import ProcessPoolExecutor as Mtp
 import sh
 import h5py
+from typing import List, Optional, Union, Sequence, Literal, Any, Tuple
+
+import collections
+from .rTools import (
+    anndata2ri_check,
+    py2r,
+    r2py,
+    rpy2_check,
+    r_is_installed,
+    r_set_seed,
+)
 
 #################
 ##一些简单的工具###
@@ -21,6 +44,85 @@ def mkdir(dirPath):
         sh.mkdir(dirPath)
     except:
         logger.warning(f"{dirPath} existed!!")
+
+
+def detectMarkerGene(
+    adata: anndata.AnnData,
+    groupby: str,
+    key_added: str,
+    groups: Union[Literal["all"], Sequence[str]] = "all",
+    use_raw: bool = True,
+    method: Literal[
+        "logreg", "t-test", "wilcoxon", "t-test_overestim_var"
+    ] = "wilcoxon",
+    pts: bool = True,
+    min_in_group_fraction: float = 0.5,
+    max_out_group_fraction: float = 0.25,
+    min_fold_change: float = 2,
+    rawDt: dict = {},
+    filterDt: dict = {},
+):
+    """
+    Rank and filter genes for characterizing groups.
+
+    Args:
+        adata (anndata.AnnData): Expects logarithmized data.
+
+        groupby (str): The key of the observations grouping to consider.
+
+        key_added (str): The key in adata.uns information is saved to.
+
+        groups (Union[Literal[, optional):
+            Subset of groups, e.g. ['g1', 'g2', 'g3'], to which comparison shall be restricted, or 'all' (default), for all groups.
+            Defaults to "all".
+
+        use_raw (bool, optional): Defaults to True.
+
+        method (Literal[, optional):
+            't-test', 't-test_overestim_var' overestimates variance of each group,
+            'wilcoxon' uses Wilcoxon rank-sum,
+            'logreg' uses logistic regression.
+            Defaults to "wilcoxon".
+
+        pts (bool, optional): Compute the fraction of cells expressing the genes. Defaults to True.
+
+        min_in_group_fraction (float, optional): Defaults to 0.5.
+
+        max_out_group_fraction (float, optional):Defaults to 0.25.
+
+        min_fold_change (float, optional): Defaults to 2.
+
+        rawDt (dict, optional): Other parameters for sc.tl.rank_genes_groups. Defaults to {}.
+
+        filterDt (dict, optional):  Other parameters for sc.tl.filter_rank_genes_groups. Defaults to {}.
+    """
+    rawDt = dict(
+        groupby=groupby,
+        groups=groups,
+        use_raw=use_raw,
+        method=method,
+        pts=pts,
+        key_added=key_added,
+        **rawDt,
+    )
+    filterDt = dict(
+        key=key_added,
+        key_added=f"{key_added}_filtered",
+        min_in_group_fraction=min_in_group_fraction,
+        max_out_group_fraction=max_out_group_fraction,
+        min_fold_change=min_fold_change,
+        **filterDt,
+    )
+    if groups != "all":
+        _adata = adata[adata.obs.query(f"{groupby} in @groups").index]
+    else:
+        _adata = adata
+
+    sc.tl.rank_genes_groups(_adata, **rawDt)
+    sc.tl.filter_rank_genes_groups(_adata, **filterDt)
+    if groups != "all":
+        adata.uns[key_added] = _adata.uns[key_added]
+        adata.uns[f"{key_added}_filtered"] = _adata.uns[f"{key_added}_filtered"]
 
 
 def normalizeMultiAd(multiAd, removeAmbiguous=True):
@@ -43,7 +145,9 @@ def normalizeMultiAd(multiAd, removeAmbiguous=True):
     return multiAd
 
 
-def normalizeByScran(adata, logScaleOut=True):
+def normalizeByScran(
+    adata: anndata.AnnData, logScaleOut: bool = True
+) -> anndata.AnnData:
     """normalizeByScran: use scran normalize raw counts
 
     Args:
@@ -52,31 +156,36 @@ def normalizeByScran(adata, logScaleOut=True):
 
     Returns:
         anndata: raw counts is stored in layers['counts'] and X is updated by the normalized and log-transformed counts
-    """    
-    from scipy.sparse import csr_matrix
+    """
+    from scipy.sparse import csr_matrix, isspmatrix
     import rpy2.robjects as ro
     from rpy2.robjects import pandas2ri
+
     pandas2ri.activate()
     ro.r("library(scran)")
-    
+
     adata = adata.copy()
     adataPP = adata.copy()
     sc.pp.normalize_per_cell(adataPP, counts_per_cell_after=1e6)
     sc.pp.log1p(adataPP)
-    sc.pp.pca(adataPP, n_comps=15)
+    sc.pp.pca(adataPP, n_comps=20)
     sc.pp.neighbors(adataPP)
-    sc.tl.leiden(adataPP, key_added='groups', resolution=0.5)
-    inputGroupDf = adataPP.obs['groups']
+    sc.tl.leiden(adataPP, key_added="groups", resolution=0.7)
+    inputGroupDf = adataPP.obs["groups"]
     dataMat = adata.X.T
-    
+    if isspmatrix(dataMat):
+        dataMat = dataMat.A
+
     ro.globalenv["inputGroupDf"] = inputGroupDf
     ro.globalenv["dataMat"] = dataMat
 
-    sizeFactorSr = ro.r("sizeFactors(computeSumFactors(SingleCellExperiment(list(counts=dataMat)), clusters=inputGroupDf, min.mean=0.1))")
+    sizeFactorSr = ro.r(
+        "sizeFactors(computeSumFactors(SingleCellExperiment(list(counts=dataMat)), clusters=inputGroupDf, min.mean=0.1))"
+    )
 
     adata.obs["sizeFactors"] = sizeFactorSr
     adata.layers["counts"] = adata.X.copy()
-    adata.X /= adata.obs["sizeFactors"].values.reshape([-1,1])
+    adata.X /= adata.obs["sizeFactors"].values.reshape([-1, 1])
 
     if logScaleOut:
         sc.pp.log1p(adata)
@@ -85,59 +194,180 @@ def normalizeByScran(adata, logScaleOut=True):
     return adata
 
 
-
-def normalizeBySCT(adata, onlyKeepHVG=False, logScaleOut=True):
-    """normalizeBySCT: use SCTransform normalize raw counts
-
-    Args:
-        adata (anndata): The adata.X will be used for SCT regression
-        onlyKeepHVG (bool, optional): Only use HVG destined by SCT. Defaults to False.
-        logScaleOut (bool, optional): log-transform the layer['SCT_corrected'] or not. Defaults to True.
-
-    Returns:
-        anndata: The corrected UMI matrix will be stored in raw and layer['SCT_corrected']
-                   The residual value will be stored in X
+@rpy2_check
+@anndata2ri_check
+def normalizeBySCT(
+    adata: anndata.AnnData,
+    layer: Union[Literal["X"], str] = "X",
+    regress_out: Sequence = ("log_umi",),
+    method="poisson",
+    batch_key: Optional[str] = None,
+    n_top_genes: int = 3000,
+    regress_out_nonreg: Optional[Sequence] = None,
+    min_cells: int = 5,
+    store_residuals: bool = True,
+    correct_counts: bool = True,
+    verbose: bool = True,
+    inplace: bool = True,
+    seed: int = 0,
+) -> Optional[anndata.AnnData]:
+    """\
+    Forked from gokceneraslan
+    Normalization and variance stabilization of scRNA-seq data using regularized
+    negative binomial regression [Hafemeister19]_.
+    sctransform uses Pearson residuals from regularized negative binomial regression to
+    correct for the sequencing depth. After regressing out total number of UMIs (and other
+    variables if given) it ranks the genes based on their residual variances and therefore
+    also acts as a HVG selection method.
+    This function replaces `sc.pp.normalize_total` and `sc.pp.highly_variable_genes` and requires
+    raw counts in `adata.X`.
+    .. note::
+        More information and bug reports `here <https://github.com/ChristophH/sctransform>`__.
+    Parameters
+    ----------
+    adata
+        An anndata file with `X` attribute of unnormalized count data
+    layer
+        which layer is used as input matrix for SCT
+    regress_out
+        Variables to regress out. Default is logarithmized total UMIs which is implicitly
+        calculated by sctransform. Other obs keys can also be used.
+    batch_key
+        If specified, HVGs are ranked after batch_key is regressed out. This avoids the
+        selection of batch-specific genes and acts as a lightweight batch correction method.
+        Note that corrected counts are not batch-corrected but only depth-normalized.
+    n_top_genes
+        Total number of highly variable genes selected.
+    min_cells
+        Only use genes that have been detected in at least this many cells; default is 5.
+    store_residuals
+        Store Pearson residuals in adata.layers['sct_residuals']. These values represent
+        batch corrected and depth-normalized gene expression values. Due to potential
+        high memory use for big matrices, they are not stored by default.
+    correct_counts
+        Store corrected counts in adata.layers['sct_corrected']. Default is True.
+    verbose
+        Show progress bar during normalization.
+    inplace
+        Save HVGs and corrected UMIs inplace. Default is True.
+    seed
+        Random seed for R RNG. Default is 0.
+    Returns
+    -------
+    If `inplace` is False, anndata is returned.
+    If `store_residuals` is True, residuals are stored in adata.layers['sct_residuals'].
+    `adata.layers['sct_corrected']` stores normalized representation of gene expression.
+    `adata.var['highly_variable']` stores highly variable genes.
+    `adata.var['highly_variable_sct_residual_var']` stores the residual variances that
+    are also used for ranking genes by variability.
     """
-    import rpy2.robjects as ro
+
+    import rpy2
+    from rpy2.robjects import r
+    from rpy2.robjects.packages import importr
+    from scanpy.preprocessing import filter_genes
+    import scipy.sparse as sp
     import anndata2ri
-    anndata2ri.activate()
 
-    adata = adata.copy()
-    del adata.obsm
-    del adata.uns
+    r_is_installed("sctransform")
+    r_set_seed(seed)
 
-    ro.globalenv["adata"] = adata
-    ro.r("library(Seurat)")
-    ro.r(
-    """
-    seurat_obj <- as.Seurat(adata, counts="X", data = NULL)
-    res <- SCTransform(object=seurat_obj, return.only.var.genes = FALSE)
-    correctedMx <- res@assays$SCT@counts
-    scaledMx <- res@assays$SCT@scale.data
-    highVarGeneSr <- res@assays$SCT@var.features
-    allVarNameSr <- rownames(scaledMx)
-    1
-    """
+    # check if observations are unnormalized using first 10
+    testColCounts = min([10, adata.shape[0]])
+    if layer == "X":
+        X_subset = adata.X[:testColCounts]
+    else:
+        X_subset = adata.layers[layer][:testColCounts]
+    err = "Make sure that adata.X contains unnormalized count data"
+    if sp.issparse(X_subset):
+        assert (X_subset.astype(int) != X_subset).nnz == 0, err
+    else:
+        assert np.all(X_subset.astype(int) == X_subset), err
+
+    assert regress_out, "regress_out cannot be emtpy"
+
+    if not inplace:
+        adata = adata.copy()
+
+    filter_genes(adata, min_cells=min_cells)
+
+    mat = adata.X.T if layer == "X" else adata.layers[layer].T
+    if sp.issparse(mat):
+        mat.sort_indices()
+    mat = py2r(mat)
+
+    set_colnames = r("`colnames<-`")
+    set_rownames = r("`rownames<-`")
+
+    mat = set_colnames(mat, adata.obs_names.values.tolist())
+    mat = set_rownames(mat, adata.var_names.values.tolist())
+
+    assert isinstance(
+        regress_out, collections.abc.Sequence
+    ), "regress_out is not a sequence"
+
+    obs_keys = [x for x in regress_out if x != "log_umi"]
+    regress_out = py2r(np.array(regress_out))
+    if regress_out_nonreg is not None:
+        assert isinstance(
+            regress_out_nonreg, collections.abc.Sequence
+        ), "regress_out_nonreg is not a sequence"
+
+        obs_keys += list(regress_out_nonreg)
+        regress_out_nonreg = py2r(np.array(regress_out_nonreg))
+    else:
+        regress_out_nonreg = rpy2.rinterface.NULL
+
+    if batch_key is not None:
+        obs_keys += [batch_key]
+    else:
+        batch_key = rpy2.rinterface.NULL
+
+    if obs_keys:
+        assert np.all(
+            np.isin(obs_keys, adata.obs.columns)
+        ), "Some regress_out or batch_key values are not found in adata.obs"
+        cell_attr = adata.obs[obs_keys]
+        cell_attr = py2r(cell_attr)
+    else:
+        cell_attr = rpy2.rinterface.NULL
+
+    sct = importr("sctransform")
+    residual_type = "pearson" if store_residuals else "none"
+
+    vst_out = sct.vst(
+        mat,
+        cell_attr=cell_attr,
+        batch_var=batch_key,
+        latent_var=regress_out,
+        latent_var_nonreg=regress_out_nonreg,
+        residual_type=residual_type,
+        return_cell_attr=True,
+        min_cells=min_cells,
+        method=method,
+        show_progress=verbose,
     )
 
-    correctedMx = ro.r("correctedMx")
-    scaledMx = ro.r("scaledMx")
-    highVarGeneSr = ro.r("highVarGeneSr")
-    allVarNameSr = ro.r("allVarNameSr")
-    
-    highVarGeneSr = pd.Series(highVarGeneSr).str.split('-').str.join('_')
-    allVarNameSr = pd.Series(allVarNameSr).str.split('-').str.join('_')
+    res_var = r2py(sct.get_residual_var(vst_out, mat))
 
-    adata = adata[:, allVarNameSr]
-    adata.X.raw = correctedMx.T
-    adata.X = scaledMx.T
-    adata.layers["SCT_corrected"] = correctedMx.T
-    adata.var = adata.var.assign(SCT_SVG=lambda df: df.index.isin(highVarGeneSr))
-    if logScaleOut:
-        sc.pp.log1p(adata, layer="SCT_corrected")
-    if onlyKeepHVG:
-        adata = adata[:, highVarGeneSr]
-    return adata.copy()
+    if correct_counts:
+        corrected = r2py(sct.correct_counts(vst_out, mat)).T
+        adata.layers["sct_corrected"] = corrected.copy()
+
+    adata.var["highly_variable_sct_residual_var"] = res_var.copy()
+
+    if store_residuals:
+        adata.layers["sct_residuals"] = r2py(vst_out.rx2("y")).T.copy()
+
+    top_genes = (
+        adata.var["highly_variable_sct_residual_var"]
+        .sort_values(ascending=False)[:n_top_genes]
+        .index.tolist()
+    )
+    adata.var["highly_variable"] = adata.var_names.isin(top_genes)
+
+    if not inplace:
+        return adata
 
 
 def getAdataColor(adata, label):
@@ -214,6 +444,7 @@ def creatAnndataFromDf(df, **layerInfoDt):
         var=pd.DataFrame(index=df.columns),
     )
     for layerName, layerMtx in layerInfoDt.items():
+
         transformedAd.layers[layerName] = layerMtx
 
     return transformedAd
@@ -1465,13 +1696,14 @@ def extractReadCountsByUmiFromTenX(molInfoPath, kitVersion="v2", filtered=True):
     allUmiCount.columns = ["barcodeUmi", "featureName", "readCount"]
     return allUmiCount
 
+
 def addDfToObsm(adata, copy=False, **dataDt):
     """addDfToObsm, add data to adata.obsm
 
     Args:
         adata ([anndata])
         copy (bool, optional)
-        dataDt: {label: dataframe}, dataframe must have the same 
+        dataDt: {label: dataframe}, dataframe must have the same dimension
 
     Returns:
         adata if copy=True, otherwise None
@@ -1479,9 +1711,11 @@ def addDfToObsm(adata, copy=False, **dataDt):
     adata = adata.copy() if copy else adata
     for label, df in dataDt.items():
         if (adata.obs.index != df.index).all():
-            logger.error(f'dataset {label} have a wrong shape/index')
-            0/0
-        adata.uns[f"{label}_label"] = df.columns
+            logger.error(f"dataset {label} have a wrong shape/index")
+            0 / 0
+        if label in adata.obsm:
+            logger.warning(f"dataset {label} existed! Overwrite")
+        adata.uns[f"{label}_label"] = df.columns.values
         adata.obsm[label] = df.values
     if copy:
         return adata
@@ -1491,7 +1725,7 @@ def addDfToObsm(adata, copy=False, **dataDt):
 #####解析IR结果####
 
 
-def updateOldMultiAd(adata):
+def updateOldMultiAd(adata: anndata.AnnData) -> anndata.AnnData:
     """
     update MultiAd from old version (all data deposit in X) to the 1.0 version (data deposit in obsm)
     """
@@ -1507,7 +1741,7 @@ def updateOldMultiAd(adata):
             subIndex = adata.var.index.str.contains(keyword)
         subAd = adata[:, subIndex]
         adata.obsm[keyword] = subAd.X
-        adata.uns[f"{keyword}_label"] = subAd.var.index
+        adata.uns[f"{keyword}_label"] = subAd.var.index.values
 
     __addMatToObsm(adata, "APA")
     __addMatToObsm(adata, "Spliced")
@@ -1517,16 +1751,17 @@ def updateOldMultiAd(adata):
 
 
 def getMatFromObsm(
-    adata,
-    keyword,
-    minCell=5,
-    useGeneLs=[],
+    adata: anndata.AnnData,
+    keyword: str,
+    minCell: int = 5,
+    useGeneLs: Union[list, pd.Series, np.ndarray] = [],
     normalize=True,
     logScale=True,
     ignoreN=False,
     clear=False,
-    raw=False
-):
+    raw=False,
+    strCommand=None,
+) -> anndata.AnnData:
     """
     use MAT deposited in obsm replace the X MAT
 
@@ -1548,7 +1783,15 @@ def getMatFromObsm(
         clear:
             data not stored in obs or var will be removed
         raw:
-            return the raw dataset stored in the obsm.
+            return the raw dataset stored in the obsm. This parameter is prior to all others
+        strCommand:
+            use str instead of specified params:
+            "n": set normalize True
+            "s": set logScale True
+            'N': set ignoreN True
+            'c' set clear True
+            '': means all is False
+            This parameter is prior to all others except raw
     return:
         anndata
     """
@@ -1556,20 +1799,36 @@ def getMatFromObsm(
         transformedAd = anndata.AnnData(
             X=adata.obsm[keyword].copy(),
             obs=adata.obs,
-            var=adata.uns[f"{keyword}_label"].to_frame().drop(0, axis=1),
+            var=pd.DataFrame(index=adata.uns[f"{keyword}_label"]),
         )
     else:
         transformedAd = anndata.AnnData(
             X=adata.obsm[keyword].copy(),
             obs=adata.obs,
-            var=adata.uns[f"{keyword}_label"].to_frame().drop(0, axis=1),
+            var=pd.DataFrame(index=adata.uns[f"{keyword}_label"]),
             obsp=adata.obsp,
             obsm=adata.obsm,
             uns=adata.uns,
         )
-        
+
     if raw:
         return transformedAd
+
+    if strCommand != None:
+        normalize = True if "n" in strCommand else False
+        logScale = True if "s" in strCommand else False
+        ignoreN = True if "N" in strCommand else False
+        clear = True if "c" in strCommand else False
+
+    logger.info(
+        f"""
+    final mode: 
+        normalize: {normalize}, 
+        logScale: {logScale}, 
+        ignoreN: {ignoreN}, 
+        clear: {clear}
+    """
+    )
 
     sc.pp.filter_genes(transformedAd, min_cells=minCell)
 
@@ -1842,11 +2101,13 @@ def getDiffSplicedIntron(
         )
     return allClusterDiffDt
 
+
 ############################
 ###parseMOFA################
 ############################
 
-def transformEntToAd(ent):
+
+def transformEntToAd(ent) -> anndata.AnnData:
     """transformEntToAd parse trained ent object to anndata
 
     Args:
@@ -1861,21 +2122,25 @@ def transformEntToAd(ent):
         np.array(ent.model.calculate_variance_explained()).sum(axis=(0, 1))
     )[::-1]
 
-    sampleWeightDf = pd.DataFrame(ent.model.getExpectations()['Z']['E']).T
+    sampleWeightDf = pd.DataFrame(ent.model.getExpectations()["Z"]["E"]).T
     sampleWeightDf = sampleWeightDf.reindex(factorOrderLs).reset_index(drop=True)
-    sampleWeightDf.index = [f"factor_{x}" for x in range(1, len(factorOrderLs)+1)]
-    sampleWeightDf.columns = ent.data_opts['samples_names'][0]
+    sampleWeightDf.index = [f"factor_{x}" for x in range(1, len(factorOrderLs) + 1)]
+    sampleWeightDf.columns = ent.data_opts["samples_names"][0]
     mofaAd = creatAnndataFromDf(sampleWeightDf)
 
-    for label, featureSr, data in zip(ent.data_opts['views_names'], ent.data_opts['features_names'], ent.model.getExpectations()['W']):
-        df = pd.DataFrame(data['E']).T
+    for label, featureSr, data in zip(
+        ent.data_opts["views_names"],
+        ent.data_opts["features_names"],
+        ent.model.getExpectations()["W"],
+    ):
+        df = pd.DataFrame(data["E"]).T
         featureSr = pd.Series(featureSr)
         featureSr = featureSr.str.rstrip(label)
-        if label in ['APA', 'fullySpliced']:
+        if label in ["APA", "fullySpliced"]:
             featureSr = featureSr + label
         df.columns = featureSr
         df = df.reindex(factorOrderLs).reset_index(drop=True)
-        df.index = [f"factor_{x}" for x in range(1, len(factorOrderLs)+1)]
+        df.index = [f"factor_{x}" for x in range(1, len(factorOrderLs) + 1)]
         addDfToObsm(mofaAd, **{label: df})
 
     r2Df = pd.DataFrame(ent.model.calculate_variance_explained()[0]).T
@@ -1887,8 +2152,254 @@ def transformEntToAd(ent):
     mofaAd.uns["mofaR2_total"] = {
         x: y
         for x, y in zip(
-            ent.data_opts["views_names"], ent.model.calculate_variance_explained(True)[0]
+            ent.data_opts["views_names"],
+            ent.model.calculate_variance_explained(True)[0],
         )
     }
     return mofaAd
 
+
+def detectDoubletsByDoubletFinder(
+    adata: anndata.AnnData, copy: bool = False, doubletRatio: float = 0.075
+) -> Optional[anndata.AnnData]:
+    """
+    use doubletFinder detect doublets.
+
+
+    Args:
+        adata (anndata.AnnData): X must is raw counts
+        copy (bool, optional): copy adata or not. Defaults to False.
+        doubletRatio (float, optional): expected doublet ratio. Defaults to 0.075.
+
+    Returns:
+        Optional[anndata.AnnData]: anndata if copy
+    """
+    from rpy2.robjects.conversion import localconverter
+    from rpy2.robjects import pandas2ri
+    import anndata2ri
+    import rpy2.robjects as ro
+
+    adata = adata.copy() if copy else adata
+    logger.info("start to transfer adata to R")
+
+    with localconverter(anndata2ri.converter):
+        ro.globalenv["adata"] = adata
+    logger.info("start to preprocess adata")
+    ro.r(
+        f"""
+    library(Seurat)
+    library(DoubletFinder)
+    seuratObj <- as.Seurat(adata, counts="X", data = NULL)
+    seuratObj <- SCTransform(seuratObj, )
+    seuratObj <- RunPCA(seuratObj)
+    seuratObj <- RunUMAP(seuratObj, dims = 1:10)
+    seuratObj <- FindNeighbors(seuratObj, dims = 1:10)
+    seuratObj <- FindClusters(seuratObj, resolution = 0.6)
+    1
+    """
+    )
+    logger.info("start to calculate DF parameters")
+    ro.r(
+        f"""
+    sweep.res.seuratObj <- paramSweep_v3(seuratObj, PCs = 1:10, sct = TRUE)
+    sweep.stats.seuratObj <- summarizeSweep(sweep.res.seuratObj, GT = FALSE)
+    annotationsDf <- seuratObj@meta.data$seurat_clusters
+    homotypic.prop <- modelHomotypic(annotationsDf)
+    nExp_poi <- round({doubletRatio}*nrow(seuratObj@meta.data)) 
+    nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
+    1
+    """
+    )
+    logger.info("start to calculate doublets")
+    ro.r(
+        f"""
+    seuratObj <- doubletFinder_v3(seuratObj, PCs = 1:10, pN = 0.25, pK = 0.09, nExp = nExp_poi, reuse.pANN = FALSE, sct = TRUE)
+    seuratObj <- doubletFinder_v3(seuratObj, PCs = 1:10, pN = 0.25, pK = 0.09, nExp = nExp_poi.adj, reuse.pANN = paste('pANN_0.25_0.09_', nExp_poi, sep=''), sct = TRUE)
+    1
+    """
+    )
+    logger.info("start to intergrate result with adata")
+    with localconverter(ro.default_converter + pandas2ri.converter):
+        finalDf = ro.r("seuratObj@meta.data")
+    colNameSr = list(
+        ro.r(
+            "c(paste('DF.classifications_0.25_0.09_', nExp_poi, sep=''), paste('DF.classifications_0.25_0.09_', nExp_poi.adj, sep=''))"
+        )
+    )
+    finalDf = finalDf.filter(colNameSr).rename(
+        {
+            x: y
+            for x, y in zip(colNameSr, ["doubletFinder_raw", "doubletFinder_adjusted"])
+        },
+        axis=1,
+    )
+    adata.obs = adata.obs.join(finalDf.copy(deep=True))
+
+    if copy:
+        return adata
+
+
+def detectDoubletsByScDblFinder(
+    adata: anndata.AnnData,
+    layer: str = "X",
+    copy: bool = False,
+    doubletRatio: float = 0.1,
+) -> Optional[anndata.AnnData]:
+    """
+    use ScDblFinder detect doublets.
+
+
+    Args:
+        adata (anndata.AnnData): anndata
+        layer (str): use this layer. must is raw counts. Defaults to X
+        copy (bool, optional): copy adata or not. Defaults to False.
+        doubletRatio (float, optional): expected doublet ratio. Defaults to 0.1
+
+    Returns:
+        Optional[anndata.AnnData]: anndata if copy
+    """
+    import rpy2
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
+    from jpy_tools.rTools import py2r, r2py
+    import scipy.sparse as sp
+
+    importr("base")
+    importr("utils")
+    scDblFinder = importr("scDblFinder")
+
+    testColCounts = min([10, adata.shape[0]])
+    if layer == "X":
+        X_subset = adata.X[:testColCounts]
+    else:
+        X_subset = adata.layers[layer][:testColCounts]
+    err = "Make sure that adata.X contains unnormalized count data"
+    if sp.issparse(X_subset):
+        assert (X_subset.astype(int) != X_subset).nnz == 0, err
+    else:
+        assert np.all(X_subset.astype(int) == X_subset), err
+
+    mtx = adata.X if layer == "X" else adata.layers[layer]
+    tempAd = anndata.AnnData(
+        None, obs=adata.obs[[]], var=adata.var[[]], layers=dict(counts=mtx)
+    )
+    del mtx
+
+    logger.info("start to transfer adata to R")
+    tempAdr = py2r(tempAd)
+    del tempAd
+
+    logger.info("start to calculate doublets")
+    tempAdr = scDblFinder.scDblFinder(tempAdr, dbr=doubletRatio)
+
+    logger.info("start to intergrate result with adata")
+    scDblFinderResultDf = r2py(tempAdr.slots["colData"])
+
+    adata.obs = adata.obs.join(
+        scDblFinderResultDf.filter(regex=r"^scDblFinder[\w\W]*").copy(deep=True)
+    )
+    if copy:
+        return adata
+
+
+def clusterBySC3(
+    adata: anndata.AnnData,
+    layer: str,
+    clusterNum: Union[int, list],
+    biologyInfo: bool = False,
+    threads: int = 24,
+    needSCE: bool = False,
+    copy: bool = False,
+) -> Tuple[Optional[anndata.AnnData], Optional[Any]]:
+    """
+    Cluster by SC3
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        anndata
+    layer : str
+        use this layer as input for SC3. WARNING: this layer must is not log-scaled.
+    clusterNum : Union[int, list]
+        cluster counts.
+    biologyInfo : bool, optional
+        need biology info or not. It is means that the DEG, marker, and others. This information will stored in var. by default False
+    threads : int, optional
+        by default 24
+    needSCE : bool, optional
+        need sce object or not. this object could be used for plot. by default False
+    copy : bool, optional
+        by default False
+
+    Returns
+    -------
+    Tuple[Optional[anndata.AnnData], Optional[Any]]
+        anndata and singleCellExperiment. DEPOND ON copy and needSCE
+    """   
+    import scipy.sparse as ss
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
+    from .rTools import r2py, py2r
+    R = ro.r
+
+    adata = adata.copy() if copy else adata
+
+    importr("SC3")
+    importr("SingleCellExperiment")
+    useMtx = adata.layers[layer] if layer != 'X' else adata.X
+
+    _adata = anndata.AnnData(
+        None, obs=adata.obs[[]], var=adata.var[[]], layers=dict(counts=useMtx)
+    )
+    _adata.var["feature_symbol"] = _adata.var.index
+    _adata.layers["logcounts"] = sc.pp.log1p(_adata.layers["counts"], copy=True)
+
+    logger.info("transform data to R")
+    sceObj = py2r(_adata)
+    logger.info("transform end")
+
+    setAssay = R("`assay<-`")
+    sceObj = setAssay(sceObj, "counts", value=R("as.matrix")(R.assay(sceObj, "counts")))
+    sceObj = setAssay(
+        sceObj, "logcounts", value=R("as.matrix")(R.assay(sceObj, "logcounts"))
+    )
+
+    if isinstance(clusterNum, list):
+        clusterNum = np.array(clusterNum)
+    else:
+        clusterNum = np.array([clusterNum]) # if is int, transform it to list.
+
+    sceObj = R.sc3(sceObj, ks=py2r(clusterNum), biology=biologyInfo, n_cores=threads)
+    adata.uns[f"SC3_consensus"] = {}
+    trainSvmObsIndexSr = r2py(R.metadata(sceObj).rx2['sc3'].rx2['svm_train_inds']).copy() # To record obs which used for calculate consensus matrix
+    adata.uns[f"SC3_consensus"]['useObs'] = adata.obs.index[trainSvmObsIndexSr].values
+    
+    if _adata.shape[0] > 5000:
+        logger.info("To start predicts cell labels by SVM")
+        sceObj = R.sc3_run_svm(sceObj, ks=py2r(clusterNum))
+        if biologyInfo:
+            logger.info("To start calculates biology information")
+            ro.globalenv["sceObj"] = sceObj
+            R("metadata(sceObj)$sc3$svm_train_inds <- NULL")
+            sceObj = R.sc3_calc_biology(sceObj, ks = clusterNum)
+    try:
+        adata.obs = adata.obs.join(r2py(R.colData(sceObj))).copy()
+        adata.var = adata.var.join(r2py(R.rowData(sceObj))).copy()
+    except ValueError:
+        logger.warning('obs or var is not updated, because overlaped attributes is existed!')
+
+    for singleClusterNum in clusterNum:
+        singleClusterNum = str(singleClusterNum)
+        adata.uns["SC3_consensus"][singleClusterNum] = r2py(
+            sceObj.slots["metadata"]
+            .rx2["sc3"]
+            .rx2["consensus"]
+            .rx2[singleClusterNum]
+            .rx2["consensus"]
+        ).copy()
+
+    returnAd = adata if copy else None
+    returnSe = sceObj if needSCE else None
+    # with r_inline_plot():
+    #     R.sc3_plot_consensus(sceObj, k=3, show_pdata=py2r(np.array(["sc3_3_clusters", "sc3_4_clusters"])))
+    return returnAd, returnSe
