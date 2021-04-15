@@ -96,25 +96,26 @@ class FastaContent:
                 pass
             else:
                 self.buildIndex()
-            self.lmdbEnv = lmdb.Environment(self.indexPath)
+            self.lmdbEnv = lmdb.Environment(self.indexPath, max_readers=1024, readonly=True)
             self.lmdbTxn = self.lmdbEnv.begin()
-            self.keys = pickle.loads(self.lmdbTxn.get("thisFileIndex".encode()))
-            self.__keySt = set(self.keys)
+            self.keys = None
 
     def __len__(self):
         if not self.useIndex:
             logger.error(f"NO Index mode!")
             0 / 0
         else:
+            if not self.keys:
+                self.keys = pickle.loads(self.lmdbTxn.get("thisFileIndex".encode()))
             return len(self.keys)
 
     def __getitem__(self, readName):
         if not self.useIndex:
             logger.error(f"NO Index mode!")
             0 / 0
-        elif readName not in self.__keySt:
-            logger.error(f"NOT Found Read name!")
-            0 / 0
+        # elif readName not in self.__keySt:
+        #     logger.error(f"NOT Found Read name!")
+        #     0 / 0
         else:
             return self.__readFastaReadFromLmdb(readName)
 
@@ -131,7 +132,7 @@ class FastaContent:
             lmdbTxn.put(key=f"{fastaRead.name}_seq".encode(), value=fastaRead.seq.encode())
             
 
-        lmdbEnv = lmdb.open(self.indexPath, map_size=1099511627776)
+        lmdbEnv = lmdb.open(self.indexPath, map_size=1099511627776, max_readers=1024)
         lmdbTxn = lmdbEnv.begin(write=True)
         readNameLs = []
         for i, fastaRead in enumerate(self.__readFasta()):
@@ -183,6 +184,8 @@ class FastaContent:
         """
         读取lmdb文件
         """
+        if not self.keys:
+            self.keys = pickle.loads(self.lmdbTxn.get("thisFileIndex".encode()))        
         for readName in self.keys:
             yield self.__readFastaReadFromLmdb(readName)
 
@@ -215,7 +218,8 @@ class FastqContent:
                 self.buildIndex()
             self.lmdbEnv = lmdb.Environment(self.indexPath)
             self.lmdbTxn = self.lmdbEnv.begin()
-            self.keys = pickle.loads(self.lmdbTxn.get("thisFileIndex".encode()))
+            self.keys = None
+            # self.keys = pickle.loads(self.lmdbTxn.get("thisFileIndex".encode()))
             self.__keySt = set(self.keys)
 
     def __len__(self):
@@ -223,6 +227,8 @@ class FastqContent:
             logger.error(f"NO Index mode!")
             0 / 0
         else:
+            if not self.keys:
+                self.keys = pickle.loads(self.lmdbTxn.get("thisFileIndex".encode()))
             return len(self.keys)
 
     def __getitem__(self, readName):
@@ -309,6 +315,8 @@ class FastqContent:
         """
         读取lmdb文件
         """
+        if not self.keys:
+            self.keys = pickle.loads(self.lmdbTxn.get("thisFileIndex".encode()))
         for readName in self.keys:
             yield self.__readFastqReadFromLmdb(readName)
 

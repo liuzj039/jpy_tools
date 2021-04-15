@@ -35,6 +35,18 @@ if not snakemake mode, PBS_ID is pbsId; else snakemake logpath
             sh.bkill(pbs_id)
             print(f"bkill {pbs_id}")
     else:
+        # pbs_id = pbs_id.split('/')[-1]
+        logFilePath = str(sh.realpath(pbs_id)).strip()
+        configPath = '_'.join(logFilePath.split('_')[:-3]) + '.yaml'
+        print(configPath)
+        with os.popen('ps -u') as fh:
+            commandResults = fh.readlines()
+        for lineContent in commandResults:
+            if re.search(configPath, lineContent):                
+                killId = lineContent.split()[1]
+                print('kill', killId)
+                sh.kill('-9', killId)
+
         snakemakeLog = pbs_id
         allPbsIds = []
         submitJobId = []
@@ -50,18 +62,5 @@ if not snakemake mode, PBS_ID is pbsId; else snakemake logpath
                     print(f"bkill {oneJobId}")
                 except:
                     pass
-
-        # pbs_id = pbs_id.split('/')[-1]
-        logFilePath = str(sh.realpath(pbs_id)).strip()
-        configPath = '_'.join(logFilePath.split('_')[:-3]) + '.yaml'
-        print(configPath)
-        with os.popen('ps -u') as fh:
-            commandResults = fh.readlines()
-        for lineContent in commandResults:
-            if re.search(configPath, lineContent):                
-                killId = lineContent.split()[1]
-                print('kill', killId)
-                sh.kill('-9', killId)
-
-
+                
 main()

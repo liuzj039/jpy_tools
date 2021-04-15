@@ -1,5 +1,16 @@
 ##########################################################################################
 #                                     Author: Liu ZJ                                     #
+#                         Creation Date: April 14, 2021 04:08 PM                         #
+#                         Last Updated: April 14, 2021 04:08 PM                          #
+#                                Source Language: python                                 #
+#               Repository: https://github.com/liuzj039/myPythonTools.git                #
+#                                                                                        #
+#                                --- Code Description ---                                #
+#                             update:classify functions                                  #
+##########################################################################################
+
+##########################################################################################
+#                                     Author: Liu ZJ                                     #
 #                         Creation Date: March 23, 2021 11:09 AM                         #
 #                         Last Updated: March 23, 2021 11:10 AM                          #
 #                                Source Language: python                                 #
@@ -22,7 +33,7 @@ from io import StringIO
 from concurrent.futures import ProcessPoolExecutor as Mtp
 import sh
 import h5py
-from typing import List, Optional, Union, Sequence, Literal, Any, Tuple
+from typing import List, Optional, Union, Sequence, Literal, Any, Tuple, Iterator
 
 import collections
 from .rTools import (
@@ -34,1218 +45,1675 @@ from .rTools import (
     r_set_seed,
 )
 
-#################
-##一些简单的工具###
-#################
 
+class basic(object):
+    @staticmethod
+    def splitAdata(adata: anndata.AnnData, batchKey: str) -> Iterator[anndata.AnnData]:
+        assert batchKey in adata.obs.columns, f"{batchKey} not detected in adata"
+        indexName = "index" if (not adata.obs.index.name) else adata.obs.index.name
+        batchObsLs = (
+            adata.obs.filter([batchKey])
+            .reset_index()
+            .groupby(batchKey)[indexName]
+            .agg(list)
+        )
+        for batchObs in batchObsLs:
+            yield adata[batchObs].copy()
 
-def mkdir(dirPath):
-    try:
-        sh.mkdir(dirPath)
-    except:
-        logger.warning(f"{dirPath} existed!!")
+    @staticmethod
+    def getAdataColor(adata, label):
+        return {
+            x: y
+            for x, y in zip(
+                adata.obs[label].cat.categories, adata.uns[f"{label}_colors"]
+            )
+        }
 
+    @staticmethod
+    def setAdataColor(adata, label, colorDt, hex=True):
+        adata.obs[label] = adata.obs[label].astype("category")
+        if not hex:
+            from matplotlib.colors import to_hex
 
-def detectMarkerGene(
-    adata: anndata.AnnData,
-    groupby: str,
-    key_added: str,
-    groups: Union[Literal["all"], Sequence[str]] = "all",
-    use_raw: bool = True,
-    method: Literal[
-        "logreg", "t-test", "wilcoxon", "t-test_overestim_var"
-    ] = "wilcoxon",
-    pts: bool = True,
-    min_in_group_fraction: float = 0.5,
-    max_out_group_fraction: float = 0.25,
-    min_fold_change: float = 2,
-    rawDt: dict = {},
-    filterDt: dict = {},
-):
-    """
-    Rank and filter genes for characterizing groups.
-
-    Args:
-        adata (anndata.AnnData): Expects logarithmized data.
-
-        groupby (str): The key of the observations grouping to consider.
-
-        key_added (str): The key in adata.uns information is saved to.
-
-        groups (Union[Literal[, optional):
-            Subset of groups, e.g. ['g1', 'g2', 'g3'], to which comparison shall be restricted, or 'all' (default), for all groups.
-            Defaults to "all".
-
-        use_raw (bool, optional): Defaults to True.
-
-        method (Literal[, optional):
-            't-test', 't-test_overestim_var' overestimates variance of each group,
-            'wilcoxon' uses Wilcoxon rank-sum,
-            'logreg' uses logistic regression.
-            Defaults to "wilcoxon".
-
-        pts (bool, optional): Compute the fraction of cells expressing the genes. Defaults to True.
-
-        min_in_group_fraction (float, optional): Defaults to 0.5.
-
-        max_out_group_fraction (float, optional):Defaults to 0.25.
-
-        min_fold_change (float, optional): Defaults to 2.
-
-        rawDt (dict, optional): Other parameters for sc.tl.rank_genes_groups. Defaults to {}.
-
-        filterDt (dict, optional):  Other parameters for sc.tl.filter_rank_genes_groups. Defaults to {}.
-    """
-    rawDt = dict(
-        groupby=groupby,
-        groups=groups,
-        use_raw=use_raw,
-        method=method,
-        pts=pts,
-        key_added=key_added,
-        **rawDt,
-    )
-    filterDt = dict(
-        key=key_added,
-        key_added=f"{key_added}_filtered",
-        min_in_group_fraction=min_in_group_fraction,
-        max_out_group_fraction=max_out_group_fraction,
-        min_fold_change=min_fold_change,
-        **filterDt,
-    )
-    if groups != "all":
-        _adata = adata[adata.obs.query(f"{groupby} in @groups").index]
-    else:
-        _adata = adata
-
-    sc.tl.rank_genes_groups(_adata, **rawDt)
-    sc.tl.filter_rank_genes_groups(_adata, **filterDt)
-    if groups != "all":
-        adata.uns[key_added] = _adata.uns[key_added]
-        adata.uns[f"{key_added}_filtered"] = _adata.uns[f"{key_added}_filtered"]
-
-
-def normalizeMultiAd(multiAd, removeAmbiguous=True):
-    """
-    对二代三代数据分开normalize, 最终获得的每个细胞有3e4的reads
-    """
-    multiCountAd = multiAd[:, ~multiAd.var.index.str.contains("_")]
-    multiOtherAd = multiAd[:, multiAd.var.index.str.contains("_")]
-    sc.pp.normalize_total(multiCountAd, target_sum=1e4)
-    sc.pp.normalize_total(multiOtherAd, target_sum=2e4)
-    multiAd = sc.concat([multiCountAd, multiOtherAd], axis=1)
-    if removeAmbiguous:
-        multiAd = multiAd[
-            :,
-            ~(
-                multiAd.var.index.str.contains("Ambiguous")
-                | multiAd.var.index.str.contains("_N_")
-            ),
+            colorDt = {x: hex(y) for x, y in colorDt.items()}
+        adata.uns[f"{label}_colors"] = [
+            colorDt[x] for x in adata.obs[label].cat.categories
         ]
-    return multiAd
-
-
-def normalizeByScran(
-    adata: anndata.AnnData, logScaleOut: bool = True
-) -> anndata.AnnData:
-    """normalizeByScran: use scran normalize raw counts
-
-    Args:
-        adata (anndata): X stores raw counts
-        logScaleOut (bool, optional): log-transform the output or not. Defaults to True.
-
-    Returns:
-        anndata: raw counts is stored in layers['counts'] and X is updated by the normalized and log-transformed counts
-    """
-    from scipy.sparse import csr_matrix, isspmatrix
-    import rpy2.robjects as ro
-    from rpy2.robjects import pandas2ri
-
-    pandas2ri.activate()
-    ro.r("library(scran)")
-
-    adata = adata.copy()
-    adataPP = adata.copy()
-    sc.pp.normalize_per_cell(adataPP, counts_per_cell_after=1e6)
-    sc.pp.log1p(adataPP)
-    sc.pp.pca(adataPP, n_comps=20)
-    sc.pp.neighbors(adataPP)
-    sc.tl.leiden(adataPP, key_added="groups", resolution=0.7)
-    inputGroupDf = adataPP.obs["groups"]
-    dataMat = adata.X.T
-    if isspmatrix(dataMat):
-        dataMat = dataMat.A
-
-    ro.globalenv["inputGroupDf"] = inputGroupDf
-    ro.globalenv["dataMat"] = dataMat
-
-    sizeFactorSr = ro.r(
-        "sizeFactors(computeSumFactors(SingleCellExperiment(list(counts=dataMat)), clusters=inputGroupDf, min.mean=0.1))"
-    )
-
-    adata.obs["sizeFactors"] = sizeFactorSr
-    adata.layers["counts"] = adata.X.copy()
-    adata.X /= adata.obs["sizeFactors"].values.reshape([-1, 1])
-
-    if logScaleOut:
-        sc.pp.log1p(adata)
-
-    adata.X = csr_matrix(adata.X)
-    return adata
-
-
-@rpy2_check
-@anndata2ri_check
-def normalizeBySCT(
-    adata: anndata.AnnData,
-    layer: Union[Literal["X"], str] = "X",
-    regress_out: Sequence = ("log_umi",),
-    method="poisson",
-    batch_key: Optional[str] = None,
-    n_top_genes: int = 3000,
-    regress_out_nonreg: Optional[Sequence] = None,
-    min_cells: int = 5,
-    store_residuals: bool = True,
-    correct_counts: bool = True,
-    verbose: bool = True,
-    inplace: bool = True,
-    seed: int = 0,
-) -> Optional[anndata.AnnData]:
-    """\
-    Forked from gokceneraslan
-    Normalization and variance stabilization of scRNA-seq data using regularized
-    negative binomial regression [Hafemeister19]_.
-    sctransform uses Pearson residuals from regularized negative binomial regression to
-    correct for the sequencing depth. After regressing out total number of UMIs (and other
-    variables if given) it ranks the genes based on their residual variances and therefore
-    also acts as a HVG selection method.
-    This function replaces `sc.pp.normalize_total` and `sc.pp.highly_variable_genes` and requires
-    raw counts in `adata.X`.
-    .. note::
-        More information and bug reports `here <https://github.com/ChristophH/sctransform>`__.
-    Parameters
-    ----------
-    adata
-        An anndata file with `X` attribute of unnormalized count data
-    layer
-        which layer is used as input matrix for SCT
-    regress_out
-        Variables to regress out. Default is logarithmized total UMIs which is implicitly
-        calculated by sctransform. Other obs keys can also be used.
-    batch_key
-        If specified, HVGs are ranked after batch_key is regressed out. This avoids the
-        selection of batch-specific genes and acts as a lightweight batch correction method.
-        Note that corrected counts are not batch-corrected but only depth-normalized.
-    n_top_genes
-        Total number of highly variable genes selected.
-    min_cells
-        Only use genes that have been detected in at least this many cells; default is 5.
-    store_residuals
-        Store Pearson residuals in adata.layers['sct_residuals']. These values represent
-        batch corrected and depth-normalized gene expression values. Due to potential
-        high memory use for big matrices, they are not stored by default.
-    correct_counts
-        Store corrected counts in adata.layers['sct_corrected']. Default is True.
-    verbose
-        Show progress bar during normalization.
-    inplace
-        Save HVGs and corrected UMIs inplace. Default is True.
-    seed
-        Random seed for R RNG. Default is 0.
-    Returns
-    -------
-    If `inplace` is False, anndata is returned.
-    If `store_residuals` is True, residuals are stored in adata.layers['sct_residuals'].
-    `adata.layers['sct_corrected']` stores normalized representation of gene expression.
-    `adata.var['highly_variable']` stores highly variable genes.
-    `adata.var['highly_variable_sct_residual_var']` stores the residual variances that
-    are also used for ranking genes by variability.
-    """
-
-    import rpy2
-    from rpy2.robjects import r
-    from rpy2.robjects.packages import importr
-    from scanpy.preprocessing import filter_genes
-    import scipy.sparse as sp
-    import anndata2ri
-
-    r_is_installed("sctransform")
-    r_set_seed(seed)
-
-    # check if observations are unnormalized using first 10
-    testColCounts = min([10, adata.shape[0]])
-    if layer == "X":
-        X_subset = adata.X[:testColCounts]
-    else:
-        X_subset = adata.layers[layer][:testColCounts]
-    err = "Make sure that adata.X contains unnormalized count data"
-    if sp.issparse(X_subset):
-        assert (X_subset.astype(int) != X_subset).nnz == 0, err
-    else:
-        assert np.all(X_subset.astype(int) == X_subset), err
-
-    assert regress_out, "regress_out cannot be emtpy"
-
-    if not inplace:
-        adata = adata.copy()
-
-    filter_genes(adata, min_cells=min_cells)
-
-    mat = adata.X.T if layer == "X" else adata.layers[layer].T
-    if sp.issparse(mat):
-        mat.sort_indices()
-    mat = py2r(mat)
-
-    set_colnames = r("`colnames<-`")
-    set_rownames = r("`rownames<-`")
-
-    mat = set_colnames(mat, adata.obs_names.values.tolist())
-    mat = set_rownames(mat, adata.var_names.values.tolist())
-
-    assert isinstance(
-        regress_out, collections.abc.Sequence
-    ), "regress_out is not a sequence"
-
-    obs_keys = [x for x in regress_out if x != "log_umi"]
-    regress_out = py2r(np.array(regress_out))
-    if regress_out_nonreg is not None:
-        assert isinstance(
-            regress_out_nonreg, collections.abc.Sequence
-        ), "regress_out_nonreg is not a sequence"
-
-        obs_keys += list(regress_out_nonreg)
-        regress_out_nonreg = py2r(np.array(regress_out_nonreg))
-    else:
-        regress_out_nonreg = rpy2.rinterface.NULL
-
-    if batch_key is not None:
-        obs_keys += [batch_key]
-    else:
-        batch_key = rpy2.rinterface.NULL
-
-    if obs_keys:
-        assert np.all(
-            np.isin(obs_keys, adata.obs.columns)
-        ), "Some regress_out or batch_key values are not found in adata.obs"
-        cell_attr = adata.obs[obs_keys]
-        cell_attr = py2r(cell_attr)
-    else:
-        cell_attr = rpy2.rinterface.NULL
-
-    sct = importr("sctransform")
-    residual_type = "pearson" if store_residuals else "none"
-
-    vst_out = sct.vst(
-        mat,
-        cell_attr=cell_attr,
-        batch_var=batch_key,
-        latent_var=regress_out,
-        latent_var_nonreg=regress_out_nonreg,
-        residual_type=residual_type,
-        return_cell_attr=True,
-        min_cells=min_cells,
-        method=method,
-        show_progress=verbose,
-    )
-
-    res_var = r2py(sct.get_residual_var(vst_out, mat))
-
-    if correct_counts:
-        corrected = r2py(sct.correct_counts(vst_out, mat)).T
-        adata.layers["sct_corrected"] = corrected.copy()
-
-    adata.var["highly_variable_sct_residual_var"] = res_var.copy()
-
-    if store_residuals:
-        adata.layers["sct_residuals"] = r2py(vst_out.rx2("y")).T.copy()
-
-    top_genes = (
-        adata.var["highly_variable_sct_residual_var"]
-        .sort_values(ascending=False)[:n_top_genes]
-        .index.tolist()
-    )
-    adata.var["highly_variable"] = adata.var_names.isin(top_genes)
-
-    if not inplace:
         return adata
 
-
-def getAdataColor(adata, label):
-    """
-    获得adata中label的颜色
-    """
-    return {
-        x: y
-        for x, y in zip(adata.obs[label].cat.categories, adata.uns[f"{label}_colors"])
-    }
-
-
-def setAdataColor(adata, label, colorDt, hex=True):
-    """
-    设置adata中label的颜色
-    """
-    adata.obs[label] = adata.obs[label].astype("category")
-    if not hex:
-        from matplotlib.colors import to_hex
-
-        colorDt = {x: hex(y) for x, y in colorDt.items()}
-    adata.uns[f"{label}_colors"] = [colorDt[x] for x in adata.obs[label].cat.categories]
-    return adata
-
-
-def onlyKeepAdCount(adata):
-    """
-    去除adata和adata.raw中含有`_`的index
-    """
-    adata = adata.copy()
-    adata = adata[:, ~adata.var.index.str.contains("_")]
-    adataRaw = adata.raw.to_adata()
-    adataRaw = adataRaw[:, ~adataRaw.var.index.str.contains("_")]
-    adata.raw = adataRaw
-    return adata
-
-
-def plotCellScatter(adata):
-    """
-    绘制anndata基本情况
-    """
-    sc.pp.filter_genes(adata, min_cells=0)
-    sc.pp.filter_cells(adata, min_genes=0)
-
-    adata.obs["n_count"] = adata.X.sum(axis=1)
-    ctGene = (adata.var_names.str.startswith("ATCG")) | (
-        adata.var_names.str.startswith("ATMG")
-    )
-    adata.obs["percent_ct"] = np.sum(adata[:, ctGene].X, axis=1) / np.sum(
-        adata.X, axis=1
-    )
-    sc.pl.violin(
-        adata, ["n_count", "n_genes", "percent_ct"], multi_panel=True, jitter=0.4
-    )
-    # fig, axs = plt.subplots(1, 3, figsize=(15, 3))
-    # for x, y in zip(["n_count", "n_genes", "percent_ct"], axs):
-    #     sc.pl.violin(adata, x, jitter=0.4, ax=y, show=False)
-    #     plt.subplot(y)
-    #     plt.ylabel("")
-
-
-def creatAnndataFromDf(df, **layerInfoDt):
-    """
-    dataframe转换成anndata
-    df,
-    layerInfoDt:
-        key为layer名
-        value为mtx
-    均行为barcode 列为feature 维度相同
-    """
-    transformedAd = anndata.AnnData(
-        X=df.values,
-        obs=pd.DataFrame(index=df.index),
-        var=pd.DataFrame(index=df.columns),
-    )
-    for layerName, layerMtx in layerInfoDt.items():
-
-        transformedAd.layers[layerName] = layerMtx
-
-    return transformedAd
-
-
-def mergeAdataExpress(
-    adata, groupby="louvain", useRaw=True, logTransformed=True, method="mean"
-):
-    """
-    通过adata.obs中的<groupby>对表达量合并
-    """
-
-    def __creatAnndataFromDf(df):
+    @staticmethod
+    def creatAnndataFromDf(df, **layerInfoDt):
+        """
+        df,
+        layerInfoDt:
+            key: layer name
+            value: mtx
+        column is barcode raw is feature
+        """
         transformedAd = anndata.AnnData(
             X=df.values,
             obs=pd.DataFrame(index=df.index),
             var=pd.DataFrame(index=df.columns),
         )
+        for layerName, layerMtx in layerInfoDt.items():
+
+            transformedAd.layers[layerName] = layerMtx
+
         return transformedAd
 
-    adataExpressDf = (
-        pd.DataFrame(adata.raw.X.A, columns=adata.raw.var.index, index=adata.obs.index)
-        if useRaw
-        else adata.to_df()
-    )
-    adataExpressDf = np.exp(adataExpressDf) - 1 if logTransformed else adataExpressDf
+    @staticmethod
+    def mergeAdata(adata, groupby, mergeLayer=[], method="sum"):
+        """
+        通过adata.obs中的<groupby>合并X和layer
+        """
+        adataXDf = adata.to_df()
+        groupbyXDf = adataXDf.join(adata.obs[groupby]).groupby(groupby).agg(method)
 
-    groupbyExpressDf = (
-        adataExpressDf.join(adata.obs[groupby]).groupby(groupby).agg(method)
-    )
-    groupbyExpressDf = (
-        np.log(groupbyExpressDf + 1) if logTransformed else groupbyExpressDf
-    )
-
-    groupbyExpressAd = __creatAnndataFromDf(groupbyExpressDf)
-
-    return groupbyExpressAd
-
-
-def mergeAdata(adata, groupby, mergeLayer=[], method="sum"):
-    """
-    通过adata.obs中的<groupby>合并X和layer
-    """
-    adataXDf = adata.to_df()
-    groupbyXDf = adataXDf.join(adata.obs[groupby]).groupby(groupby).agg(method)
-
-    adataLayerDfDt = {}
-    for singleLayer in mergeLayer:
-        adataLayerDfDt[singleLayer] = (
-            adata.to_df(singleLayer)
-            .join(adata.obs[groupby])
-            .groupby(groupby)
-            .agg(method)
-        )
-    return creatAnndataFromDf(groupbyXDf, **adataLayerDfDt)
-
-
-def getEnrichedGensDf(adata, name, useUns="rank_genes_groups_filtered"):
-    """
-    从adata的uns中获得富集基因
-    """
-    adataGeneInfoDt = adata.uns[useUns]
-    useAttr = ["names", "scores", "pvals", "pvals_adj", "logfoldchanges"]
-    nameUseInfoLs = [adataGeneInfoDt[x][name] for x in useAttr]
-    nameEnrichedDf = pd.DataFrame(nameUseInfoLs, index=useAttr).T.dropna()
-    return nameEnrichedDf.query("pvals_adj <= 0.05")
-
-
-def calculateExpressionRatio(adata, clusterby):
-    """
-    逐个计算adata中每个基因在每个cluster中的表达比例
-
-    adata:
-        需要含有raw
-    clusterby:
-        adata.obs中的某个列名
-    """
-    transformAdataRawToAd = lambda adata: anndata.AnnData(
-        X=adata.raw.X, obs=adata.obs, var=adata.raw.var
-    )
-    rawAd = transformAdataRawToAd(adata)
-    expressionOrNotdf = (rawAd.to_df() > 0).astype(int)
-    expressionOrNotdf[clusterby] = rawAd.obs[clusterby]
-    expressionRatioDf = expressionOrNotdf.groupby(clusterby).agg(
-        "sum"
-    ) / expressionOrNotdf.groupby(clusterby).agg("count")
-    return expressionRatioDf
-
-
-def calculateGeneAverageEx(expressionMtxDf, geneDt, method="mean"):
-    """
-    根据geneDt对expressionMtxDf计算平均值或中位数
-
-    expressionMtxDf:
-        形如adata.to_df()
-
-    geneDt:
-        形如:{
-    "type1": [
-        "AT5G42235",
-        "AT4G00540",
-        ],
-    "type2": [
-        "AT1G55650",
-        "AT5G45980",
-        ],
-    }
-    method:
-        'mean|median'
-
-    """
-    averageExLs = []
-    for typeName, geneLs in geneDt.items():
-        typeAvgExpress = (
-            expressionMtxDf.reindex(geneLs, axis=1).mean(1)
-            if method == "mean"
-            else expressionMtxDf.reindex(geneLs, axis=1).median(1)
-        )
-        typeAvgExpress.name = typeName
-        averageExLs.append(typeAvgExpress)
-    averageExDf = pd.concat(averageExLs, axis=1)
-
-    return averageExDf
-
-
-def getClusterEnrichedGene(
-    adata,
-    useAttri=["names", "pvals", "pvals_adj", "logfoldchanges"],
-    geneAnno=False,
-    geneMarker=False,
-):
-    """
-    获得每个cluster enriched的基因
-    adata:
-        obs中有louvain
-        执行过:
-            sc.tl.rank_genes_groups(adata)
-            sc.tl.filter_rank_genes_groups(adata)
-
-    geneAnno：
-        dict;
-        存在两个key['curator_summary', 'Note'] 从gff文件中转换而来
-
-    geneMarker:
-        dict;
-        key为gene
-        value为tissue
-
-
-    useAttri = ['names', 'pvals', 'pvals_adj', 'logfoldchanges']
-    """
-    useLouvain = adata.obs["louvain"].unique()
-    useAttriMap = {x: y for x, y in zip(range(len(useAttri)), useAttri)}
-    useDict = adata.uns["rank_genes_groups_filtered"]
-    allLouvainUseAttri = []
-    for pointLouvain in useLouvain:
-        pointLouvainUseAttri = []
-        for pointAttr in useAttri:
-            pointLouvainUseAttri.append(pd.Series(useDict[pointAttr][pointLouvain]))
-        pointLouvainUseAttri = (
-            pd.concat(pointLouvainUseAttri, axis=1)
-            .rename(columns=useAttriMap)
-            .assign(clusters=pointLouvain)
-        )
-        allLouvainUseAttri.append(pointLouvainUseAttri)
-    allLouvainUseAttri = (
-        pd.concat(allLouvainUseAttri)
-        .dropna()
-        .sort_values("clusters")
-        .reindex(["clusters", "names", "pvals", "pvals_adj", "logfoldchanges"], axis=1)
-    )
-    if geneMarker:
-        allLouvainUseAttri = allLouvainUseAttri.assign(
-            markerInfo=allLouvainUseAttri["names"].map(
-                lambda x: geneMarker.get(x, "Unknown")
+        adataLayerDfDt = {}
+        for singleLayer in mergeLayer:
+            adataLayerDfDt[singleLayer] = (
+                adata.to_df(singleLayer)
+                .join(adata.obs[groupby])
+                .groupby(groupby)
+                .agg(method)
             )
+        return creatAnndataFromDf(groupbyXDf, **adataLayerDfDt)
+
+    @staticmethod
+    def clusterBySC3(
+        adata: anndata.AnnData,
+        layer: str,
+        clusterNum: Union[int, list],
+        biologyInfo: bool = False,
+        threads: int = 24,
+        needSCE: bool = False,
+        copy: bool = False,
+    ) -> Tuple[Optional[anndata.AnnData], Optional[Any]]:
+        """
+        Cluster by SC3
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            anndata
+        layer : str
+            use this layer as input for SC3. WARNING: this layer must is not log-scaled.
+        clusterNum : Union[int, list]
+            cluster counts.
+        biologyInfo : bool, optional
+            need biology info or not. It is means that the DEG, marker, and others. This information will stored in var. by default False
+        threads : int, optional
+            by default 24
+        needSCE : bool, optional
+            need sce object or not. this object could be used for plot. by default False
+        copy : bool, optional
+            by default False
+
+        Returns
+        -------
+        Tuple[Optional[anndata.AnnData], Optional[Any]]
+            anndata and singleCellExperiment. DEPOND ON copy and needSCE
+        """
+        import scipy.sparse as ss
+        import rpy2.robjects as ro
+        from rpy2.robjects.packages import importr
+        from .rTools import r2py, py2r
+
+        R = ro.r
+
+        adata = adata.copy() if copy else adata
+
+        importr("SC3")
+        importr("SingleCellExperiment")
+        useMtx = adata.layers[layer] if layer != "X" else adata.X
+
+        _adata = anndata.AnnData(
+            None, obs=adata.obs[[]], var=adata.var[[]], layers=dict(counts=useMtx)
         )
-    if geneAnno:
-        allLouvainUseAttri = allLouvainUseAttri.assign(
-            curator_summary=allLouvainUseAttri["names"].map(
-                geneAnno["curator_summary"]
-            ),
-            note=allLouvainUseAttri["names"].map(geneAnno["Note"]),
-        ).reset_index(drop=True)
-    #     allLouvainUseAttri.dropna(inplace=True)
-    return allLouvainUseAttri.query("pvals_adj > 0.05")
+        _adata.var["feature_symbol"] = _adata.var.index
+        _adata.layers["logcounts"] = sc.pp.log1p(_adata.layers["counts"], copy=True)
 
+        logger.info("transform data to R")
+        sceObj = py2r(_adata)
+        logger.info("transform end")
 
-def __shuffleLabel(adata, label, i):
-    """
-    used for getEnrichedScore
-    """
-    shuffleAd = adata.copy()
-    #     shuffleAd.obs[label] = adata.obs[label].sample(frac=1).reset_index(drop=True)
-    shuffleAd.obs[label] = adata.obs[label].sample(frac=1, random_state=i).values
-    #     print(shuffleAd.obs.iloc[0])
-    shuffleClusterDf = (
-        mergeAdataExpress(shuffleAd, label).to_df().reset_index().assign(label=i)
-    )
+        setAssay = R("`assay<-`")
+        sceObj = setAssay(
+            sceObj, "counts", value=R("as.matrix")(R.assay(sceObj, "counts"))
+        )
+        sceObj = setAssay(
+            sceObj, "logcounts", value=R("as.matrix")(R.assay(sceObj, "logcounts"))
+        )
 
-    return shuffleClusterDf
+        if isinstance(clusterNum, list):
+            clusterNum = np.array(clusterNum)
+        else:
+            clusterNum = np.array([clusterNum])  # if is int, transform it to list.
 
+        sceObj = R.sc3(
+            sceObj, ks=py2r(clusterNum), biology=biologyInfo, n_cores=threads
+        )
+        adata.uns[f"SC3_consensus"] = {}
+        trainSvmObsIndexSr = r2py(
+            R.metadata(sceObj).rx2["sc3"].rx2["svm_train_inds"]
+        ).copy()  # To record obs which used for calculate consensus matrix
+        adata.uns[f"SC3_consensus"]["useObs"] = adata.obs.index[
+            trainSvmObsIndexSr
+        ].values
 
-def getEnrichedScore(adata, label, geneLs, threads=12, times=100):
-    """
-    获得ES值。ES值是通过对adata.obs中的label进行重排times次，然后计算原始label的zscore获得
-
-    adata:
-        必须有raw且为log-transformed
-
-    label:
-        adata.obs中的列名
-
-    geneLs:
-        需要计算的基因
-
-    threads:
-        使用核心数
-
-    times:
-        重排的次数
-    """
-
-    geneLs = geneLs[:]
-    geneLs[0:0] = [label]
-    adata = adata.copy()
-
-    allShuffleClusterExpressLs = []
-    with Mtp(threads) as mtp:
-        for time in range(1, times + 1):
-            allShuffleClusterExpressLs.append(
-                mtp.submit(__shuffleLabel, adata, label, time)
+        if _adata.shape[0] > 5000:
+            logger.info("To start predicts cell labels by SVM")
+            sceObj = R.sc3_run_svm(sceObj, ks=py2r(clusterNum))
+            if biologyInfo:
+                logger.info("To start calculates biology information")
+                ro.globalenv["sceObj"] = sceObj
+                R("metadata(sceObj)$sc3$svm_train_inds <- NULL")
+                sceObj = R.sc3_calc_biology(sceObj, ks=clusterNum)
+        try:
+            adata.obs = adata.obs.join(r2py(R.colData(sceObj))).copy()
+            adata.var = adata.var.join(r2py(R.rowData(sceObj))).copy()
+        except ValueError:
+            logger.warning(
+                "obs or var is not updated, because overlaped attributes is existed!"
             )
 
-    allShuffleClusterExpressLs = [x.result() for x in allShuffleClusterExpressLs]
-    originalClusterDf = (
-        mergeAdataExpress(adata, label).to_df().reset_index().assign(label=0)
-    )
-    allShuffleClusterExpressLs.append(originalClusterDf)
-    allShuffleClusterExpressDf = (
-        pd.concat(allShuffleClusterExpressLs).set_index("label").reindex(geneLs, axis=1)
-    )
-    logger.info(f"start calculate z score")
-    allShuffleClusterZscoreDf = (
-        allShuffleClusterExpressDf.groupby(label)
-        .apply(lambda x: x.set_index(label, append=True).apply(zscore))
-        .reset_index(level=0, drop=True)
-    )
-    #     import pdb;pdb.set_trace()
-    clusterZscoreDf = (
-        allShuffleClusterZscoreDf.query(f"label == 0")
-        .reset_index(level=0, drop=True)
-        .fillna(0)
-    )
-    return clusterZscoreDf
+        for singleClusterNum in clusterNum:
+            singleClusterNum = str(singleClusterNum)
+            adata.uns["SC3_consensus"][singleClusterNum] = r2py(
+                sceObj.slots["metadata"]
+                .rx2["sc3"]
+                .rx2["consensus"]
+                .rx2[singleClusterNum]
+                .rx2["consensus"]
+            ).copy()
+
+        returnAd = adata if copy else None
+        returnSe = sceObj if needSCE else None
+        # with r_inline_plot():
+        #     R.sc3_plot_consensus(sceObj, k=3, show_pdata=py2r(np.array(["sc3_3_clusters", "sc3_4_clusters"])))
+        return returnAd, returnSe
+
+    @staticmethod
+    def scIB_hvg_batch(
+        adata,
+        batch_key=None,
+        target_genes=2000,
+        flavor="cell_ranger",
+        n_bins=20,
+        adataOut=False,
+    ):
+        """
+        forked from scib
+
+        Method to select HVGs based on mean dispersions of genes that are highly
+        variable genes in all batches. Using a the top target_genes per batch by
+        average normalize dispersion. If target genes still hasn't been reached,
+        then HVGs in all but one batches are used to fill up. This is continued
+        until HVGs in a single batch are considered.
+        """
+
+        def checkAdata(adata):
+            if type(adata) is not anndata.AnnData:
+                raise TypeError("Input is not a valid AnnData object")
+
+        def checkBatch(batch, obs, verbose=False):
+            if batch not in obs:
+                raise ValueError(f"column {batch} is not in obs")
+            elif verbose:
+                print(f"Object contains {obs[batch].nunique()} batches.")
+
+        checkAdata(adata)
+        if batch_key is not None:
+            checkBatch(batch_key, adata.obs)
+
+        adata_hvg = adata if adataOut else adata.copy()
+
+        n_batches = len(adata_hvg.obs[batch_key].cat.categories)
+
+        # Calculate double target genes per dataset
+        sc.pp.highly_variable_genes(
+            adata_hvg,
+            flavor=flavor,
+            n_top_genes=target_genes,
+            n_bins=n_bins,
+            batch_key=batch_key,
+        )
+
+        nbatch1_dispersions = adata_hvg.var["dispersions_norm"][
+            adata_hvg.var.highly_variable_nbatches
+            > len(adata_hvg.obs[batch_key].cat.categories) - 1
+        ]
+
+        nbatch1_dispersions.sort_values(ascending=False, inplace=True)
+
+        if len(nbatch1_dispersions) > target_genes:
+            hvg = nbatch1_dispersions.index[:target_genes]
+
+        else:
+            enough = False
+            print(f"Using {len(nbatch1_dispersions)} HVGs from full intersect set")
+            hvg = nbatch1_dispersions.index[:]
+            not_n_batches = 1
+
+            while not enough:
+                target_genes_diff = target_genes - len(hvg)
+
+                tmp_dispersions = adata_hvg.var["dispersions_norm"][
+                    adata_hvg.var.highly_variable_nbatches
+                    == (n_batches - not_n_batches)
+                ]
+
+                if len(tmp_dispersions) < target_genes_diff:
+                    print(
+                        f"Using {len(tmp_dispersions)} HVGs from n_batch-{not_n_batches} set"
+                    )
+                    hvg = hvg.append(tmp_dispersions.index)
+                    not_n_batches += 1
+
+                else:
+                    print(
+                        f"Using {target_genes_diff} HVGs from n_batch-{not_n_batches} set"
+                    )
+                    tmp_dispersions.sort_values(ascending=False, inplace=True)
+                    hvg = hvg.append(tmp_dispersions.index[:target_genes_diff])
+                    enough = True
+
+        print(f"Using {len(hvg)} HVGs")
+
+        if not adataOut:
+            del adata_hvg
+            return hvg.tolist()
+        else:
+            return adata_hvg[:, hvg].copy()
+
+    @staticmethod
+    def scIB_scale_batch(adata, batch) -> anndata.AnnData:
+        """
+        Function to scale the gene expression values of each batch separately.
+        """
+
+        def checkAdata(adata):
+            if type(adata) is not anndata.AnnData:
+                raise TypeError("Input is not a valid AnnData object")
+
+        def checkBatch(batch, obs, verbose=False):
+            if batch not in obs:
+                raise ValueError(f"column {batch} is not in obs")
+            elif verbose:
+                print(f"Object contains {obs[batch].nunique()} batches.")
+
+        def splitBatches(adata, batch, hvg=None, return_categories=False):
+            split = []
+            batch_categories = adata.obs[batch].unique()
+            if hvg is not None:
+                adata = adata[:, hvg]
+            for i in batch_categories:
+                split.append(adata[adata.obs[batch] == i].copy())
+            if return_categories:
+                return split, batch_categories
+            return split
+
+        def merge_adata(adata_list, sep="-"):
+            """
+            merge adatas from list and remove duplicated obs and var columns
+            """
+
+            if len(adata_list) == 1:
+                return adata_list[0]
+
+            adata = adata_list[0].concatenate(
+                *adata_list[1:], index_unique=None, batch_key="tmp"
+            )
+            del adata.obs["tmp"]
+
+            if len(adata.obs.columns) > 0:
+                # if there is a column with separator
+                if sum(adata.obs.columns.str.contains(sep)) > 0:
+                    columns_to_keep = [
+                        name.split(sep)[1] == "0" for name in adata.var.columns.values
+                    ]
+                    clean_var = adata.var.loc[:, columns_to_keep]
+                else:
+                    clean_var = adata.var
+
+            if len(adata.var.columns) > 0:
+                if sum(adata.var.columns.str.contains(sep)) > 0:
+                    adata.var = clean_var.rename(
+                        columns={
+                            name: name.split("-")[0]
+                            for name in clean_var.columns.values
+                        }
+                    )
+
+            return adata
+
+        checkAdata(adata)
+        checkBatch(batch, adata.obs)
+
+        # Store layers for after merge (avoids vstack error in merge)
+        adata_copy = adata.copy()
+        tmp = dict()
+        for lay in list(adata_copy.layers):
+            tmp[lay] = adata_copy.layers[lay]
+            del adata_copy.layers[lay]
+
+        split = splitBatches(adata_copy, batch)
+
+        for i in split:
+            sc.pp.scale(i, max_value=10)
+
+        adata_scaled = merge_adata(split)
+
+        # Reorder to original obs_name ordering
+        adata_scaled = adata_scaled[adata.obs_names]
+
+        # Add layers again
+        for key in tmp:
+            adata_scaled.layers[key] = tmp[key]
+
+        del tmp
+        del adata_copy
+
+        return adata_scaled
+
+    @staticmethod
+    def hvgBatch(
+        adata: anndata.AnnData,
+        layer: str,
+        flavor: str,
+        batchKey: str,
+        singleBatchHvgCounts: int = 1000,
+    ) -> anndata.AnnData:
+        from functools import reduce
+
+        adata = adata.copy()
+        batchAdLs = list(splitAdata(adata, batchKey))
+        [
+            sc.pp.highly_variable_genes(
+                x, layer=layer, n_top_genes=singleBatchHvgCounts, flavor=flavor
+            )
+            for x in batchAdLs
+        ]
+        finalHvgBoolLs = reduce(
+            lambda a, b: a | b, [x.var.highly_variable for x in batchAdLs]
+        )
+        adata = sc.concat(batchAdLs)
+        adata.var["highly_variable"] = finalHvgBoolLs
+        return adata
+
+    @staticmethod
+    def plotCellScatter(adata):
+        sc.pp.filter_genes(adata, min_cells=0)
+        sc.pp.filter_genes(adata, min_counts=0)
+        sc.pp.filter_cells(adata, min_genes=0)
+
+        ctGene = (adata.var_names.str.startswith("ATCG")) | (
+            adata.var_names.str.startswith("ATMG")
+        )
+        adata.obs["percent_ct"] = np.sum(adata[:, ctGene].X, axis=1) / np.sum(
+            adata.X, axis=1
+        )
+        sc.pl.violin(
+            adata, ["n_counts", "n_genes", "percent_ct"], multi_panel=True, jitter=0.4
+        )
+
+    @staticmethod
+    def plotLabelPercentageInCluster(adata, groupby, label, labelColor):
+        """
+        根据label在adata.obs中groupby的占比绘图
+
+        groupby:
+            表明cluster。需要存在于adata.obs
+        label:
+            展示的占比。需要存在于adata.obs
+        labelColor:
+            label的颜色
+        """
+        groupbyWithLabelCountsDf = (
+            adata.obs.groupby(groupby)[label]
+            .apply(lambda x: x.value_counts())
+            .unstack()
+        )
+        groupbyWithLabelCounts_CumsumPercDf = groupbyWithLabelCountsDf.pipe(
+            lambda x: x.cumsum(1).div(x.sum(1), 0) * 100
+        )
+        legendHandleLs = []
+        legendLabelLs = []
+        for singleLabel in groupbyWithLabelCounts_CumsumPercDf.columns[::-1]:
+            ax = sns.barplot(
+                x=groupbyWithLabelCounts_CumsumPercDf.index,
+                y=groupbyWithLabelCounts_CumsumPercDf[singleLabel],
+                color=labelColor[singleLabel],
+            )
+            legendHandleLs.append(
+                plt.Rectangle(
+                    (0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none"
+                )
+            )
+            legendLabelLs.append(singleLabel)
+        legendHandleLs, legendLabelLs = legendHandleLs[::-1], legendLabelLs[::-1]
+        plt.legend(legendHandleLs, legendLabelLs, bbox_to_anchor=[1, 1], frameon=False)
+        plt.xlabel(groupby.capitalize())
+        plt.ylabel(f"Percentage")
+        return ax
 
 
-#################
-## 细胞注释
-#################
+class multiModle(object):
+    @staticmethod
+    def addDfToObsm(adata, copy=False, **dataDt):
+        """addDfToObsm, add data to adata.obsm
+
+        Args:
+            adata ([anndata])
+            copy (bool, optional)
+            dataDt: {label: dataframe}, dataframe must have the same dimension
+
+        Returns:
+            adata if copy=True, otherwise None
+        """
+        adata = adata.copy() if copy else adata
+        for label, df in dataDt.items():
+            if (adata.obs.index != df.index).all():
+                logger.error(f"dataset {label} have a wrong shape/index")
+                0 / 0
+            if label in adata.obsm:
+                logger.warning(f"dataset {label} existed! Overwrite")
+            adata.uns[f"{label}_label"] = df.columns.values
+            adata.obsm[label] = df.values
+        if copy:
+            return adata
+
+    @staticmethod
+    def getMatFromObsm(
+        adata: anndata.AnnData,
+        keyword: str,
+        minCell: int = 5,
+        useGeneLs: Union[list, pd.Series, np.ndarray] = [],
+        normalize=True,
+        logScale=True,
+        ignoreN=False,
+        clear=False,
+        raw=False,
+        strCommand=None,
+    ) -> anndata.AnnData:
+        """
+        use MAT deposited in obsm replace the X MAT
+
+        params:
+            adata:
+                version 1.0 multiAd
+            keyword:
+                stored in obsm
+            minCell:
+                filter feature which expressed not more than <minCell> cells
+            useGeneLs:
+                if not specified useGeneLs, all features will be output, otherwise only features associated with those gene will be output
+            normalize:
+                normalize the obtained Mtx or not
+            logScale:
+                log-transformed or not
+            ignoreN:
+                ignore ambiguous APA/Splice info
+            clear:
+                data not stored in obs or var will be removed
+            raw:
+                return the raw dataset stored in the obsm. This parameter is prior to all others
+            strCommand:
+                use str instead of specified params:
+                "n": set normalize True
+                "s": set logScale True
+                'N': set ignoreN True
+                'c' set clear True
+                '': means all is False
+                This parameter is prior to all others except raw
+        return:
+            anndata
+        """
+        if clear:
+            transformedAd = anndata.AnnData(
+                X=adata.obsm[keyword].copy(),
+                obs=adata.obs,
+                var=pd.DataFrame(index=adata.uns[f"{keyword}_label"]),
+            )
+        else:
+            transformedAd = anndata.AnnData(
+                X=adata.obsm[keyword].copy(),
+                obs=adata.obs,
+                var=pd.DataFrame(index=adata.uns[f"{keyword}_label"]),
+                obsp=adata.obsp,
+                obsm=adata.obsm,
+                uns=adata.uns,
+            )
+
+        if raw:
+            return transformedAd
+
+        if strCommand != None:
+            normalize = True if "n" in strCommand else False
+            logScale = True if "s" in strCommand else False
+            ignoreN = True if "N" in strCommand else False
+            clear = True if "c" in strCommand else False
+
+        logger.info(
+            f"""
+        final mode: 
+            normalize: {normalize}, 
+            logScale: {logScale}, 
+            ignoreN: {ignoreN}, 
+            clear: {clear}
+        """
+        )
+
+        sc.pp.filter_genes(transformedAd, min_cells=minCell)
+
+        if normalize:
+            sc.pp.normalize_total(transformedAd, target_sum=1e4)
+        if logScale:
+            sc.pp.log1p(transformedAd)
+
+        useGeneLs = list(useGeneLs)
+        if not useGeneLs:
+            transformedAd = transformedAd
+        else:
+            transformedAdFeatureSr = transformedAd.var.index
+            transformedAdFeatureFilterBl = (
+                transformedAdFeatureSr.str.split("_").str[0].isin(useGeneLs)
+            )
+            transformedAd = transformedAd[:, transformedAdFeatureFilterBl]
+
+        if ignoreN:
+            transformedAdFeatureSr = transformedAd.var.index
+            transformedAdFeatureFilterBl = (
+                ~transformedAdFeatureSr.str.split("_").str[1].isin(["N", "Ambiguous"])
+            )
+
+            transformedAd = transformedAd[:, transformedAdFeatureFilterBl]
+
+        return transformedAd
+
+    @staticmethod
+    def transformEntToAd(ent) -> anndata.AnnData:
+        """
+        parse mofa
+        transformEntToAd parse trained ent object to anndata
+
+        Args:
+            ent ([entry_point]): only one group
+
+        Returns:
+            anndata: the X represents the sample-factor weights,
+                    the layer represents the feature-factor weight and variance-factor matrix,
+                    the uns['mofaR2_total] stored the total variance of factors could be explained
+        """
+        factorOrderLs = np.argsort(
+            np.array(ent.model.calculate_variance_explained()).sum(axis=(0, 1))
+        )[::-1]
+
+        sampleWeightDf = pd.DataFrame(ent.model.getExpectations()["Z"]["E"]).T
+        sampleWeightDf = sampleWeightDf.reindex(factorOrderLs).reset_index(drop=True)
+        sampleWeightDf.index = [f"factor_{x}" for x in range(1, len(factorOrderLs) + 1)]
+        sampleWeightDf.columns = ent.data_opts["samples_names"][0]
+        mofaAd = basic.creatAnndataFromDf(sampleWeightDf)
+
+        for label, featureSr, data in zip(
+            ent.data_opts["views_names"],
+            ent.data_opts["features_names"],
+            ent.model.getExpectations()["W"],
+        ):
+            df = pd.DataFrame(data["E"]).T
+            featureSr = pd.Series(featureSr)
+            featureSr = featureSr.str.rstrip(label)
+            if label in ["APA", "fullySpliced"]:
+                featureSr = featureSr + label
+            df.columns = featureSr
+            df = df.reindex(factorOrderLs).reset_index(drop=True)
+            df.index = [f"factor_{x}" for x in range(1, len(factorOrderLs) + 1)]
+            addDfToObsm(mofaAd, **{label: df})
+
+        r2Df = pd.DataFrame(ent.model.calculate_variance_explained()[0]).T
+        r2Df = r2Df.reindex(factorOrderLs).reset_index(drop=True)
+        r2Df.index = [f"factor_{x}" for x in range(1, len(factorOrderLs) + 1)]
+        r2Df.columns = ent.data_opts["views_names"]
+        addDfToObsm(mofaAd, mofaR2=r2Df)
+
+        mofaAd.uns["mofaR2_total"] = {
+            x: y
+            for x, y in zip(
+                ent.data_opts["views_names"],
+                ent.model.calculate_variance_explained(True)[0],
+            )
+        }
+        return mofaAd
 
 
-def cellTypeAnnoByICI(
-    adata,
-    specDfPath,
-    cutoff_adjPvalue,
-    layer=None,
-    copy=False,
-    threads=1,
-    logTransformed=True,
-    addName="ICI",
-):
-    """
-    use ICI method annotate cell type
+class normalize(object):
+    @staticmethod
+    def normalizeMultiAd(multiAd, removeAmbiguous=True):
+        """
+        normalize illumina and nanopore data separately, each cell's sum counts will equals to 3e4
+        """
+        multiCountAd = multiAd[:, ~multiAd.var.index.str.contains("_")]
+        multiOtherAd = multiAd[:, multiAd.var.index.str.contains("_")]
+        sc.pp.normalize_total(multiCountAd, target_sum=1e4)
+        sc.pp.normalize_total(multiOtherAd, target_sum=2e4)
+        multiAd = sc.concat([multiCountAd, multiOtherAd], axis=1)
+        if removeAmbiguous:
+            multiAd = multiAd[
+                :,
+                ~(
+                    multiAd.var.index.str.contains("Ambiguous")
+                    | multiAd.var.index.str.contains("_N_")
+                ),
+            ]
+        return multiAd
 
-    adata:
-        anndata, normalized but not log-transformed.
-    specDfPath:
-        ICITools::compute_spec_table result
-    """
-    import rpy2.rinterface_lib.callbacks
-    from rpy2.robjects import pandas2ri
-    import rpy2.robjects as ro
+    @staticmethod
+    def normalizeByScran(
+        adata: anndata.AnnData, logScaleOut: bool = True
+    ) -> anndata.AnnData:
+        """
+        normalizeByScran: use scran normalize raw counts
 
-    pandas2ri.activate()
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            X stores raw counts
+        logScaleOut : bool, optional
+            log-transform the output or not. Defaults to True.
 
-    adata = adata.copy() if copy else adata
+        Returns
+        -------
+        anndata.AnnData
+            anndata: raw counts is stored in layers['counts'] and X is updated by the normalized and log-transformed counts
+        """
+        from scipy.sparse import csr_matrix, isspmatrix
+        import rpy2.robjects as ro
+        from rpy2.robjects import pandas2ri
 
-    adataDf = adata.to_df(layer).T.rename_axis("Locus")
-    if logTransformed:
-        adataDf = np.exp(adataDf) - 1
-    logger.info("Start transfer dataframe to R")
-    ro.globalenv["adataDf"] = adataDf
-    if threads > 1:
+        pandas2ri.activate()
+        ro.r("library(scran)")
+
+        adata = adata.copy()
+        adataPP = adata.copy()
+        sc.pp.normalize_per_cell(adataPP, counts_per_cell_after=1e6)
+        sc.pp.log1p(adataPP)
+        sc.pp.pca(adataPP, n_comps=20)
+        sc.pp.neighbors(adataPP)
+        sc.tl.leiden(adataPP, key_added="groups", resolution=0.7)
+        inputGroupDf = adataPP.obs["groups"]
+        dataMat = adata.X.T
+        if isspmatrix(dataMat):
+            dataMat = dataMat.A
+
+        ro.globalenv["inputGroupDf"] = inputGroupDf
+        ro.globalenv["dataMat"] = dataMat
+
+        sizeFactorSr = ro.r(
+            "sizeFactors(computeSumFactors(SingleCellExperiment(list(counts=dataMat)), clusters=inputGroupDf, min.mean=0.1))"
+        )
+
+        adata.obs["sizeFactors"] = sizeFactorSr.copy()
+        adata.layers["counts"] = adata.X.copy()
+        adata.X /= adata.obs["sizeFactors"].values.reshape([-1, 1])
+
+        if logScaleOut:
+            sc.pp.log1p(adata)
+
+        adata.X = csr_matrix(adata.X)
+        return adata
+
+    @rpy2_check
+    @anndata2ri_check
+    @staticmethod
+    def normalizeBySCT(
+        adata: anndata.AnnData,
+        layer: Union[Literal["X"], str] = "X",
+        regress_out: Sequence = ("log_umi",),
+        method="poisson",
+        batch_key: Optional[str] = None,
+        n_top_genes: int = 3000,
+        regress_out_nonreg: Optional[Sequence] = None,
+        min_cells: int = 5,
+        store_residuals: bool = True,
+        correct_counts: bool = True,
+        verbose: bool = True,
+        inplace: bool = True,
+        seed: int = 0,
+    ) -> Optional[anndata.AnnData]:
+        """\
+        Forked from gokceneraslan
+        Normalization and variance stabilization of scRNA-seq data using regularized
+        negative binomial regression [Hafemeister19]_.
+        sctransform uses Pearson residuals from regularized negative binomial regression to
+        correct for the sequencing depth. After regressing out total number of UMIs (and other
+        variables if given) it ranks the genes based on their residual variances and therefore
+        also acts as a HVG selection method.
+        This function replaces `sc.pp.normalize_total` and `sc.pp.highly_variable_genes` and requires
+        raw counts in `adata.X`.
+        .. note::
+            More information and bug reports `here <https://github.com/ChristophH/sctransform>`__.
+        Parameters
+        ----------
+        adata
+            An anndata file with `X` attribute of unnormalized count data
+        layer
+            which layer is used as input matrix for SCT
+        regress_out
+            Variables to regress out. Default is logarithmized total UMIs which is implicitly
+            calculated by sctransform. Other obs keys can also be used.
+        batch_key
+            If specified, HVGs are ranked after batch_key is regressed out. This avoids the
+            selection of batch-specific genes and acts as a lightweight batch correction method.
+            Note that corrected counts are not batch-corrected but only depth-normalized.
+        n_top_genes
+            Total number of highly variable genes selected.
+        min_cells
+            Only use genes that have been detected in at least this many cells; default is 5.
+        store_residuals
+            Store Pearson residuals in adata.layers['sct_residuals']. These values represent
+            batch corrected and depth-normalized gene expression values. Due to potential
+            high memory use for big matrices, they are not stored by default.
+        correct_counts
+            Store corrected counts in adata.layers['sct_corrected']. Default is True.
+        verbose
+            Show progress bar during normalization.
+        inplace
+            Save HVGs and corrected UMIs inplace. Default is True.
+        seed
+            Random seed for R RNG. Default is 0.
+        Returns
+        -------
+        If `inplace` is False, anndata is returned.
+        If `store_residuals` is True, residuals are stored in adata.layers['sct_residuals'].
+        `adata.layers['sct_corrected']` stores normalized representation of gene expression.
+        `adata.var['highly_variable']` stores highly variable genes.
+        `adata.var['highly_variable_sct_residual_var']` stores the residual variances that
+        are also used for ranking genes by variability.
+        """
+
+        import rpy2
+        from rpy2.robjects import r
+        from rpy2.robjects.packages import importr
+        from scanpy.preprocessing import filter_genes
+        import scipy.sparse as sp
+        import anndata2ri
+
+        r_is_installed("sctransform")
+        r_set_seed(seed)
+
+        # check if observations are unnormalized using first 10
+        testColCounts = min([10, adata.shape[0]])
+        if layer == "X":
+            X_subset = adata.X[:testColCounts]
+        else:
+            X_subset = adata.layers[layer][:testColCounts]
+        err = "Make sure that adata.X contains unnormalized count data"
+        if sp.issparse(X_subset):
+            assert (X_subset.astype(int) != X_subset).nnz == 0, err
+        else:
+            assert np.all(X_subset.astype(int) == X_subset), err
+
+        assert regress_out, "regress_out cannot be emtpy"
+
+        if not inplace:
+            adata = adata.copy()
+
+        filter_genes(adata, min_cells=min_cells)
+
+        mat = adata.X.T if layer == "X" else adata.layers[layer].T
+        if sp.issparse(mat):
+            mat.sort_indices()
+        mat = py2r(mat)
+
+        set_colnames = r("`colnames<-`")
+        set_rownames = r("`rownames<-`")
+
+        mat = set_colnames(mat, adata.obs_names.values.tolist())
+        mat = set_rownames(mat, adata.var_names.values.tolist())
+
+        assert isinstance(
+            regress_out, collections.abc.Sequence
+        ), "regress_out is not a sequence"
+
+        obs_keys = [x for x in regress_out if x != "log_umi"]
+        regress_out = py2r(np.array(regress_out))
+        if regress_out_nonreg is not None:
+            assert isinstance(
+                regress_out_nonreg, collections.abc.Sequence
+            ), "regress_out_nonreg is not a sequence"
+
+            obs_keys += list(regress_out_nonreg)
+            regress_out_nonreg = py2r(np.array(regress_out_nonreg))
+        else:
+            regress_out_nonreg = rpy2.rinterface.NULL
+
+        if batch_key is not None:
+            obs_keys += [batch_key]
+        else:
+            batch_key = rpy2.rinterface.NULL
+
+        if obs_keys:
+            assert np.all(
+                np.isin(obs_keys, adata.obs.columns)
+            ), "Some regress_out or batch_key values are not found in adata.obs"
+            cell_attr = adata.obs[obs_keys]
+            cell_attr = py2r(cell_attr)
+        else:
+            cell_attr = rpy2.rinterface.NULL
+
+        sct = importr("sctransform")
+        residual_type = "pearson" if store_residuals else "none"
+
+        vst_out = sct.vst(
+            mat,
+            cell_attr=cell_attr,
+            batch_var=batch_key,
+            latent_var=regress_out,
+            latent_var_nonreg=regress_out_nonreg,
+            residual_type=residual_type,
+            return_cell_attr=True,
+            min_cells=min_cells,
+            method=method,
+            show_progress=verbose,
+        )
+
+        res_var = r2py(sct.get_residual_var(vst_out, mat))
+
+        if correct_counts:
+            corrected = r2py(sct.correct_counts(vst_out, mat)).T
+            adata.layers["sct_corrected"] = corrected.copy()
+
+        adata.var["highly_variable_sct_residual_var"] = res_var.copy()
+
+        if store_residuals:
+            adata.layers["sct_residuals"] = r2py(vst_out.rx2("y")).T.copy()
+
+        top_genes = (
+            adata.var["highly_variable_sct_residual_var"]
+            .sort_values(ascending=False)[:n_top_genes]
+            .index.tolist()
+        )
+        adata.var["highly_variable"] = adata.var_names.isin(top_genes)
+
+        if not inplace:
+            return adata
+
+
+class geneEnrichInfo(object):
+    @staticmethod
+    def detectMarkerGene(
+        adata: anndata.AnnData,
+        groupby: str,
+        key_added: str,
+        groups: Union[Literal["all"], Sequence[str]] = "all",
+        use_raw: bool = True,
+        method: Literal[
+            "logreg", "t-test", "wilcoxon", "t-test_overestim_var"
+        ] = "wilcoxon",
+        pts: bool = True,
+        min_in_group_fraction: float = 0.5,
+        max_out_group_fraction: float = 0.25,
+        min_fold_change: float = 2,
+        rawDt: dict = {},
+        filterDt: dict = {},
+    ):
+        """
+        Rank and filter genes for characterizing groups.
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            Expects logarithmized data.
+        groupby : str
+            The key of the observations grouping to consider.
+        key_added : str
+            The key in adata.uns information is saved to.
+        groups : Union[Literal[, optional
+            Subset of groups, e.g. ['g1', 'g2', 'g3'], to which comparison shall be restricted, or 'all' (default), for all groups.
+            Defaults to "all".
+        use_raw : bool, optional
+            by default True
+        method : Literal[, optional
+            't-test', 't-test_overestim_var' overestimates variance of each group,
+            'wilcoxon' uses Wilcoxon rank-sum,
+            'logreg' uses logistic regression.
+            Defaults to "wilcoxon".
+        pts : bool, optional
+            Compute the fraction of cells expressing the genes. Defaults to True.
+        min_in_group_fraction : float, optional
+            by default 0.5
+        max_out_group_fraction : float, optional
+            by default 0.25
+        min_fold_change : float, optional
+            by default 2
+        rawDt : dict, optional
+            Other parameters for sc.tl.rank_genes_groups. Defaults to {}.
+        filterDt : dict, optional
+            ther parameters for sc.tl.filter_rank_genes_groups. Defaults to {}.
+        """
+        rawDt = dict(
+            groupby=groupby,
+            groups=groups,
+            use_raw=use_raw,
+            method=method,
+            pts=pts,
+            key_added=key_added,
+            **rawDt,
+        )
+        filterDt = dict(
+            key=key_added,
+            key_added=f"{key_added}_filtered",
+            min_in_group_fraction=min_in_group_fraction,
+            max_out_group_fraction=max_out_group_fraction,
+            min_fold_change=min_fold_change,
+            **filterDt,
+        )
+        if groups != "all":
+            _adata = adata[adata.obs.query(f"{groupby} in @groups").index]
+        else:
+            _adata = adata
+
+        sc.tl.rank_genes_groups(_adata, **rawDt)
+        sc.tl.filter_rank_genes_groups(_adata, **filterDt)
+        if groups != "all":
+            adata.uns[key_added] = _adata.uns[key_added]
+            adata.uns[f"{key_added}_filtered"] = _adata.uns[f"{key_added}_filtered"]
+
+    @staticmethod
+    def calculateExpressionRatio(adata, clusterby):
+        """
+        逐个计算adata中每个基因在每个cluster中的表达比例
+
+        adata:
+            需要含有raw
+        clusterby:
+            adata.obs中的某个列名
+        """
+        transformAdataRawToAd = lambda adata: anndata.AnnData(
+            X=adata.raw.X, obs=adata.obs, var=adata.raw.var
+        )
+        rawAd = transformAdataRawToAd(adata)
+        expressionOrNotdf = (rawAd.to_df() > 0).astype(int)
+        expressionOrNotdf[clusterby] = rawAd.obs[clusterby]
+        expressionRatioDf = expressionOrNotdf.groupby(clusterby).agg(
+            "sum"
+        ) / expressionOrNotdf.groupby(clusterby).agg("count")
+        return expressionRatioDf
+
+    @staticmethod
+    def calculateGeneAverageEx(expressionMtxDf, geneDt, method="mean"):
+        """
+        根据geneDt对expressionMtxDf计算平均值或中位数
+
+        expressionMtxDf:
+            形如adata.to_df()
+
+        geneDt:
+            形如:{
+        "type1": [
+            "AT5G42235",
+            "AT4G00540",
+            ],
+        "type2": [
+            "AT1G55650",
+            "AT5G45980",
+            ],
+        }
+        method:
+            'mean|median'
+
+        """
+        averageExLs = []
+        for typeName, geneLs in geneDt.items():
+            typeAvgExpress = (
+                expressionMtxDf.reindex(geneLs, axis=1).mean(1)
+                if method == "mean"
+                else expressionMtxDf.reindex(geneLs, axis=1).median(1)
+            )
+            typeAvgExpress.name = typeName
+            averageExLs.append(typeAvgExpress)
+        averageExDf = pd.concat(averageExLs, axis=1)
+
+        return averageExDf
+
+    @staticmethod
+    def getEnrichedScore(adata, label, geneLs, threads=12, times=100):
+        """
+        获得ES值。ES值是通过对adata.obs中的label进行重排times次，然后计算原始label的zscore获得
+
+        adata:
+            必须有raw且为log-transformed
+
+        label:
+            adata.obs中的列名
+
+        geneLs:
+            需要计算的基因
+
+        threads:
+            使用核心数
+
+        times:
+            重排的次数
+        """
+
+        def __shuffleLabel(adata, label, i):
+            """
+            used for getEnrichedScore
+            """
+            shuffleAd = adata.copy()
+            shuffleAd.obs[label] = (
+                adata.obs[label].sample(frac=1, random_state=i).values
+            )
+            shuffleClusterDf = (
+                mergeAdataExpress(shuffleAd, label)
+                .to_df()
+                .reset_index()
+                .assign(label=i)
+            )
+
+            return shuffleClusterDf
+
+        geneLs = geneLs[:]
+        geneLs[0:0] = [label]
+        adata = adata.copy()
+
+        allShuffleClusterExpressLs = []
+        with Mtp(threads) as mtp:
+            for time in range(1, times + 1):
+                allShuffleClusterExpressLs.append(
+                    mtp.submit(__shuffleLabel, adata, label, time)
+                )
+
+        allShuffleClusterExpressLs = [x.result() for x in allShuffleClusterExpressLs]
+        originalClusterDf = (
+            mergeAdataExpress(adata, label).to_df().reset_index().assign(label=0)
+        )
+        allShuffleClusterExpressLs.append(originalClusterDf)
+        allShuffleClusterExpressDf = (
+            pd.concat(allShuffleClusterExpressLs)
+            .set_index("label")
+            .reindex(geneLs, axis=1)
+        )
+        logger.info(f"start calculate z score")
+        allShuffleClusterZscoreDf = (
+            allShuffleClusterExpressDf.groupby(label)
+            .apply(lambda x: x.set_index(label, append=True).apply(zscore))
+            .reset_index(level=0, drop=True)
+        )
+        clusterZscoreDf = (
+            allShuffleClusterZscoreDf.query(f"label == 0")
+            .reset_index(level=0, drop=True)
+            .fillna(0)
+        )
+        return clusterZscoreDf
+
+
+class annotation(object):
+    @staticmethod
+    def cellTypeAnnoByICI(
+        adata,
+        specDfPath,
+        cutoff_adjPvalue,
+        layer=None,
+        copy=False,
+        threads=1,
+        logTransformed=True,
+        addName="ICI",
+    ):
+        """
+        use ICI method annotate cell type
+
+        adata:
+            anndata, normalized but not log-transformed.
+        specDfPath:
+            ICITools::compute_spec_table result
+        """
+        import rpy2.rinterface_lib.callbacks
+        from rpy2.robjects import pandas2ri
+        import rpy2.robjects as ro
+
+        pandas2ri.activate()
+
+        adata = adata.copy() if copy else adata
+
+        adataDf = adata.to_df(layer).T.rename_axis("Locus")
+        if logTransformed:
+            adataDf = np.exp(adataDf) - 1
+        logger.info("Start transfer dataframe to R")
+        ro.globalenv["adataDf"] = adataDf
+        if threads > 1:
+            ro.r(
+                f"""
+            future::plan(strategy = "multiprocess", workers = {threads})
+            1
+            """
+            )
+
+        logger.info("Start calculate ICI score")
         ro.r(
             f"""
-        future::plan(strategy = "multiprocess", workers = {threads})
+        specDf <- readRDS('{specDfPath}')
+        adataDf <- tibble::as_tibble(adataDf, rownames = 'Locus')
+        adataAnnoDf_melted <- ICITools::compute_ici_scores(expression_data = adataDf,
+                                            spec_table = specDf,
+                                            min_spec_score = 0.15,
+                                            information_level = 50, sig = TRUE)
         1
         """
         )
+        logger.info("Start transfer ICI score result to python")
+        adataAnnoDf_wide = ro.globalenv["adataAnnoDf_melted"]
 
-    logger.info("Start calculate ICI score")
-    ro.r(
-        f"""
-    specDf <- readRDS('{specDfPath}')
-    adataDf <- tibble::as_tibble(adataDf, rownames = 'Locus')
-    adataAnnoDf_melted <- ICITools::compute_ici_scores(expression_data = adataDf,
-                                        spec_table = specDf,
-                                        min_spec_score = 0.15,
-                                        information_level = 50, sig = TRUE)
-    1
-    """
-    )
-    logger.info("Start transfer ICI score result to python")
-    adataAnnoDf_wide = ro.globalenv["adataAnnoDf_melted"]
+        logger.info("Start parse ICI score result")
+        adata.obsm[f"{addName}-adjPvalue"] = adataAnnoDf_wide.pivot_table(
+            "p_adj", "Cell", "Cell_Type"
+        ).reindex(adata.obs_names)
+        adata.obsm[f"{addName}-score"] = adataAnnoDf_wide.pivot_table(
+            "ici_score", "Cell", "Cell_Type"
+        ).reindex(adata.obs_names)
 
-    logger.info("Start parse ICI score result")
-    adata.obsm[f"{addName}-adjPvalue"] = adataAnnoDf_wide.pivot_table(
-        "p_adj", "Cell", "Cell_Type"
-    ).reindex(adata.obs_names)
-    adata.obsm[f"{addName}-score"] = adataAnnoDf_wide.pivot_table(
-        "ici_score", "Cell", "Cell_Type"
-    ).reindex(adata.obs_names)
-
-    adata.obsm[f"{addName}-score_masked"] = pd.DataFrame(
-        np.select(
-            [adata.obsm[f"{addName}-adjPvalue"] < cutoff_adjPvalue],
-            [adata.obsm[f"{addName}-score"]],
-            0,
-        ),
-        index=adata.obsm[f"{addName}-score"].index,
-        columns=adata.obsm[f"{addName}-score"].columns,
-    )
-
-    adata.obs[f"{addName}-anno"] = np.select(
-        [adata.obsm[f"{addName}-score_masked"].max(1) > 0],
-        [adata.obsm[f"{addName}-score_masked"].idxmax(1)],
-        "Unknown",
-    )
-
-    if copy:
-        return adata
-
-
-def cellTypeAnnoByCorr(
-    adata,
-    bulkExpressionDf,
-    threads=1,
-    method="pearsonr",
-    reportFinalUseGeneCounts=False,
-    geneCountsCutoff=0,
-    logTransformed=True,
-    returnR=False,
-    keepZero=True,
-    useRaw=True,
-    reportCounts=50,
-):
-    """
-    通过bulk数据的相关性鉴定细胞类型
-
-    adata: log-transformed adata
-
-    bulkExpressionDf:
-                                                AT1G01010  AT1G01030  AT1G01040
-        bending cotyledon : chalazal endosperm   3.018853   2.430005   8.284994
-        bending cotyledon : chalazal seed coat   2.385562   2.364294   8.674318
-        bending cotyledon : embryo proper        2.258559   2.249158   7.577717
-
-    returnR:
-        返回最大值还是所有结果的r
-
-    method:
-        'pearsonr' | 'spearmanr'
-
-    geneCountsCutoff:
-        CPM
-    """
-
-    def __getSpearmanRForCell(cellExpressionSr):
-        nonlocal i, bulkExpressionDf, keepZero, reportCounts, threads, method, geneCountsCutoff, reportFinalUseGeneCounts
-        if not keepZero:
-            cellExpressionSr = cellExpressionSr.pipe(lambda x: x[x != 0])
-        cellExpressionSr = cellExpressionSr.pipe(lambda x: x[x >= geneCountsCutoff])
-        #         print(cellExpressionSr)
-        useGeneLs = cellExpressionSr.index
-        bulkExpressionDf = bulkExpressionDf.reindex(useGeneLs, axis=1).dropna(axis=1)
-        useGeneLs = bulkExpressionDf.columns
-        cellExpressionSr = cellExpressionSr.reindex(useGeneLs)
-
-        if reportFinalUseGeneCounts:
-            logger.info(len(cellExpressionSr))
-
-        if len(cellExpressionSr) <= 1:
-            return None
-
-        if method == "spearmanr":
-            bulkExpressionCorrDf = bulkExpressionDf.apply(
-                lambda x: spearmanr(cellExpressionSr, x)[0], axis=1
-            )
-        elif method == "pearsonr":
-            bulkExpressionCorrDf = bulkExpressionDf.apply(
-                lambda x: pearsonr(cellExpressionSr, x)[0], axis=1
-            )
-        else:
-            logger.error("Unrecognized method")
-            1 / 0
-
-        i += 1
-        if i % reportCounts == 0:
-            logger.info(f"{i * threads} / {cellCounts} processed")
-
-        if not returnR:
-            mostSimilarBulk = bulkExpressionCorrDf.idxmax()
-            return mostSimilarBulk
-        else:
-            return bulkExpressionCorrDf
-
-    i = 0
-    adata = adata.copy()
-    cellCounts = len(adata)
-    geneCountsCutoff = np.log(geneCountsCutoff + 1)
-
-    adataExpressDf = (
-        pd.DataFrame(adata.raw.X.A, columns=adata.raw.var.index, index=adata.obs.index)
-        if useRaw
-        else adata.to_df()
-    )
-    adataExpressDf = np.exp(adataExpressDf) - 1 if logTransformed else adataExpressDf
-    adataExpressDf = adataExpressDf.div(adataExpressDf.sum(1), axis=0) * 1000000
-    adataExpressDf = np.log(adataExpressDf + 1) if logTransformed else adataExpressDf
-    #     print(adataExpressDf)
-
-    if threads == 1:
-        cellAnnotatedType = adataExpressDf.apply(__getSpearmanRForCell, axis=1)
-    else:
-        from pandarallel import pandarallel
-
-        pandarallel.initialize(nb_workers=threads)
-        cellAnnotatedType = adataExpressDf.parallel_apply(__getSpearmanRForCell, axis=1)
-    return cellAnnotatedType
-
-
-def cellTypeAnnoByMarker(adata, allMarkerUse, label="louvain", method="mean"):
-    """
-    通过marker基因表达量鉴定细胞类型
-
-    adata:
-        adata.obs中有louvain
-        通过adata.raw.var来判断哪些基因表达
-        存在raw, log-transformed
-
-    allMarkerUse:
-         {
-            'Columella root cap':
-                ['AT4G27400','AT3G18250', 'AT5G20045']
-         }
-
-    method = mean|median
-
-    return:
-        df: markerExpressCount(not logtransformed), expressRatio
-    """
-    #     import pdb; pdb.set_trace()
-    markerRevDt = {z: x for x, y in allMarkerUse.items() for z in y}
-    rawCountMtx = np.exp(adata.raw.to_adata().to_df()) - 1
-    rawCountMtxWithLabel = rawCountMtx.join(adata.obs[label])
-
-    clusterExMtx = rawCountMtxWithLabel.groupby(label).agg(method)
-    #     return clusterExMtx.T
-    clusterExMtxTr = clusterExMtx.T
-    clusterExMtxTr.columns = clusterExMtxTr.columns.astype("str")
-    clusterExMtxTr = clusterExMtxTr.assign(
-        cellType=lambda df: df.index.map(lambda x: markerRevDt.get(x, "Others"))
-    )
-    clusterTypeExpMtx = clusterExMtxTr.groupby("cellType").agg(method).T
-
-    cellExRatioMtxTr = rawCountMtx.applymap(lambda x: 1 if x > 0 else 0).T
-    cellExRatioMtxTr.columns = cellExRatioMtxTr.columns.astype("str")
-    cellExRatioMtxTr = cellExRatioMtxTr.assign(
-        cellType=lambda df: df.index.map(lambda x: markerRevDt.get(x, "Others"))
-    )
-    cellExRatioMtx = cellExRatioMtxTr.groupby("cellType").apply(lambda x: x.mean(0)).T
-    cellExRatioMtxWithLabel = cellExRatioMtx.join(adata.obs[label])
-    clusterExRatioMtx = cellExRatioMtxWithLabel.groupby(label).agg(method)
-
-    finalMtx = (
-        pd.concat([clusterTypeExpMtx.unstack(), clusterExRatioMtx.unstack()], axis=1)
-        .reset_index()
-        .rename({0: "express", 1: "ratio", "level_0": "cellType"}, axis=1)
-    ).query("cellType != 'Others'")
-
-    return finalMtx
-
-
-def cellTypeAnnoByMarkerOld(
-    adata, allMarkerUse, expressionMtx, zscoreby="cluster", method="mean"
-):
-    """
-    通过marker基因表达量鉴定细胞类型
-
-    adata:
-        adata.obs中有louvain
-        通过adata.raw.var来判断哪些基因表达
-
-    allMarkerUse:
-    {
-     'Zhang et al.':
-         {
-            'Columella root cap':
-                ['AT4G27400','AT3G18250', 'AT5G20045']
-         }
-    }
-    expressionMtx:
-         由adata.to_df()获得:
-             没有log-transformed
-             没有筛选基因
-             经过normalize_sum
-
-    zscoreby = cluster|cell
-
-    method = mean|median
-    """
-
-    def _getMarkerExpressionGene(adata, allMarkerUse):
-        """
-        去除marker中不表达的基因
-        adata 存在raw
-        allMarkerUse
-            {'Zhang et al.': {'Columella root cap': ['AT4G27400','AT3G18250', 'AT5G20045']}}
-        """
-        expressionGene = set(adata.raw.var.index)
-
-        integrateMarkerGene = {}
-        for x, y in allMarkerUse.items():
-            singleMarkerGeneUse = {}
-            for j, k in y.items():
-                k = list(set(k) & expressionGene)
-                singleMarkerGeneUse[j] = k
-            integrateMarkerGene[x] = singleMarkerGeneUse
-        return integrateMarkerGene
-
-    expressionMtx = expressionMtx.copy(True)
-    #     expressionMtx = np.log2(expressionMtx + 1)
-
-    allMarkers = _getMarkerExpressionGene(adata, allMarkerUse)
-
-    expressionMtx = expressionMtx.join(adata.obs["louvain"], how="inner")
-    allLouvain = expressionMtx["louvain"].unique()
-    expressionCounts = (
-        expressionMtx.groupby("louvain")
-        .apply(lambda x: x.drop("louvain", axis=1).pipe(lambda y: y.sum() / len(y)))
-        .fillna(0)
-    )
-    expressionCounts = np.log2(expressionCounts + 1)
-    expressionSizes = (
-        expressionMtx.groupby("louvain")
-        .apply(
-            lambda x: x.drop("louvain", axis=1).pipe(lambda y: (y > 0).sum() / len(y))
+        adata.obsm[f"{addName}-score_masked"] = pd.DataFrame(
+            np.select(
+                [adata.obsm[f"{addName}-adjPvalue"] < cutoff_adjPvalue],
+                [adata.obsm[f"{addName}-score"]],
+                0,
+            ),
+            index=adata.obsm[f"{addName}-score"].index,
+            columns=adata.obsm[f"{addName}-score"].columns,
         )
-        .fillna(0)
-    )
-    if zscoreby == "cluster":
-        expressionZscore = expressionCounts.apply(zscore)
-    elif zscoreby == "cell":
-        expressionMtx = np.log2(expressionMtx.drop("louvain", axis=1) + 1)
-        expressionMtx = expressionMtx.apply(zscore)
-        expressionZscore = (
-            expressionMtx.join(adata.obs["louvain"], how="inner")
-            .groupby("louvain")
+
+        adata.obs[f"{addName}-anno"] = np.select(
+            [adata.obsm[f"{addName}-score_masked"].max(1) > 0],
+            [adata.obsm[f"{addName}-score_masked"].idxmax(1)],
+            "Unknown",
+        )
+
+        if copy:
+            return adata
+
+
+class discard(object):
+    @staticmethod
+    def cellTypeAnnoByCorr(
+        adata,
+        bulkExpressionDf,
+        threads=1,
+        method="pearsonr",
+        reportFinalUseGeneCounts=False,
+        geneCountsCutoff=0,
+        logTransformed=True,
+        returnR=False,
+        keepZero=True,
+        useRaw=True,
+        reportCounts=50,
+    ):
+        """
+        通过bulk数据的相关性鉴定细胞类型
+
+        adata: log-transformed adata
+
+        bulkExpressionDf:
+                                                    AT1G01010  AT1G01030  AT1G01040
+            bending cotyledon : chalazal endosperm   3.018853   2.430005   8.284994
+            bending cotyledon : chalazal seed coat   2.385562   2.364294   8.674318
+            bending cotyledon : embryo proper        2.258559   2.249158   7.577717
+
+        returnR:
+            返回最大值还是所有结果的r
+
+        method:
+            'pearsonr' | 'spearmanr'
+
+        geneCountsCutoff:
+            CPM
+        """
+
+        def __getSpearmanRForCell(cellExpressionSr):
+            nonlocal i, bulkExpressionDf, keepZero, reportCounts, threads, method, geneCountsCutoff, reportFinalUseGeneCounts
+            if not keepZero:
+                cellExpressionSr = cellExpressionSr.pipe(lambda x: x[x != 0])
+            cellExpressionSr = cellExpressionSr.pipe(lambda x: x[x >= geneCountsCutoff])
+            #         print(cellExpressionSr)
+            useGeneLs = cellExpressionSr.index
+            bulkExpressionDf = bulkExpressionDf.reindex(useGeneLs, axis=1).dropna(
+                axis=1
+            )
+            useGeneLs = bulkExpressionDf.columns
+            cellExpressionSr = cellExpressionSr.reindex(useGeneLs)
+
+            if reportFinalUseGeneCounts:
+                logger.info(len(cellExpressionSr))
+
+            if len(cellExpressionSr) <= 1:
+                return None
+
+            if method == "spearmanr":
+                bulkExpressionCorrDf = bulkExpressionDf.apply(
+                    lambda x: spearmanr(cellExpressionSr, x)[0], axis=1
+                )
+            elif method == "pearsonr":
+                bulkExpressionCorrDf = bulkExpressionDf.apply(
+                    lambda x: pearsonr(cellExpressionSr, x)[0], axis=1
+                )
+            else:
+                logger.error("Unrecognized method")
+                1 / 0
+
+            i += 1
+            if i % reportCounts == 0:
+                logger.info(f"{i * threads} / {cellCounts} processed")
+
+            if not returnR:
+                mostSimilarBulk = bulkExpressionCorrDf.idxmax()
+                return mostSimilarBulk
+            else:
+                return bulkExpressionCorrDf
+
+        i = 0
+        adata = adata.copy()
+        cellCounts = len(adata)
+        geneCountsCutoff = np.log(geneCountsCutoff + 1)
+
+        adataExpressDf = (
+            pd.DataFrame(
+                adata.raw.X.A, columns=adata.raw.var.index, index=adata.obs.index
+            )
+            if useRaw
+            else adata.to_df()
+        )
+        adataExpressDf = (
+            np.exp(adataExpressDf) - 1 if logTransformed else adataExpressDf
+        )
+        adataExpressDf = adataExpressDf.div(adataExpressDf.sum(1), axis=0) * 1000000
+        adataExpressDf = (
+            np.log(adataExpressDf + 1) if logTransformed else adataExpressDf
+        )
+        #     print(adataExpressDf)
+
+        if threads == 1:
+            cellAnnotatedType = adataExpressDf.apply(__getSpearmanRForCell, axis=1)
+        else:
+            from pandarallel import pandarallel
+
+            pandarallel.initialize(nb_workers=threads)
+            cellAnnotatedType = adataExpressDf.parallel_apply(
+                __getSpearmanRForCell, axis=1
+            )
+        return cellAnnotatedType
+
+    @staticmethod
+    def cellTypeAnnoByMarker(adata, allMarkerUse, label="louvain", method="mean"):
+        """
+        通过marker基因表达量鉴定细胞类型
+
+        adata:
+            adata.obs中有louvain
+            通过adata.raw.var来判断哪些基因表达
+            存在raw, log-transformed
+
+        allMarkerUse:
+            {
+                'Columella root cap':
+                    ['AT4G27400','AT3G18250', 'AT5G20045']
+            }
+
+        method = mean|median
+
+        return:
+            df: markerExpressCount(not logtransformed), expressRatio
+        """
+        #     import pdb; pdb.set_trace()
+        markerRevDt = {z: x for x, y in allMarkerUse.items() for z in y}
+        rawCountMtx = np.exp(adata.raw.to_adata().to_df()) - 1
+        rawCountMtxWithLabel = rawCountMtx.join(adata.obs[label])
+
+        clusterExMtx = rawCountMtxWithLabel.groupby(label).agg(method)
+        #     return clusterExMtx.T
+        clusterExMtxTr = clusterExMtx.T
+        clusterExMtxTr.columns = clusterExMtxTr.columns.astype("str")
+        clusterExMtxTr = clusterExMtxTr.assign(
+            cellType=lambda df: df.index.map(lambda x: markerRevDt.get(x, "Others"))
+        )
+        clusterTypeExpMtx = clusterExMtxTr.groupby("cellType").agg(method).T
+
+        cellExRatioMtxTr = rawCountMtx.applymap(lambda x: 1 if x > 0 else 0).T
+        cellExRatioMtxTr.columns = cellExRatioMtxTr.columns.astype("str")
+        cellExRatioMtxTr = cellExRatioMtxTr.assign(
+            cellType=lambda df: df.index.map(lambda x: markerRevDt.get(x, "Others"))
+        )
+        cellExRatioMtx = (
+            cellExRatioMtxTr.groupby("cellType").apply(lambda x: x.mean(0)).T
+        )
+        cellExRatioMtxWithLabel = cellExRatioMtx.join(adata.obs[label])
+        clusterExRatioMtx = cellExRatioMtxWithLabel.groupby(label).agg(method)
+
+        finalMtx = (
+            pd.concat(
+                [clusterTypeExpMtx.unstack(), clusterExRatioMtx.unstack()], axis=1
+            )
+            .reset_index()
+            .rename({0: "express", 1: "ratio", "level_0": "cellType"}, axis=1)
+        ).query("cellType != 'Others'")
+
+        return finalMtx
+
+    @staticmethod
+    def cellTypeAnnoByMarkerOld(
+        adata, allMarkerUse, expressionMtx, zscoreby="cluster", method="mean"
+    ):
+        """
+        通过marker基因表达量鉴定细胞类型
+
+        adata:
+            adata.obs中有louvain
+            通过adata.raw.var来判断哪些基因表达
+
+        allMarkerUse:
+        {
+        'Zhang et al.':
+            {
+                'Columella root cap':
+                    ['AT4G27400','AT3G18250', 'AT5G20045']
+            }
+        }
+        expressionMtx:
+            由adata.to_df()获得:
+                没有log-transformed
+                没有筛选基因
+                经过normalize_sum
+
+        zscoreby = cluster|cell
+
+        method = mean|median
+        """
+
+        def _getMarkerExpressionGene(adata, allMarkerUse):
+            """
+            去除marker中不表达的基因
+            adata 存在raw
+            allMarkerUse
+                {'Zhang et al.': {'Columella root cap': ['AT4G27400','AT3G18250', 'AT5G20045']}}
+            """
+            expressionGene = set(adata.raw.var.index)
+
+            integrateMarkerGene = {}
+            for x, y in allMarkerUse.items():
+                singleMarkerGeneUse = {}
+                for j, k in y.items():
+                    k = list(set(k) & expressionGene)
+                    singleMarkerGeneUse[j] = k
+                integrateMarkerGene[x] = singleMarkerGeneUse
+            return integrateMarkerGene
+
+        expressionMtx = expressionMtx.copy(True)
+        #     expressionMtx = np.log2(expressionMtx + 1)
+
+        allMarkers = _getMarkerExpressionGene(adata, allMarkerUse)
+
+        expressionMtx = expressionMtx.join(adata.obs["louvain"], how="inner")
+        allLouvain = expressionMtx["louvain"].unique()
+        expressionCounts = (
+            expressionMtx.groupby("louvain")
             .apply(lambda x: x.drop("louvain", axis=1).pipe(lambda y: y.sum() / len(y)))
             .fillna(0)
         )
-    #     expressionCounts = expressionMtx.groupby('louvain').apply(lambda x:x.drop('louvain', axis=1).pipe(lambda y: y.sum() / len(y))).fillna(0)
-    #     expressionCounts = expressionMtx.groupby('louvain').apply(lambda x:x.drop('louvain', axis=1).pipe(lambda y: y.sum() / (y > 0).sum())).fillna(0)
-
-    groupAllClustersExpressionCounts = []
-    groupAllClustersExpressionZscore = []
-    groupAllClustersExpressionSizes = []
-    groupNames = []
-    for stage, tissueGenes in allMarkers.items():
-        for tissue, genes in tissueGenes.items():
-            if method == "mean":
-                groupGeneCountsDf = expressionCounts.loc[:, genes].mean(1)
-                groupGeneZscoreDf = expressionZscore.loc[:, genes].mean(1)
-                groupGeneSizesDf = expressionSizes.loc[:, genes].mean(1)
-            elif method == "median":
-                groupGeneCountsDf = expressionCounts.loc[:, genes].median(1)
-                groupGeneZscoreDf = expressionZscore.loc[:, genes].median(1)
-                groupGeneSizesDf = expressionSizes.loc[:, genes].median(1)
-            groupGeneCountsDf.name = f"{stage} {tissue}"
-            groupGeneZscoreDf.name = f"{stage} {tissue}"
-            groupGeneSizesDf.name = f"{stage} {tissue}"
-            groupAllClustersExpressionCounts.append(groupGeneCountsDf)
-            groupAllClustersExpressionZscore.append(groupGeneZscoreDf)
-            groupAllClustersExpressionSizes.append(groupGeneSizesDf)
-
-    groupAllClustersExpressionCounts = pd.concat(groupAllClustersExpressionCounts, 1)
-    groupAllClustersExpressionZscore = pd.concat(groupAllClustersExpressionZscore, 1)
-    groupAllClustersExpressionSizes = pd.concat(groupAllClustersExpressionSizes, 1)
-    groupAllClustersExpression = pd.concat(
-        [
-            groupAllClustersExpressionSizes.stack(),
-            groupAllClustersExpressionZscore.stack(),
-            groupAllClustersExpressionCounts.stack(),
-        ],
-        axis=1,
-    )
-    groupAllClustersExpression.reset_index(inplace=True)
-    groupAllClustersExpression.columns = [
-        "louvain",
-        "tissues",
-        "Percentage of expressed nuclei",
-        "Z-score of Expression",
-        "Average expression",
-    ]
-    #     groupAllClustersExpression = groupAllClustersExpression.reset_index()
-    #     groupAllClustersExpression.columns = ['louvain','tissues','Percentage of expressed nuclei', 'Average expression']
-    return groupAllClustersExpression
-
-
-def cellTypeAnnoByClusterEnriched(
-    arrayExpressDf_StageTissue,
-    clusterEnrichedGeneDf,
-    useCluster="all",
-    useGeneCounts=10,
-):
-    """
-    使用cluster enriched基因在bulk数据中的表达情况对cluster进行注释
-    暂时只能用在胚乳数据上 待进一步优化
-
-    arrayExpressDf_StageTissue: dataframe, 形如
-                                             AT1G01010  AT1G01030  AT1G01040
-    stage             correctedTissue
-    bending cotyledon chalazal endosperm     3.018853   2.430005   8.284994
-                      chalazal seed coat     2.385562   2.364294   8.674318
-                      embryo proper          2.258559   2.249158   7.577717
-                      general seed coat      2.000998   2.168115   7.721052
-                      peripheral endosperm   2.503232   2.154924   8.002944
-
-    clusterEnrichedGeneDf: getClusterEnrichedGene输出
-    useCluster：'all'|['1', '2']
-    useGeneCounts: 每个cluster使用的基因数
-    """
-    stageOrderLs = [
-        "pre-globular",
-        "globular",
-        "heart",
-        "linear-cotyledon",
-        "bending cotyledon",
-        "mature green",
-    ]
-    tissueOrderLs = [
-        "chalazal endosperm",
-        "micropylar endosperm",
-        "peripheral endosperm",
-        "chalazal seed coat",
-        "general seed coat",
-        "embryo proper",
-        "suspensor",
-    ]
-    expressList = list(arrayExpressDf_StageTissue.columns)
-    clusterEnrichedGene_FilteredDf = (
-        clusterEnrichedGeneDf.sort_values(
-            ["clusters", "logfoldchanges"], ascending=[True, False]
+        expressionCounts = np.log2(expressionCounts + 1)
+        expressionSizes = (
+            expressionMtx.groupby("louvain")
+            .apply(
+                lambda x: x.drop("louvain", axis=1).pipe(
+                    lambda y: (y > 0).sum() / len(y)
+                )
+            )
+            .fillna(0)
         )
-        .groupby("clusters")
-        .apply(lambda x: x.loc[x["names"].isin(expressList)].iloc[:useGeneCounts])
-        .reset_index(drop=True)
-    )
+        if zscoreby == "cluster":
+            expressionZscore = expressionCounts.apply(zscore)
+        elif zscoreby == "cell":
+            expressionMtx = np.log2(expressionMtx.drop("louvain", axis=1) + 1)
+            expressionMtx = expressionMtx.apply(zscore)
+            expressionZscore = (
+                expressionMtx.join(adata.obs["louvain"], how="inner")
+                .groupby("louvain")
+                .apply(
+                    lambda x: x.drop("louvain", axis=1).pipe(lambda y: y.sum() / len(y))
+                )
+                .fillna(0)
+            )
+        #     expressionCounts = expressionMtx.groupby('louvain').apply(lambda x:x.drop('louvain', axis=1).pipe(lambda y: y.sum() / len(y))).fillna(0)
+        #     expressionCounts = expressionMtx.groupby('louvain').apply(lambda x:x.drop('louvain', axis=1).pipe(lambda y: y.sum() / (y > 0).sum())).fillna(0)
 
-    clusterEnrichedGeneName_FilteredDf = clusterEnrichedGene_FilteredDf.groupby(
-        "clusters"
-    )["names"].agg(lambda x: list(x))
+        groupAllClustersExpressionCounts = []
+        groupAllClustersExpressionZscore = []
+        groupAllClustersExpressionSizes = []
+        groupNames = []
+        for stage, tissueGenes in allMarkers.items():
+            for tissue, genes in tissueGenes.items():
+                if method == "mean":
+                    groupGeneCountsDf = expressionCounts.loc[:, genes].mean(1)
+                    groupGeneZscoreDf = expressionZscore.loc[:, genes].mean(1)
+                    groupGeneSizesDf = expressionSizes.loc[:, genes].mean(1)
+                elif method == "median":
+                    groupGeneCountsDf = expressionCounts.loc[:, genes].median(1)
+                    groupGeneZscoreDf = expressionZscore.loc[:, genes].median(1)
+                    groupGeneSizesDf = expressionSizes.loc[:, genes].median(1)
+                groupGeneCountsDf.name = f"{stage} {tissue}"
+                groupGeneZscoreDf.name = f"{stage} {tissue}"
+                groupGeneSizesDf.name = f"{stage} {tissue}"
+                groupAllClustersExpressionCounts.append(groupGeneCountsDf)
+                groupAllClustersExpressionZscore.append(groupGeneZscoreDf)
+                groupAllClustersExpressionSizes.append(groupGeneSizesDf)
 
-    clusterEnrichedGeneFc_FilteredDf = clusterEnrichedGene_FilteredDf.groupby(
-        "clusters"
-    )["logfoldchanges"].agg(lambda x: np.exp2(x).mean())
+        groupAllClustersExpressionCounts = pd.concat(
+            groupAllClustersExpressionCounts, 1
+        )
+        groupAllClustersExpressionZscore = pd.concat(
+            groupAllClustersExpressionZscore, 1
+        )
+        groupAllClustersExpressionSizes = pd.concat(groupAllClustersExpressionSizes, 1)
+        groupAllClustersExpression = pd.concat(
+            [
+                groupAllClustersExpressionSizes.stack(),
+                groupAllClustersExpressionZscore.stack(),
+                groupAllClustersExpressionCounts.stack(),
+            ],
+            axis=1,
+        )
+        groupAllClustersExpression.reset_index(inplace=True)
+        groupAllClustersExpression.columns = [
+            "louvain",
+            "tissues",
+            "Percentage of expressed nuclei",
+            "Z-score of Expression",
+            "Average expression",
+        ]
+        #     groupAllClustersExpression = groupAllClustersExpression.reset_index()
+        #     groupAllClustersExpression.columns = ['louvain','tissues','Percentage of expressed nuclei', 'Average expression']
+        return groupAllClustersExpression
 
-    print(clusterEnrichedGeneName_FilteredDf.map(lambda x: len(x)))
+    @staticmethod
+    def cellTypeAnnoByClusterEnriched(
+        arrayExpressDf_StageTissue,
+        clusterEnrichedGeneDf,
+        useCluster="all",
+        useGeneCounts=10,
+    ):
+        """
+        使用cluster enriched基因在bulk数据中的表达情况对cluster进行注释
+        暂时只能用在胚乳数据上 待进一步优化
 
-    print(clusterEnrichedGeneFc_FilteredDf)
+        arrayExpressDf_StageTissue: dataframe, 形如
+                                                AT1G01010  AT1G01030  AT1G01040
+        stage             correctedTissue
+        bending cotyledon chalazal endosperm     3.018853   2.430005   8.284994
+                        chalazal seed coat     2.385562   2.364294   8.674318
+                        embryo proper          2.258559   2.249158   7.577717
+                        general seed coat      2.000998   2.168115   7.721052
+                        peripheral endosperm   2.503232   2.154924   8.002944
 
-    if useCluster == "all":
-        useClusterLs = list(clusterEnrichedGeneName_FilteredDf.index)
-    else:
-        useClusterLs = useCluster
+        clusterEnrichedGeneDf: getClusterEnrichedGene输出
+        useCluster：'all'|['1', '2']
+        useGeneCounts: 每个cluster使用的基因数
+        """
+        stageOrderLs = [
+            "pre-globular",
+            "globular",
+            "heart",
+            "linear-cotyledon",
+            "bending cotyledon",
+            "mature green",
+        ]
+        tissueOrderLs = [
+            "chalazal endosperm",
+            "micropylar endosperm",
+            "peripheral endosperm",
+            "chalazal seed coat",
+            "general seed coat",
+            "embryo proper",
+            "suspensor",
+        ]
+        expressList = list(arrayExpressDf_StageTissue.columns)
+        clusterEnrichedGene_FilteredDf = (
+            clusterEnrichedGeneDf.sort_values(
+                ["clusters", "logfoldchanges"], ascending=[True, False]
+            )
+            .groupby("clusters")
+            .apply(lambda x: x.loc[x["names"].isin(expressList)].iloc[:useGeneCounts])
+            .reset_index(drop=True)
+        )
 
-    #     return arrayExpressDf_StageTissue
+        clusterEnrichedGeneName_FilteredDf = clusterEnrichedGene_FilteredDf.groupby(
+            "clusters"
+        )["names"].agg(lambda x: list(x))
 
-    # clusterName = useClusterLs[0]
-    #     import pdb;pdb.set_trace()
-    for clusterName in useClusterLs:
-        fig, ax = plt.subplots(figsize=[5, 3])
-        clusterEnrichedGeneExpressPatternInBulkDf = (
-            arrayExpressDf_StageTissue.loc[
-                :, clusterEnrichedGeneName_FilteredDf[clusterName]
-            ]
-            .median(1)
+        clusterEnrichedGeneFc_FilteredDf = clusterEnrichedGene_FilteredDf.groupby(
+            "clusters"
+        )["logfoldchanges"].agg(lambda x: np.exp2(x).mean())
+
+        print(clusterEnrichedGeneName_FilteredDf.map(lambda x: len(x)))
+
+        print(clusterEnrichedGeneFc_FilteredDf)
+
+        if useCluster == "all":
+            useClusterLs = list(clusterEnrichedGeneName_FilteredDf.index)
+        else:
+            useClusterLs = useCluster
+
+        #     return arrayExpressDf_StageTissue
+
+        # clusterName = useClusterLs[0]
+        #     import pdb;pdb.set_trace()
+        for clusterName in useClusterLs:
+            fig, ax = plt.subplots(figsize=[5, 3])
+            clusterEnrichedGeneExpressPatternInBulkDf = (
+                arrayExpressDf_StageTissue.loc[
+                    :, clusterEnrichedGeneName_FilteredDf[clusterName]
+                ]
+                .median(1)
+                .unstack()
+                .reindex(stageOrderLs)
+                .reindex(tissueOrderLs, axis=1)
+            )
+            sns.heatmap(clusterEnrichedGeneExpressPatternInBulkDf, cmap="Reds", ax=ax)
+            ax.set_title(f"Cluster {clusterName}")
+            ax.set_xlabel("Tissue")
+            ax.set_ylabel("Stage")
+
+        EnrichedGeneExpressPatternInBulkDf = clusterEnrichedGeneName_FilteredDf.map(
+            lambda x: arrayExpressDf_StageTissue.loc[:, x].median(1).idxmax()
+        )
+        return EnrichedGeneExpressPatternInBulkDf
+
+    @staticmethod
+    def cellTypeAnnoByEnrichedScore(adata, label, markerGeneDt, threads=12, times=100):
+        """
+        通过enriched score对cluster进行注释
+
+        adata:
+            必须有raw且为log-transformed
+
+        label:
+            adata.obs中的列名
+
+        markerGeneDt:
+            形如:{
+        "type1": [
+            "AT5G42235",
+            "AT4G00540",
+            ],
+        "type2": [
+            "AT1G55650",
+            "AT5G45980",
+            ],
+        }
+
+        threads:
+            使用核心数
+
+        times:
+            重排的次数
+        """
+        adata = adata.copy()
+        adata = adata[:, ~adata.var.index.str.contains("_")]
+        adataRaw = adata.raw.to_adata()
+        adataRaw = adataRaw[:, ~adataRaw.var.index.str.contains("_")]
+        adata.raw = adataRaw
+
+        markerGeneLs = list(set([y for x in markerGeneDt.values() for y in x]))
+        clusterEnrichedScoreDf = getEnrichedScore(
+            adata, label, markerGeneLs, threads, times
+        )
+        clusterTypeAvgEnrichedScoreDf = calculateGeneAverageEx(
+            clusterEnrichedScoreDf, markerGeneDt
+        )
+        return clusterTypeAvgEnrichedScoreDf
+
+    @staticmethod
+    def cellTypeAnnoByCellScore(adata, markerGenesDt, clusterLabel):
+        """
+        利用cellscore计算每个细胞的type
+
+        adata:
+            anndata
+        markerGenesDt:
+            {type:[genes]}
+        clusterLabel:
+            cluster label
+
+        return:
+            cellScoreByGenesDf:
+                每个细胞的cellScore
+            clusterTypeRatio:
+                每个cluster的type比例
+        """
+        adata = adata.copy()
+        adata = adata[:, ~adata.var.index.str.contains("_")]
+        adataRaw = adata.raw.to_adata()
+        adataRaw = adataRaw[:, ~adataRaw.var.index.str.contains("_")]
+        adata.raw = adataRaw
+
+        for name, genes in markerGenesDt.items():
+            sc.tl.score_genes(adata, genes, score_name=name, use_raw=True)
+
+        cellScoreByGenesDf = adata.obs[markerGenesDt.keys()]
+        cellScoreByGenesDf["maxType"], cellScoreByGenesDf["maxScore"] = (
+            cellScoreByGenesDf.idxmax(1),
+            cellScoreByGenesDf.max(1),
+        )
+        cellScoreByGenesDf["typeName"] = cellScoreByGenesDf["maxType"]
+        cellScoreByGenesDf.loc[
+            cellScoreByGenesDf.loc[:, "maxScore"] < 0, "typeName"
+        ] = "Unknown"
+
+        adata.obs["typeName"] = cellScoreByGenesDf["typeName"]
+
+        clusterTypeRatio = (
+            adata.obs.groupby(clusterLabel)["typeName"]
+            .apply(lambda x: x.value_counts() / len(x))
             .unstack()
-            .reindex(stageOrderLs)
-            .reindex(tissueOrderLs, axis=1)
         )
-        sns.heatmap(clusterEnrichedGeneExpressPatternInBulkDf, cmap="Reds", ax=ax)
-        ax.set_title(f"Cluster {clusterName}")
-        ax.set_xlabel("Tissue")
-        ax.set_ylabel("Stage")
-
-    EnrichedGeneExpressPatternInBulkDf = clusterEnrichedGeneName_FilteredDf.map(
-        lambda x: arrayExpressDf_StageTissue.loc[:, x].median(1).idxmax()
-    )
-    return EnrichedGeneExpressPatternInBulkDf
-
-
-def cellTypeAnnoByEnrichedScore(adata, label, markerGeneDt, threads=12, times=100):
-    """
-    通过enriched score对cluster进行注释
-
-    adata:
-        必须有raw且为log-transformed
-
-    label:
-        adata.obs中的列名
-
-    markerGeneDt:
-        形如:{
-    "type1": [
-        "AT5G42235",
-        "AT4G00540",
-        ],
-    "type2": [
-        "AT1G55650",
-        "AT5G45980",
-        ],
-    }
-
-    threads:
-        使用核心数
-
-    times:
-        重排的次数
-    """
-    adata = adata.copy()
-    adata = adata[:, ~adata.var.index.str.contains("_")]
-    adataRaw = adata.raw.to_adata()
-    adataRaw = adataRaw[:, ~adataRaw.var.index.str.contains("_")]
-    adata.raw = adataRaw
-
-    markerGeneLs = list(set([y for x in markerGeneDt.values() for y in x]))
-    clusterEnrichedScoreDf = getEnrichedScore(
-        adata, label, markerGeneLs, threads, times
-    )
-    clusterTypeAvgEnrichedScoreDf = calculateGeneAverageEx(
-        clusterEnrichedScoreDf, markerGeneDt
-    )
-    return clusterTypeAvgEnrichedScoreDf
-
-
-def cellTypeAnnoByCellScore(adata, markerGenesDt, clusterLabel):
-    """
-    利用cellscore计算每个细胞的type
-
-    adata:
-        anndata
-    markerGenesDt:
-        {type:[genes]}
-    clusterLabel:
-        cluster label
-
-    return:
-        cellScoreByGenesDf:
-            每个细胞的cellScore
-        clusterTypeRatio:
-            每个cluster的type比例
-    """
-    adata = adata.copy()
-    adata = adata[:, ~adata.var.index.str.contains("_")]
-    adataRaw = adata.raw.to_adata()
-    adataRaw = adataRaw[:, ~adataRaw.var.index.str.contains("_")]
-    adata.raw = adataRaw
-
-    for name, genes in markerGenesDt.items():
-        sc.tl.score_genes(adata, genes, score_name=name, use_raw=True)
-
-    cellScoreByGenesDf = adata.obs[markerGenesDt.keys()]
-    cellScoreByGenesDf["maxType"], cellScoreByGenesDf["maxScore"] = (
-        cellScoreByGenesDf.idxmax(1),
-        cellScoreByGenesDf.max(1),
-    )
-    cellScoreByGenesDf["typeName"] = cellScoreByGenesDf["maxType"]
-    cellScoreByGenesDf.loc[
-        cellScoreByGenesDf.loc[:, "maxScore"] < 0, "typeName"
-    ] = "Unknown"
-
-    adata.obs["typeName"] = cellScoreByGenesDf["typeName"]
-
-    clusterTypeRatio = (
-        adata.obs.groupby(clusterLabel)["typeName"]
-        .apply(lambda x: x.value_counts() / len(x))
-        .unstack()
-    )
-    return cellScoreByGenesDf, clusterTypeRatio
+        return cellScoreByGenesDf, clusterTypeRatio
 
 
 #######
@@ -1253,853 +1721,642 @@ def cellTypeAnnoByCellScore(adata, markerGenesDt, clusterLabel):
 #######
 
 
-def plotLabelPercentageInCluster(adata, groupby, label, labelColor):
-    """
-    根据label在adata.obs中groupby的占比绘图
-
-    groupby:
-        表明cluster。需要存在于adata.obs
-    label:
-        展示的占比。需要存在于adata.obs
-    labelColor:
-        label的颜色
-    """
-    groupbyWithLabelCountsDf = (
-        adata.obs.groupby(groupby)[label].apply(lambda x: x.value_counts()).unstack()
-    )
-    groupbyWithLabelCounts_CumsumPercDf = groupbyWithLabelCountsDf.pipe(
-        lambda x: x.cumsum(1).div(x.sum(1), 0) * 100
-    )
-    legendHandleLs = []
-    legendLabelLs = []
-    for singleLabel in groupbyWithLabelCounts_CumsumPercDf.columns[::-1]:
-        ax = sns.barplot(
-            x=groupbyWithLabelCounts_CumsumPercDf.index,
-            y=groupbyWithLabelCounts_CumsumPercDf[singleLabel],
-            color=labelColor[singleLabel],
-        )
-        legendHandleLs.append(
-            plt.Rectangle((0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none")
-        )
-        legendLabelLs.append(singleLabel)
-    legendHandleLs, legendLabelLs = legendHandleLs[::-1], legendLabelLs[::-1]
-    plt.legend(legendHandleLs, legendLabelLs, bbox_to_anchor=[1, 1], frameon=False)
-    plt.xlabel(groupby.capitalize())
-    plt.ylabel(f"Percentage")
-    return ax
-
-
-##########
-##整合数据
-##########
-def combineAdataUseScanorama(
-    adataLs, batchKey, batchCateLs, subSample=False, subSampleCounts=0
-):
-    """
-    利用Scanorama整合不同adata
-    adataLs:
-        [adata1, adata2]
-    batchKey:
-        添加的label
-    batchCateLs:
-        每个batch的名称 需要和adataLs一致
-    subSampleCounts:
-        下采样的样本数。
-    return:
-        整合后的adata
-    """
-    import scanorama
-
-    adataLs = [x.copy() for x in adataLs]
-    if subSample:
-        sampleSize = min([x.shape[0] for x in adataLs])
-        if subSampleCounts:
-            sampleSize = min(sampleSize, subSampleCounts)
-        logger.info(f"sample size: {sampleSize}")
-        [sc.pp.subsample(x, n_obs=sampleSize) for x in adataLs]
-
-    for adata in adataLs:
-        sc.pp.normalize_total(adata, inplace=True)
-        sc.pp.log1p(adata)
-        sc.pp.highly_variable_genes(
-            adata, flavor="seurat", n_top_genes=2000, inplace=True
-        )
-
-    print(f"↓↓↓↓↓↓↓↓↓{batchCateLs}↓↓↓↓↓↓↓↓")
-    combineScanoramaLs = scanorama.correct_scanpy(adataLs, return_dimred=True)
-    print(f"↑↑↑↑↑↑↑↑↑{batchCateLs}↑↑↑↑↑↑↑↑")
-    combineAdata = sc.concat(
-        combineScanoramaLs, label=batchKey, index_unique="-", keys=batchCateLs
-    )
-    sc.pp.neighbors(combineAdata, n_pcs=50, use_rep="X_scanorama")
-    sc.tl.umap(combineAdata)
-    return combineAdata
-
-
-def combineAdataUseScanoramaOld(
-    adataLs, batchKey, batchCateLs, subSample=False, subSampleCounts=0
-):
-    """
-    利用Scanorama整合不同adata
-    adataLs:
-        [adata1, adata2]
-    batchKey:
-        添加的label
-    batchCateLs:
-        每个batch的名称 需要和adataLs一致
-    subSampleCounts:
-        下采样的样本数。
-    return:
-        整合后的adata
-    """
-    import scanorama
-
-    adataLs = [x.copy() for x in adataLs]
-    if subSample:
-        sampleSize = min([x.shape[0] for x in adataLs])
-        if subSampleCounts:
-            sampleSize = min(sampleSize, subSampleCounts)
-        logger.info(f"sample size: {sampleSize}")
-        [sc.pp.subsample(x, n_obs=sampleSize) for x in adataLs]
-
-    combineAdata = adataLs[0].concatenate(
-        adataLs[1:], batch_key=batchKey, batch_categories=batchCateLs
-    )
-
-    sc.pp.normalize_per_cell(combineAdata, counts_per_cell_after=1e4)
-    sc.pp.log1p(combineAdata)
-
-    sc.pp.highly_variable_genes(
-        combineAdata, min_mean=0.0125, max_mean=3, min_disp=1.5, batch_key=batchKey
-    )
-    sc.pl.highly_variable_genes(combineAdata)
-
-    varGenes = combineAdata.var.highly_variable
-
-    varGenes = varGenes[varGenes].keys()
-
-    varGenes = list(varGenes)
-
-    alldata = {}
-
-    for oneBatchName in combineAdata.obs[batchKey].unique():
-        alldata[oneBatchName] = combineAdata[
-            combineAdata.obs[batchKey] == oneBatchName, varGenes
-        ]
-
-    combineAdataLs = list(alldata.values())
-
-    print(f"↓↓↓↓↓↓↓↓↓{batchCateLs}↓↓↓↓↓↓↓↓")
-    combineScanoramaLs = scanorama.correct_scanpy(combineAdataLs, return_dimred=True)
-    print(f"↑↑↑↑↑↑↑↑↑{batchCateLs}↑↑↑↑↑↑↑↑")
-    combineAdata = sc.concat(combineScanoramaLs)
-    #     import pdb; pdb.set_trace()
-    #     combineScanoramaAr = np.concatenate(combineScanoramaLs)
-
-    #     combineAdata.obsm["SC"] = combineScanoramaAr
-
-    #     combineAdata.raw = combineAdata
-    #     combineAdata = combineAdata[:, varGenes]
-    #     sc.pp.scale(combineAdata, max_value=10)
-    #     sc.tl.pca(combineAdata, svd_solver="arpack", n_comps=50)
-    #     sc.pl.pca(combineAdata)
-    sc.pp.neighbors(combineAdata, n_pcs=50, use_rep="X_scanorama")
-    sc.tl.umap(combineAdata)
-    return combineAdata
-
-
 ##########
 ##bustools
 ##########
-def parseBustoolsIndex(t2gPath, t2cPath=False):
-    """
-    解析bustools的索引文件
+class bustools(object):
+    @staticmethod
+    def parseBustoolsIndex(t2gPath, t2cPath=False):
+        """
+        解析bustools的索引文件
 
-    t2gPath:
-        kbpython index t2g
+        t2gPath:
+            kbpython index t2g
 
-    return:
-        t2gDt: key为转录本名 value为基因名
-        trLs: 所有的转录本 sorted
-        geneLs: 所有的基因 sorted
-    """
-    t2cTrList = []
-    if not t2cPath:
-        pass
-    else:
-        with open(t2cPath) as t2cFh:
-            for line in t2cFh:
-                t2cTrList.append(line.strip())
-    t2cTrSet = set(t2cTrList)
+        return:
+            t2gDt: key为转录本名 value为基因名
+            trLs: 所有的转录本 sorted
+            geneLs: 所有的基因 sorted
+        """
+        t2cTrList = []
+        if not t2cPath:
+            pass
+        else:
+            with open(t2cPath) as t2cFh:
+                for line in t2cFh:
+                    t2cTrList.append(line.strip())
+        t2cTrSet = set(t2cTrList)
 
-    t2gDt = {}
-    trLs = []
-    with open(t2gPath) as t2gFh:
-        for line in t2gFh:
-            lineLs = line.split()
-            if (not t2cTrSet) | (lineLs[0] in t2cTrSet):
-                t2gDt[lineLs[0]] = lineLs[1]
-                trLs.append(lineLs[0])
+        t2gDt = {}
+        trLs = []
+        with open(t2gPath) as t2gFh:
+            for line in t2gFh:
+                lineLs = line.split()
+                if (not t2cTrSet) | (lineLs[0] in t2cTrSet):
+                    t2gDt[lineLs[0]] = lineLs[1]
+                    trLs.append(lineLs[0])
+                else:
+                    pass
+        geneLs = list(set(t2gDt.values()))
+        return t2gDt, trLs, geneLs
+
+    @staticmethod
+    def parseMatEc(ecPath, t2gDt, trLs):
+        """
+        解析表达矩阵ec
+
+        ecPath:
+            kb-python 产生的bus文件
+        t2gDt:
+            parseBustoolsIndex 产生的字典 key为转录本名 value为基因名
+        trLs:
+            parseBustoolsIndex 产生的list 所有的转录本 sorted
+
+        return:
+            函数 输入ec 输出对应的geneLs
+        """
+        ecsDt = {}
+        with open(ecPath) as ecFh:
+            for line in ecFh:
+                l = line.split()
+                ec = int(l[0])
+                trs = [int(x) for x in l[1].split(",")]
+                ecsDt[ec] = trs
+
+        def __ec2g(ec):
+            """
+            函数 输入ec 输出对应的geneLs
+            """
+            if ec in ecsDt:
+                return set(t2gDt[trLs[t]] for t in ecsDt[ec])
             else:
-                pass
-    geneLs = list(set(t2gDt.values()))
-    return t2gDt, trLs, geneLs
+                return set([])
 
+        return __ec2g
 
-def parseMatEc(ecPath, t2gDt, trLs):
-    """
-    解析表达矩阵ec
-
-    ecPath:
-        kb-python 产生的bus文件
-    t2gDt:
-        parseBustoolsIndex 产生的字典 key为转录本名 value为基因名
-    trLs:
-        parseBustoolsIndex 产生的list 所有的转录本 sorted
-
-    return:
-        函数 输入ec 输出对应的geneLs
-    """
-    ecsDt = {}
-    with open(ecPath) as ecFh:
-        for line in ecFh:
-            l = line.split()
-            ec = int(l[0])
-            trs = [int(x) for x in l[1].split(",")]
-            ecsDt[ec] = trs
-
-    def __ec2g(ec):
+    @staticmethod
+    def getBustoolsMappingResult(
+        t2gPath, ecPath, busPath, method="inner", filterUmi=False
+    ):
         """
-        函数 输入ec 输出对应的geneLs
+        解析kbpython结果 并获得表达情况
+
+        t2gPath:
+            kbpython index t2g
+        ecPath:
+            kbpython matrix ec
+        busPath:
+            kbpython bus
+        method:
+            inner|outer  inner指与多个基因比对上取交集 outer指取并集
+        filterUmi:
+            是否只保留仅比对上一个基因的umi
+        return:
+            df:
+                columns = ["barcode", "umi", "geneSet"]
         """
-        if ec in ecsDt:
-            return set(t2gDt[trLs[t]] for t in ecsDt[ec])
-        else:
-            return set([])
+        logger.info("start parse index")
+        t2gDt, trLs, geneLs = parseBustoolsIndex(t2gPath)
 
-    return __ec2g
+        logger.info("start parse mat")
+        ec2GeneFun = parseMatEc(ecPath, t2gDt, trLs)
 
+        busFh = StringIO()
 
-def getBustoolsMappingResult(t2gPath, ecPath, busPath, method="inner", filterUmi=False):
-    """
-    解析kbpython结果 并获得表达情况
+        logger.info("start parse bus")
+        sh.bustools.text("-p", busPath, _out=busFh)
 
-    t2gPath:
-        kbpython index t2g
-    ecPath:
-        kbpython matrix ec
-    busPath:
-        kbpython bus
-    method:
-        inner|outer  inner指与多个基因比对上取交集 outer指取并集
-    filterUmi:
-        是否只保留仅比对上一个基因的umi
-    return:
-        df:
-            columns = ["barcode", "umi", "geneSet"]
-    """
-    logger.info("start parse index")
-    t2gDt, trLs, geneLs = parseBustoolsIndex(t2gPath)
+        busFh = StringIO(busFh.getvalue())
 
-    logger.info("start parse mat")
-    ec2GeneFun = parseMatEc(ecPath, t2gDt, trLs)
+        busDf = pd.read_csv(
+            busFh, sep="\t", header=None, names=["barcode", "umi", "ec", "count"]
+        )
 
-    busFh = StringIO()
+        logger.info("start get mapped gene")
+        busDf = busDf.assign(geneLs=lambda x: x["ec"].map(ec2GeneFun))
 
-    logger.info("start parse bus")
-    sh.bustools.text("-p", busPath, _out=busFh)
+        def __getSetIntersect(*setList):
+            if len(setList) == 1:
+                return setList[0]
+            else:
+                return setList[0].intersection(*setList[1:])
 
-    busFh = StringIO(busFh.getvalue())
+        def __getSetOutersect(*setList):
+            if len(setList) == 1:
+                return setList[0]
+            else:
+                return setList[0].union(*setList[1:])
 
-    busDf = pd.read_csv(
-        busFh, sep="\t", header=None, names=["barcode", "umi", "ec", "count"]
-    )
+        setFc = {"outer": __getSetOutersect, "inner": __getSetIntersect}[method]
 
-    logger.info("start get mapped gene")
-    busDf = busDf.assign(geneLs=lambda x: x["ec"].map(ec2GeneFun))
+        logger.info("start get finnal results")
 
-    def __getSetIntersect(*setList):
-        if len(setList) == 1:
-            return setList[0]
-        else:
-            return setList[0].intersection(*setList[1:])
-
-    def __getSetOutersect(*setList):
-        if len(setList) == 1:
-            return setList[0]
-        else:
-            return setList[0].union(*setList[1:])
-
-    setFc = {"outer": __getSetOutersect, "inner": __getSetIntersect}[method]
-
-    logger.info("start get finnal results")
-
-    busDf = (
-        busDf.groupby(["barcode", "umi"])["geneLs"]
-        .agg(lambda x: setFc(*x))
-        .reset_index()
-    ).assign(barcodeUmi=lambda df: df["barcode"] + "_" + df["umi"])
-    logger.info(f"before filter {len(busDf)} Umis found")
-    if filterUmi:
-        logger.info("Umi filter: True, start filter")
         busDf = (
-            busDf.assign(geneCounts=lambda df: df["geneLs"].map(len))
-            .query("geneCounts == 1")
-            .assign(geneLs=lambda df: df["geneLs"].map(lambda x: list(x)[0]))
-        ).drop("geneCounts", axis=1)
+            busDf.groupby(["barcode", "umi"])["geneLs"]
+            .agg(lambda x: setFc(*x))
+            .reset_index()
+        ).assign(barcodeUmi=lambda df: df["barcode"] + "_" + df["umi"])
+        logger.info(f"before filter {len(busDf)} Umis found")
+        if filterUmi:
+            logger.info("Umi filter: True, start filter")
+            busDf = (
+                busDf.assign(geneCounts=lambda df: df["geneLs"].map(len))
+                .query("geneCounts == 1")
+                .assign(geneLs=lambda df: df["geneLs"].map(lambda x: list(x)[0]))
+            ).drop("geneCounts", axis=1)
 
-        logger.info(f"after filter {len(busDf)} Umis found")
-    else:
-        logger.info("Umi filter: False")
-    return busDf
+            logger.info(f"after filter {len(busDf)} Umis found")
+        else:
+            logger.info("Umi filter: False")
+        return busDf
 
+    @staticmethod
+    def getAdataFromKbNucleiResult(
+        t2gPath,
+        ecPath,
+        splicePath,
+        unsplicePath,
+        needUmiMappingInfo=False,
+        adataPath=False,
+    ):
+        """
+        用于从kb的nuclei策略中获得adata
+        t2gPath:
+            kbpython index t2g
+        ecPath:
+            kbpython matrix ec
+        splicePath:
+            kbpython splice bus
+        unsplicePath:
+            kbpython unsplice bus
+        needUmiMappingInfo:.
+            need umi mapping info or not
+        adataPath:
+            adata store path
 
-def getAdataFromKbNucleiResult(
-    t2gPath, ecPath, splicePath, unsplicePath, needUmiMappingInfo=False, adataPath=False
-):
-    """
-    用于从kb的nuclei策略中获得adata
-    t2gPath:
-        kbpython index t2g
-    ecPath:
-        kbpython matrix ec
-    splicePath:
-        kbpython splice bus
-    unsplicePath:
-        kbpython unsplice bus
-    needUmiMappingInfo:.
-        need umi mapping info or not
-    adataPath:
-        adata store path
+        return:
+            adata
+            (umiMappingDf)
+        """
+        logger.info("start parse splice bus")
+        spliceBusDf = getBustoolsMappingResult(
+            t2gPath, ecPath, splicePath, "inner", True
+        )
+        logger.info("start parse unsplice bus")
+        unspliceBusDf = getBustoolsMappingResult(
+            t2gPath, ecPath, unsplicePath, "inner", True
+        )
+        kbDf = pd.concat([spliceBusDf, unspliceBusDf])
 
-    return:
-        adata
-        (umiMappingDf)
-    """
-    logger.info("start parse splice bus")
-    spliceBusDf = getBustoolsMappingResult(t2gPath, ecPath, splicePath, "inner", True)
-    logger.info("start parse unsplice bus")
-    unspliceBusDf = getBustoolsMappingResult(
-        t2gPath, ecPath, unsplicePath, "inner", True
-    )
-    kbDf = pd.concat([spliceBusDf, unspliceBusDf])
+        logger.info("start get overlap umi")
+        kbUmiGeneCountsSr = kbDf.groupby("barcodeUmi")["geneLs"].agg("count")
+        unoverlapUmiLs = list(kbUmiGeneCountsSr.pipe(lambda x: x[x == 1]).index)
+        overlapUmiSt = set(kbUmiGeneCountsSr.pipe(lambda x: x[x != 1]).index)
+        overlapUseSr = (
+            kbDf.query("barcodeUmi in @overlapUmiSt")
+            .groupby("barcodeUmi")["geneLs"]
+            .apply(lambda df: True if df.iat[0] == df.iat[1] else False)
+        )
+        overlapUmiUseLs = list(overlapUseSr.pipe(lambda x: x[x]).index)
+        useUmiLs = sorted([*unoverlapUmiLs, *overlapUmiUseLs])
 
-    logger.info("start get overlap umi")
-    kbUmiGeneCountsSr = kbDf.groupby("barcodeUmi")["geneLs"].agg("count")
-    unoverlapUmiLs = list(kbUmiGeneCountsSr.pipe(lambda x: x[x == 1]).index)
-    overlapUmiSt = set(kbUmiGeneCountsSr.pipe(lambda x: x[x != 1]).index)
-    overlapUseSr = (
-        kbDf.query("barcodeUmi in @overlapUmiSt")
-        .groupby("barcodeUmi")["geneLs"]
-        .apply(lambda df: True if df.iat[0] == df.iat[1] else False)
-    )
-    overlapUmiUseLs = list(overlapUseSr.pipe(lambda x: x[x]).index)
-    useUmiLs = sorted([*unoverlapUmiLs, *overlapUmiUseLs])
+        logger.info("start filter overlap umi and creat anndata")
+        kbDf = kbDf.drop_duplicates("barcodeUmi").query("barcodeUmi in @useUmiLs")
+        kbMtxDf = (
+            kbDf.groupby("barcode")["geneLs"]
+            .apply(lambda df: df.value_counts())
+            .unstack()
+            .fillna(0)
+        )
+        kbSplicedMtxDf = (
+            spliceBusDf.query("barcodeUmi in @unoverlapUmiLs")
+            .groupby("barcode")["geneLs"]
+            .apply(lambda df: df.value_counts())
+            .unstack()
+            .reindex(kbMtxDf.index)
+            .reindex(kbMtxDf.columns, axis=1)
+            .fillna(0)
+        )
+        kbUnsplicedMtxDf = (
+            unspliceBusDf.query("barcodeUmi in @unoverlapUmiLs")
+            .groupby("barcode")["geneLs"]
+            .apply(lambda df: df.value_counts())
+            .unstack()
+            .reindex(kbMtxDf.index)
+            .reindex(kbMtxDf.columns, axis=1)
+            .fillna(0)
+        )
 
-    logger.info("start filter overlap umi and creat anndata")
-    kbDf = kbDf.drop_duplicates("barcodeUmi").query("barcodeUmi in @useUmiLs")
-    kbMtxDf = (
-        kbDf.groupby("barcode")["geneLs"]
-        .apply(lambda df: df.value_counts())
-        .unstack()
-        .fillna(0)
-    )
-    kbSplicedMtxDf = (
-        spliceBusDf.query("barcodeUmi in @unoverlapUmiLs")
-        .groupby("barcode")["geneLs"]
-        .apply(lambda df: df.value_counts())
-        .unstack()
-        .reindex(kbMtxDf.index)
-        .reindex(kbMtxDf.columns, axis=1)
-        .fillna(0)
-    )
-    kbUnsplicedMtxDf = (
-        unspliceBusDf.query("barcodeUmi in @unoverlapUmiLs")
-        .groupby("barcode")["geneLs"]
-        .apply(lambda df: df.value_counts())
-        .unstack()
-        .reindex(kbMtxDf.index)
-        .reindex(kbMtxDf.columns, axis=1)
-        .fillna(0)
-    )
+        kbAd = basic.creatAnndataFromDf(
+            kbMtxDf, spliced=kbSplicedMtxDf, unspliced=kbUnsplicedMtxDf
+        )
 
-    kbAd = creatAnndataFromDf(
-        kbMtxDf, spliced=kbSplicedMtxDf, unspliced=kbUnsplicedMtxDf
-    )
+        if adataPath:
+            logger.info("start write anndata")
+            kbAd.write(adataPath)
 
-    if adataPath:
-        logger.info("start write anndata")
-        kbAd.write(adataPath)
-
-    if needUmiMappingInfo:
-        return (kbAd, kbDf)
-    else:
-        return kbAd
+        if needUmiMappingInfo:
+            return (kbAd, kbDf)
+        else:
+            return kbAd
 
 
 ######
 # cellranger
 #####
-def extractReadCountsByUmiFromTenX(molInfoPath, kitVersion="v2", filtered=True):
-    """
-    用于从cellRanger文件中提取read counts
+class parseCellranger(object):
+    @staticmethod
+    def extractReadCountsByUmiFromTenX(molInfoPath, kitVersion="v2", filtered=True):
+        """
+        用于从cellRanger文件中提取read counts
 
-    molInfoPath:
-        molecule_info.h5
-    kitVersion:
-        v2|v3。v2:umi 10bp, v3:umi 12bp
-    filtered:
-        只使用过滤后的
+        molInfoPath:
+            molecule_info.h5
+        kitVersion:
+            v2|v3。v2:umi 10bp, v3:umi 12bp
+        filtered:
+            只使用过滤后的
 
-    return:
-        dataframe: columns = ['barcodeUmi', 'featureName', 'readCount']
+        return:
+            dataframe: columns = ['barcodeUmi', 'featureName', 'readCount']
 
-    """
-    umiLength = {"v2": 10, "v3": 12}[kitVersion]
+        """
+        umiLength = {"v2": 10, "v3": 12}[kitVersion]
 
-    def NumToSeq():
-        nonlocal umiLength
+        def NumToSeq():
+            nonlocal umiLength
 
-        numToBase = {"00": "A", "01": "C", "10": "G", "11": "T"}
+            numToBase = {"00": "A", "01": "C", "10": "G", "11": "T"}
 
-        def _numToSeq(num):
-            num = int(num)
-            numStr = f"{num:032b}"[-umiLength * 2 :]
-            return "".join(
-                [numToBase[numStr[2 * x : 2 * x + 2]] for x in range(umiLength)]
-            )
+            def _numToSeq(num):
+                num = int(num)
+                numStr = f"{num:032b}"[-umiLength * 2 :]
+                return "".join(
+                    [numToBase[numStr[2 * x : 2 * x + 2]] for x in range(umiLength)]
+                )
 
-        return _numToSeq
+            return _numToSeq
 
-    numToSeq = NumToSeq()
-    molInfo = h5py.File(molInfoPath, "r")
-    allBarcode = molInfo["barcodes"][()].astype(str)
-    allFeature = molInfo["features/id"][()].astype(str)
+        numToSeq = NumToSeq()
+        molInfo = h5py.File(molInfoPath, "r")
+        allBarcode = molInfo["barcodes"][()].astype(str)
+        allFeature = molInfo["features/id"][()].astype(str)
 
-    allUmiCount = pd.DataFrame(
-        np.c_[
-            molInfo["umi"][()],
-            allBarcode[molInfo["barcode_idx"][()]],
-            molInfo["count"][()],
-            allFeature[molInfo["feature_idx"][()]],
-        ]
-    )
-    if filtered:
-        allUmiCount = allUmiCount[
-            allUmiCount[1].isin(
-                allBarcode[molInfo["barcode_info/pass_filter"][()][:, 0]]
-            )
-        ]
-    allUmiCount[0] = allUmiCount[0].map(numToSeq)
-    allUmiCount["barcodeUmi"] = allUmiCount[1] + "_" + allUmiCount[0]
-    allUmiCount = allUmiCount.reindex(["barcodeUmi", 3, 2], axis=1, copy=False)
-    allUmiCount.columns = ["barcodeUmi", "featureName", "readCount"]
-    return allUmiCount
+        allUmiCount = pd.DataFrame(
+            np.c_[
+                molInfo["umi"][()],
+                allBarcode[molInfo["barcode_idx"][()]],
+                molInfo["count"][()],
+                allFeature[molInfo["feature_idx"][()]],
+            ]
+        )
+        if filtered:
+            allUmiCount = allUmiCount[
+                allUmiCount[1].isin(
+                    allBarcode[molInfo["barcode_info/pass_filter"][()][:, 0]]
+                )
+            ]
+        allUmiCount[0] = allUmiCount[0].map(numToSeq)
+        allUmiCount["barcodeUmi"] = allUmiCount[1] + "_" + allUmiCount[0]
+        allUmiCount = allUmiCount.reindex(["barcodeUmi", 3, 2], axis=1, copy=False)
+        allUmiCount.columns = ["barcodeUmi", "featureName", "readCount"]
+        return allUmiCount
+    
+    @staticmethod
+    def getUmiSenseInfoNaive(bamPath, threads=None) -> pd.DataFrame:
+        def __getUmiSenseInfoOneChrom(bamPath, chrName):
+            bam = pysam.AlignmentFile(bamPath)
+            cellDt = defaultdict(lambda: {'sense':[], 'antisense': []})
+            for i, read in enumerate(bam.fetch(chrName)):
+                if read.has_tag('CB') and read.has_tag('UB'):
+                    if read.has_tag('TX'):
+                        strand = 'sense'
+                    elif read.has_tag('AN'):
+                        strand = 'antisense'
+                    else:
+                        continue
+                    readBc = read.get_tag('CB')
+                    readUmi = read.get_tag('UB')
+                    if readUmi not in cellDt[readBc][strand]:
+                        cellDt[readBc][strand].append(readUmi)
+                if i % 1e6 == 0:
+                    logger.info(f'{chrName}, {i}')
+            logger.info(f'{chrName} process end')
+            return chrName, dict(cellDt)
+
+        bam = pysam.AlignmentFile(bamPath)
+        if not threads:
+            threads = len(bam.references)
+
+        logger.info("start parse bam file")
+        resultLs = []
+        with ProcessPoolExecutor(threads) as mtP:
+            for chrName in bam.references:
+                resultLs.append(mtP.submit(getUmiSenseInfo, bamFilePath, chrName))
+        resultLs = [x.result() for x in resultLs]
+        logger.info('start merge each chromosome results')
+
+        cellDt = defaultdict(lambda: {'sense':[], 'antisense': []})
+        for chrName, singleChrDt in resultLs:
+            for cellBarcode, bcSenseDt in singleChrDt.items():
+                cellDt[cellBarcode]['sense'].extend(bcSenseDt['sense'])
+                cellDt[cellBarcode]['antisense'].extend(bcSenseDt['antisense'])
+            logger.info(chrName)
+        del(resultLs)   
 
 
-def addDfToObsm(adata, copy=False, **dataDt):
-    """addDfToObsm, add data to adata.obsm
-
-    Args:
-        adata ([anndata])
-        copy (bool, optional)
-        dataDt: {label: dataframe}, dataframe must have the same dimension
-
-    Returns:
-        adata if copy=True, otherwise None
-    """
-    adata = adata.copy() if copy else adata
-    for label, df in dataDt.items():
-        if (adata.obs.index != df.index).all():
-            logger.error(f"dataset {label} have a wrong shape/index")
-            0 / 0
-        if label in adata.obsm:
-            logger.warning(f"dataset {label} existed! Overwrite")
-        adata.uns[f"{label}_label"] = df.columns.values
-        adata.obsm[label] = df.values
-    if copy:
-        return adata
+        finalResultLs = []
+        for celBarcode, bcSenseDt in cellDt.items():
+            finalResultLs.append([celBarcode, len(set(bcSenseDt['sense'])), len(set(bcSenseDt['antisense']))])
+        del(cellDt)
+        
+        finalResultDf = pd.DataFrame(finalResultLs)
+        finalResultDf.columns = ['cellBarcode', 'senseUmiCounts', 'antisenseCounts']
+        return finalResultDf
+    
 
 
 ### multilayer use
 #####解析IR结果####
 
 
-def updateOldMultiAd(adata: anndata.AnnData) -> anndata.AnnData:
-    """
-    update MultiAd from old version (all data deposit in X) to the 1.0 version (data deposit in obsm)
-    """
-    adata = adata.copy()
-
-    def __addMatToObsm(adata, keyword):
+class parseSnuupy(object):
+    @staticmethod
+    def updateOldMultiAd(adata: anndata.AnnData) -> anndata.AnnData:
         """
-        read var name of adata, and add data matched the keyword to uns of adata
+        update MultiAd from old version (all data deposit in X) to the 1.0 version (data deposit in obsm)
         """
-        if keyword == "Abundance":
-            subIndex = ~adata.var.index.str.contains("APA|Spliced")
-        else:
-            subIndex = adata.var.index.str.contains(keyword)
-        subAd = adata[:, subIndex]
-        adata.obsm[keyword] = subAd.X
-        adata.uns[f"{keyword}_label"] = subAd.var.index.values
+        adata = adata.copy()
 
-    __addMatToObsm(adata, "APA")
-    __addMatToObsm(adata, "Spliced")
-    __addMatToObsm(adata, "Abundance")
-    adata = adata[:, ~adata.var.index.str.contains("APA|Spliced")]
-    return adata
+        def __addMatToObsm(adata, keyword):
+            """
+            read var name of adata, and add data matched the keyword to uns of adata
+            """
+            if keyword == "Abundance":
+                subIndex = ~adata.var.index.str.contains("APA|Spliced")
+            else:
+                subIndex = adata.var.index.str.contains(keyword)
+            subAd = adata[:, subIndex]
+            adata.obsm[keyword] = subAd.X
+            adata.uns[f"{keyword}_label"] = subAd.var.index.values
 
+        __addMatToObsm(adata, "APA")
+        __addMatToObsm(adata, "Spliced")
+        __addMatToObsm(adata, "Abundance")
+        adata = adata[:, ~adata.var.index.str.contains("APA|Spliced")]
+        return adata
 
-def getMatFromObsm(
-    adata: anndata.AnnData,
-    keyword: str,
-    minCell: int = 5,
-    useGeneLs: Union[list, pd.Series, np.ndarray] = [],
-    normalize=True,
-    logScale=True,
-    ignoreN=False,
-    clear=False,
-    raw=False,
-    strCommand=None,
-) -> anndata.AnnData:
-    """
-    use MAT deposited in obsm replace the X MAT
+    @staticmethod
+    def getSpliceInfoOnIntronLevel(irInfoPath, useIntronPath=None):
+        """
+        从intron水平获得剪接情况
+        irInfoPath:
+            snuupy getSpliceInfo的结果
+        useIntronPath:
+            使用的intron列表，需要表头'intron_id'
 
-    params:
-        adata:
-            version 1.0 multiAd
-        keyword:
-            stored in obsm
-        minCell:
-            filter feature which expressed not more than <minCell> cells
-        useGeneLs:
-            if not specified useGeneLs, all features will be output, otherwise only features associated with those gene will be output
-        normalize:
-            normalize the obtained Mtx or not
-        logScale:
-            log-transformed or not
-        ignoreN:
-            ignore ambiguous APA/Splice info
-        clear:
-            data not stored in obs or var will be removed
-        raw:
-            return the raw dataset stored in the obsm. This parameter is prior to all others
-        strCommand:
-            use str instead of specified params:
-            "n": set normalize True
-            "s": set logScale True
-            'N': set ignoreN True
-            'c' set clear True
-            '': means all is False
-            This parameter is prior to all others except raw
-    return:
-        anndata
-    """
-    if clear:
-        transformedAd = anndata.AnnData(
-            X=adata.obsm[keyword].copy(),
-            obs=adata.obs,
-            var=pd.DataFrame(index=adata.uns[f"{keyword}_label"]),
-        )
-    else:
-        transformedAd = anndata.AnnData(
-            X=adata.obsm[keyword].copy(),
-            obs=adata.obs,
-            var=pd.DataFrame(index=adata.uns[f"{keyword}_label"]),
-            obsp=adata.obsp,
-            obsm=adata.obsm,
-            uns=adata.uns,
-        )
+        return:
+            adata:
+                X: unsplice + splice
+                layer[unspliced, spliced]
+        """
+        irInfoDf = pd.read_table(irInfoPath)
+        intronCountMtxDt = {}
+        intronRetenMtxDt = {}
+        # 输入 0base
+        # 输出 1base
+        allLinesCounts = len(irInfoDf)
+        for i, line in enumerate(irInfoDf.itertuples()):
+            barcode = line.Name.split("_")[0]
+            lineCountMtxDt = intronCountMtxDt.get(barcode, {})
+            lineRetenMtxDt = intronRetenMtxDt.get(barcode, {})
 
-    if raw:
-        return transformedAd
+            exonOverlapInfo = [int(x) for x in line.ExonOverlapInfo.split(",")]
+            minIntron = min(exonOverlapInfo)
+            maxIntron = max(exonOverlapInfo)
+            intronCov = list(range(minIntron, maxIntron))
 
-    if strCommand != None:
-        normalize = True if "n" in strCommand else False
-        logScale = True if "s" in strCommand else False
-        ignoreN = True if "N" in strCommand else False
-        clear = True if "c" in strCommand else False
+            if pd.isna(line.IntronOverlapInfo):
+                intronOverlapInfo = []
+            else:
+                intronOverlapInfo = [int(x) for x in line.IntronOverlapInfo.split(",")]
 
-    logger.info(
-        f"""
-    final mode: 
-        normalize: {normalize}, 
-        logScale: {logScale}, 
-        ignoreN: {ignoreN}, 
-        clear: {clear}
-    """
-    )
+            intronCov.extend(intronOverlapInfo)
+            intronCov = set(intronCov)
 
-    sc.pp.filter_genes(transformedAd, min_cells=minCell)
+            for intronCovNum in intronCov:
+                lineCountMtxDt[f"{line.geneId}_intron_{intronCovNum+1}"] = (
+                    lineCountMtxDt.get(f"{line.geneId}_intron_{intronCovNum+1}", 0) + 1
+                )
+            for intronRentNum in intronOverlapInfo:
+                lineRetenMtxDt[f"{line.geneId}_intron_{intronRentNum+1}"] = (
+                    lineRetenMtxDt.get(f"{line.geneId}_intron_{intronRentNum+1}", 0) + 1
+                )
 
-    if normalize:
-        sc.pp.normalize_total(transformedAd, target_sum=1e4)
-    if logScale:
-        sc.pp.log1p(transformedAd)
-
-    useGeneLs = list(useGeneLs)
-    if not useGeneLs:
-        transformedAd = transformedAd
-    else:
-        transformedAdFeatureSr = transformedAd.var.index
-        transformedAdFeatureFilterBl = (
-            transformedAdFeatureSr.str.split("_").str[0].isin(useGeneLs)
-        )
-        transformedAd = transformedAd[:, transformedAdFeatureFilterBl]
-
-    if ignoreN:
-        transformedAdFeatureSr = transformedAd.var.index
-        transformedAdFeatureFilterBl = (
-            ~transformedAdFeatureSr.str.split("_").str[1].isin(["N", "Ambiguous"])
-        )
-
-        transformedAd = transformedAd[:, transformedAdFeatureFilterBl]
-
-    return transformedAd
-
-
-def getSpliceInfoOnIntronLevel(irInfoPath, useIntronPath=None):
-    """
-    从intron水平获得剪接情况
-    irInfoPath:
-        snuupy getSpliceInfo的结果
-    useIntronPath:
-        使用的intron列表，需要表头'intron_id'
-
-    return:
-        adata:
-            X: unsplice + splice
-            layer[unspliced, spliced]
-    """
-    irInfoDf = pd.read_table(irInfoPath)
-    intronCountMtxDt = {}
-    intronRetenMtxDt = {}
-    # 输入 0base
-    # 输出 1base
-    allLinesCounts = len(irInfoDf)
-    for i, line in enumerate(irInfoDf.itertuples()):
-        barcode = line.Name.split("_")[0]
-        lineCountMtxDt = intronCountMtxDt.get(barcode, {})
-        lineRetenMtxDt = intronRetenMtxDt.get(barcode, {})
-
-        exonOverlapInfo = [int(x) for x in line.ExonOverlapInfo.split(",")]
-        minIntron = min(exonOverlapInfo)
-        maxIntron = max(exonOverlapInfo)
-        intronCov = list(range(minIntron, maxIntron))
-
-        if pd.isna(line.IntronOverlapInfo):
-            intronOverlapInfo = []
-        else:
-            intronOverlapInfo = [int(x) for x in line.IntronOverlapInfo.split(",")]
-
-        intronCov.extend(intronOverlapInfo)
-        intronCov = set(intronCov)
-
-        for intronCovNum in intronCov:
-            lineCountMtxDt[f"{line.geneId}_intron_{intronCovNum+1}"] = (
-                lineCountMtxDt.get(f"{line.geneId}_intron_{intronCovNum+1}", 0) + 1
+            intronCountMtxDt[barcode] = lineCountMtxDt
+            intronRetenMtxDt[barcode] = lineRetenMtxDt
+            if i % 1e5 == 0:
+                logger.info(f"{i}/{allLinesCounts}")
+        intronCountMtxDf = pd.DataFrame.from_dict(intronCountMtxDt, "index")
+        intronRetenMtxDf = pd.DataFrame.from_dict(intronRetenMtxDt, "index")
+        if useIntronPath:
+            useIntronDf = pd.read_table(useIntronPath)
+            useIntronLs = list(
+                useIntronDf["intron_id"].str.split(".").str[0]
+                + "_intron_"
+                + useIntronDf["intron_id"].str.split("intron").str[1]
             )
-        for intronRentNum in intronOverlapInfo:
-            lineRetenMtxDt[f"{line.geneId}_intron_{intronRentNum+1}"] = (
-                lineRetenMtxDt.get(f"{line.geneId}_intron_{intronRentNum+1}", 0) + 1
+            intronRetenMtxDf = intronRetenMtxDf.loc[
+                :, intronRetenMtxDf.columns.isin(useIntronLs)
+            ]
+            intronCountMtxDf = intronCountMtxDf.loc[
+                :, intronCountMtxDf.columns.isin(useIntronLs)
+            ]
+        intronCountMtxDf.index = intronCountMtxDf.index + "-1"
+        intronRetenMtxDf.index = intronRetenMtxDf.index + "-1"
+        intronRetenMtxDf = intronRetenMtxDf.fillna(0)
+        intronCountMtxDf = intronCountMtxDf.fillna(0)
+        intronCountMtxAd = basic.creatAnndataFromDf(intronCountMtxDf)
+        intronRetenMtxAd = basic.creatAnndataFromDf(intronRetenMtxDf)
+
+        useIntronLs = list(intronRetenMtxAd.var.index | intronCountMtxAd.var.index)
+        useCellLs = list(intronRetenMtxAd.obs.index | intronCountMtxAd.obs.index)
+
+        intronRetenMtxDf = (
+            intronRetenMtxAd.to_df()
+            .reindex(useIntronLs, axis=1)
+            .reindex(useCellLs)
+            .fillna(0)
+        )
+        intronCountMtxDf = (
+            intronCountMtxAd.to_df()
+            .reindex(useIntronLs, axis=1)
+            .reindex(useCellLs)
+            .fillna(0)
+        )
+
+        return basic.creatAnndataFromDf(
+            intronCountMtxDf,
+            unspliced=intronRetenMtxDf,
+            spliced=intronCountMtxDf - intronRetenMtxDf,
+        )
+
+    @staticmethod
+    def getSpliceInfoFromSnuupyAd(nanoporeAd):
+        """
+        用于从snuupy crMode产生的NanoporeMtx中提取产生splice和unsplice的read
+
+        return:
+            adata:
+                X: unsplice + splice
+                layer[unspliced, spliced]
+        """
+        nanoporeCountAd = nanoporeAd[:, ~nanoporeAd.var.index.str.contains("_")]
+        unsplicedAd = nanoporeAd[
+            :, nanoporeAd.var.index.str.contains("False_fullySpliced")
+        ]
+        unsplicedAd.var.index = unsplicedAd.var.index.str.split("_").str[0]
+        splicedAd = nanoporeAd[
+            :, nanoporeAd.var.index.str.contains("True_fullySpliced")
+        ]
+        splicedAd.var.index = splicedAd.var.index.str.split("_").str[0]
+        useGeneLs = sorted(list(set(splicedAd.var.index) | set(unsplicedAd.var.index)))
+        unsplicedDf = unsplicedAd.to_df().reindex(useGeneLs, axis=1).fillna(0)
+        splicedDf = splicedAd.to_df().reindex(useGeneLs, axis=1).fillna(0)
+        allSpliceDf = splicedDf + unsplicedDf
+        return basic.creatAnndataFromDf(
+            allSpliceDf, spliced=splicedDf, unspliced=unsplicedDf
+        )
+
+    @staticmethod
+    def getDiffSplicedIntron(
+        snSpliceIntronInfoAd,
+        groupby,
+        minCount,
+        minDiff=0.0,
+        threads=24,
+        useMethod="winflat",
+        fdrMethod="indep",
+        winflatPath="/public/home/jiajb/soft/IRFinder/IRFinder-1.2.5/bin/util/winflat",
+        fisherMethod="two-sided",
+    ):
+        """
+        snSpliceIntronInfoAd:
+            adata: layer['spliced', 'unspliced']
+        groupby:
+            data will be groupbyed by this label
+        minCount:
+            read total counts lower than this cutoff will be filtered
+        minDiff:
+            unspliced read ratio lower than this cutoff will be filtered
+        useMethod:
+            winflat|fisher
+        fdrMethod:
+            indep|negcorr
+            FH or FY
+        fisherMethod:
+            two-sided|less|greater
+            less: used to calculate these intron enriched in this group
+            greater: used to calculate these intron excluded in this group
+        """
+        from pandarallel import pandarallel
+        from statsmodels.stats import multitest
+        from scipy.stats import fisher_exact
+        import os
+
+        pandarallel.initialize(nb_workers=threads)
+
+        def calcuPvalueByWinflat(line):
+            nonlocal winflatPath
+            xUnsplice = line.iloc[0]
+            yUnsplice = line.iloc[1]
+            xTotal = line.iloc[2]
+            yTotal = line.iloc[3]
+            resultStr = (
+                os.popen(
+                    f"{winflatPath} -xvalue {xUnsplice} -yvalue {yUnsplice} -diff {xTotal} {yTotal}"
+                )
+                .read()
+                .strip()
+            )
+            if not resultStr:
+                return 1.0
+            resultFloat = [
+                float(x)
+                for x in [
+                    x.strip().split("=")[-1].strip() for x in resultStr.split("\n")
+                ]
+            ][1]
+
+            return resultFloat
+
+        def calcuPvalueByFisher(line):
+            nonlocal fisherMethod
+            xUnsplice = line.iloc[0]
+            yUnsplice = line.iloc[1]
+            xTotal = line.iloc[2]
+            yTotal = line.iloc[3]
+            xSplice = xTotal - xUnsplice
+            ySplice = yTotal - yUnsplice
+            return fisher_exact(
+                [[xUnsplice, xSplice], [yUnsplice, ySplice]], fisherMethod
+            )[1]
+
+        allClusterDiffDt = {}
+        calcuPvalue = {"winflat": calcuPvalueByWinflat, "fisher": calcuPvalueByFisher}[
+            useMethod
+        ]
+
+        for singleCluster in snSpliceIntronInfoAd.obs[groupby].unique():
+            snSpliceIntronInfoAd.obs = snSpliceIntronInfoAd.obs.assign(
+                cate=lambda df: np.select(
+                    [df[groupby].isin([singleCluster])],
+                    [singleCluster],
+                    f"non-{singleCluster}",
+                )
+            )
+            clusterSpliceIntronInfoAd = mergeAdata(
+                snSpliceIntronInfoAd, "cate", ["unspliced", "spliced"]
+            )
+            clusterSpliceIntronInfoAd = clusterSpliceIntronInfoAd[
+                :, clusterSpliceIntronInfoAd.to_df().min(0) >= minCount
+            ]
+
+            clusterSpliceIntronInfoDf = pd.concat(
+                [
+                    clusterSpliceIntronInfoAd.to_df("unspliced").T,
+                    clusterSpliceIntronInfoAd.to_df().T,
+                ],
+                axis=1,
+            )
+            #         import pdb; pdb.set_trace()
+            clusterSpliceIntronInfoDf.columns = [
+                "unspliced",
+                "non-unspliced",
+                "total",
+                "non-total",
+            ]
+
+            clusterSpliceIntronInfoDf[
+                "pvalue"
+            ] = clusterSpliceIntronInfoDf.parallel_apply(calcuPvalue, axis=1)
+            clusterSpliceIntronInfoDf["fdr"] = multitest.fdrcorrection(
+                clusterSpliceIntronInfoDf["pvalue"], 0.05, fdrMethod
+            )[1]
+
+            clusterSpliceIntronInfoDf = clusterSpliceIntronInfoDf.assign(
+                diffRatio=lambda df: df["unspliced"] / df["total"]
+                - df["non-unspliced"] / df["non-total"]
             )
 
-        intronCountMtxDt[barcode] = lineCountMtxDt
-        intronRetenMtxDt[barcode] = lineRetenMtxDt
-        if i % 1e5 == 0:
-            logger.info(f"{i}/{allLinesCounts}")
-    intronCountMtxDf = pd.DataFrame.from_dict(intronCountMtxDt, "index")
-    intronRetenMtxDf = pd.DataFrame.from_dict(intronRetenMtxDt, "index")
-    if useIntronPath:
-        useIntronDf = pd.read_table(useIntronPath)
-        useIntronLs = list(
-            useIntronDf["intron_id"].str.split(".").str[0]
-            + "_intron_"
-            + useIntronDf["intron_id"].str.split("intron").str[1]
-        )
-        intronRetenMtxDf = intronRetenMtxDf.loc[
-            :, intronRetenMtxDf.columns.isin(useIntronLs)
-        ]
-        intronCountMtxDf = intronCountMtxDf.loc[
-            :, intronCountMtxDf.columns.isin(useIntronLs)
-        ]
-    intronCountMtxDf.index = intronCountMtxDf.index + "-1"
-    intronRetenMtxDf.index = intronRetenMtxDf.index + "-1"
-    intronRetenMtxDf = intronRetenMtxDf.fillna(0)
-    intronCountMtxDf = intronCountMtxDf.fillna(0)
-    intronCountMtxAd = creatAnndataFromDf(intronCountMtxDf)
-    intronRetenMtxAd = creatAnndataFromDf(intronRetenMtxDf)
-
-    useIntronLs = list(intronRetenMtxAd.var.index | intronCountMtxAd.var.index)
-    useCellLs = list(intronRetenMtxAd.obs.index | intronCountMtxAd.obs.index)
-
-    intronRetenMtxDf = (
-        intronRetenMtxAd.to_df()
-        .reindex(useIntronLs, axis=1)
-        .reindex(useCellLs)
-        .fillna(0)
-    )
-    intronCountMtxDf = (
-        intronCountMtxAd.to_df()
-        .reindex(useIntronLs, axis=1)
-        .reindex(useCellLs)
-        .fillna(0)
-    )
-
-    return creatAnndataFromDf(
-        intronCountMtxDf,
-        unspliced=intronRetenMtxDf,
-        spliced=intronCountMtxDf - intronRetenMtxDf,
-    )
-
-
-def getSpliceInfoFromSnuupyAd(nanoporeAd):
-    """
-    用于从snuupy crMode产生的NanoporeMtx中提取产生splice和unsplice的read
-
-    return:
-        adata:
-            X: unsplice + splice
-            layer[unspliced, spliced]
-    """
-    nanoporeCountAd = nanoporeAd[:, ~nanoporeAd.var.index.str.contains("_")]
-    unsplicedAd = nanoporeAd[:, nanoporeAd.var.index.str.contains("False_fullySpliced")]
-    unsplicedAd.var.index = unsplicedAd.var.index.str.split("_").str[0]
-    splicedAd = nanoporeAd[:, nanoporeAd.var.index.str.contains("True_fullySpliced")]
-    splicedAd.var.index = splicedAd.var.index.str.split("_").str[0]
-    useGeneLs = sorted(list(set(splicedAd.var.index) | set(unsplicedAd.var.index)))
-    unsplicedDf = unsplicedAd.to_df().reindex(useGeneLs, axis=1).fillna(0)
-    splicedDf = splicedAd.to_df().reindex(useGeneLs, axis=1).fillna(0)
-    allSpliceDf = splicedDf + unsplicedDf
-    return creatAnndataFromDf(allSpliceDf, spliced=splicedDf, unspliced=unsplicedDf)
-
-
-def getDiffSplicedIntron(
-    snSpliceIntronInfoAd,
-    groupby,
-    minCount,
-    minDiff=0.0,
-    threads=24,
-    useMethod="winflat",
-    fdrMethod="indep",
-    winflatPath="/public/home/jiajb/soft/IRFinder/IRFinder-1.2.5/bin/util/winflat",
-    fisherMethod="two-sided",
-):
-    """
-    snSpliceIntronInfoAd:
-        adata: layer['spliced', 'unspliced']
-    groupby:
-        data will be groupbyed by this label
-    minCount:
-        read total counts lower than this cutoff will be filtered
-    minDiff:
-        unspliced read ratio lower than this cutoff will be filtered
-    useMethod:
-        winflat|fisher
-    fdrMethod:
-        indep|negcorr
-        FH or FY
-    fisherMethod:
-        two-sided|less|greater
-        less: used to calculate these intron enriched in this group
-        greater: used to calculate these intron excluded in this group
-    """
-    from pandarallel import pandarallel
-    from statsmodels.stats import multitest
-    from scipy.stats import fisher_exact
-    import os
-
-    pandarallel.initialize(nb_workers=threads)
-
-    def calcuPvalueByWinflat(line):
-        nonlocal winflatPath
-        xUnsplice = line.iloc[0]
-        yUnsplice = line.iloc[1]
-        xTotal = line.iloc[2]
-        yTotal = line.iloc[3]
-        resultStr = (
-            os.popen(
-                f"{winflatPath} -xvalue {xUnsplice} -yvalue {yUnsplice} -diff {xTotal} {yTotal}"
+            clusterSpliceIntronInfoDf = clusterSpliceIntronInfoDf.eval(
+                f"significantDiff = (fdr <= 0.05) & (diffRatio >= {minDiff})"
             )
-            .read()
-            .strip()
-        )
-        if not resultStr:
-            return 1.0
-        resultFloat = [
-            float(x)
-            for x in [x.strip().split("=")[-1].strip() for x in resultStr.split("\n")]
-        ][1]
-
-        return resultFloat
-
-    def calcuPvalueByFisher(line):
-        nonlocal fisherMethod
-        xUnsplice = line.iloc[0]
-        yUnsplice = line.iloc[1]
-        xTotal = line.iloc[2]
-        yTotal = line.iloc[3]
-        xSplice = xTotal - xUnsplice
-        ySplice = yTotal - yUnsplice
-        return fisher_exact([[xUnsplice, xSplice], [yUnsplice, ySplice]], fisherMethod)[
-            1
-        ]
-
-    allClusterDiffDt = {}
-    calcuPvalue = {"winflat": calcuPvalueByWinflat, "fisher": calcuPvalueByFisher}[
-        useMethod
-    ]
-
-    for singleCluster in snSpliceIntronInfoAd.obs[groupby].unique():
-        snSpliceIntronInfoAd.obs = snSpliceIntronInfoAd.obs.assign(
-            cate=lambda df: np.select(
-                [df[groupby].isin([singleCluster])],
-                [singleCluster],
-                f"non-{singleCluster}",
+            allClusterDiffDt[singleCluster] = clusterSpliceIntronInfoDf
+            logger.info(
+                f"group {singleCluster} processed; {len(clusterSpliceIntronInfoDf)} input; {clusterSpliceIntronInfoDf['significantDiff'].sum()} output"
             )
-        )
-        clusterSpliceIntronInfoAd = mergeAdata(
-            snSpliceIntronInfoAd, "cate", ["unspliced", "spliced"]
-        )
-        clusterSpliceIntronInfoAd = clusterSpliceIntronInfoAd[
-            :, clusterSpliceIntronInfoAd.to_df().min(0) >= minCount
-        ]
-
-        clusterSpliceIntronInfoDf = pd.concat(
-            [
-                clusterSpliceIntronInfoAd.to_df("unspliced").T,
-                clusterSpliceIntronInfoAd.to_df().T,
-            ],
-            axis=1,
-        )
-        #         import pdb; pdb.set_trace()
-        clusterSpliceIntronInfoDf.columns = [
-            "unspliced",
-            "non-unspliced",
-            "total",
-            "non-total",
-        ]
-
-        clusterSpliceIntronInfoDf["pvalue"] = clusterSpliceIntronInfoDf.parallel_apply(
-            calcuPvalue, axis=1
-        )
-        clusterSpliceIntronInfoDf["fdr"] = multitest.fdrcorrection(
-            clusterSpliceIntronInfoDf["pvalue"], 0.05, fdrMethod
-        )[1]
-
-        clusterSpliceIntronInfoDf = clusterSpliceIntronInfoDf.assign(
-            diffRatio=lambda df: df["unspliced"] / df["total"]
-            - df["non-unspliced"] / df["non-total"]
-        )
-
-        clusterSpliceIntronInfoDf = clusterSpliceIntronInfoDf.eval(
-            f"significantDiff = (fdr <= 0.05) & (diffRatio >= {minDiff})"
-        )
-        allClusterDiffDt[singleCluster] = clusterSpliceIntronInfoDf
-        logger.info(
-            f"group {singleCluster} processed; {len(clusterSpliceIntronInfoDf)} input; {clusterSpliceIntronInfoDf['significantDiff'].sum()} output"
-        )
-    return allClusterDiffDt
+        return allClusterDiffDt
 
 
 ############################
@@ -2107,299 +2364,157 @@ def getDiffSplicedIntron(
 ############################
 
 
-def transformEntToAd(ent) -> anndata.AnnData:
-    """transformEntToAd parse trained ent object to anndata
-
-    Args:
-        ent ([entry_point]): only one group
-
-    Returns:
-        anndata: the X represents the sample-factor weights,
-                 the layer represents the feature-factor weight and variance-factor matrix,
-                 the uns['mofaR2_total] stored the total variance of factors could be explained
-    """
-    factorOrderLs = np.argsort(
-        np.array(ent.model.calculate_variance_explained()).sum(axis=(0, 1))
-    )[::-1]
-
-    sampleWeightDf = pd.DataFrame(ent.model.getExpectations()["Z"]["E"]).T
-    sampleWeightDf = sampleWeightDf.reindex(factorOrderLs).reset_index(drop=True)
-    sampleWeightDf.index = [f"factor_{x}" for x in range(1, len(factorOrderLs) + 1)]
-    sampleWeightDf.columns = ent.data_opts["samples_names"][0]
-    mofaAd = creatAnndataFromDf(sampleWeightDf)
-
-    for label, featureSr, data in zip(
-        ent.data_opts["views_names"],
-        ent.data_opts["features_names"],
-        ent.model.getExpectations()["W"],
-    ):
-        df = pd.DataFrame(data["E"]).T
-        featureSr = pd.Series(featureSr)
-        featureSr = featureSr.str.rstrip(label)
-        if label in ["APA", "fullySpliced"]:
-            featureSr = featureSr + label
-        df.columns = featureSr
-        df = df.reindex(factorOrderLs).reset_index(drop=True)
-        df.index = [f"factor_{x}" for x in range(1, len(factorOrderLs) + 1)]
-        addDfToObsm(mofaAd, **{label: df})
-
-    r2Df = pd.DataFrame(ent.model.calculate_variance_explained()[0]).T
-    r2Df = r2Df.reindex(factorOrderLs).reset_index(drop=True)
-    r2Df.index = [f"factor_{x}" for x in range(1, len(factorOrderLs) + 1)]
-    r2Df.columns = ent.data_opts["views_names"]
-    addDfToObsm(mofaAd, mofaR2=r2Df)
-
-    mofaAd.uns["mofaR2_total"] = {
-        x: y
-        for x, y in zip(
-            ent.data_opts["views_names"],
-            ent.model.calculate_variance_explained(True)[0],
-        )
-    }
-    return mofaAd
+class detectDoublet(object):
+    @staticmethod
+    def byDoubletFinder(
+        adata: anndata.AnnData, copy: bool = False, doubletRatio: float = 0.075
+    ) -> Optional[anndata.AnnData]:
+        """
+        use doubletFinder detect doublets.
 
 
-def detectDoubletsByDoubletFinder(
-    adata: anndata.AnnData, copy: bool = False, doubletRatio: float = 0.075
-) -> Optional[anndata.AnnData]:
-    """
-    use doubletFinder detect doublets.
+        Args:
+            adata (anndata.AnnData): X must is raw counts
+            copy (bool, optional): copy adata or not. Defaults to False.
+            doubletRatio (float, optional): expected doublet ratio. Defaults to 0.075.
 
+        Returns:
+            Optional[anndata.AnnData]: anndata if copy
+        """
+        from rpy2.robjects.conversion import localconverter
+        from rpy2.robjects import pandas2ri
+        import anndata2ri
+        import rpy2.robjects as ro
 
-    Args:
-        adata (anndata.AnnData): X must is raw counts
-        copy (bool, optional): copy adata or not. Defaults to False.
-        doubletRatio (float, optional): expected doublet ratio. Defaults to 0.075.
+        adata = adata.copy() if copy else adata
+        logger.info("start to transfer adata to R")
 
-    Returns:
-        Optional[anndata.AnnData]: anndata if copy
-    """
-    from rpy2.robjects.conversion import localconverter
-    from rpy2.robjects import pandas2ri
-    import anndata2ri
-    import rpy2.robjects as ro
-
-    adata = adata.copy() if copy else adata
-    logger.info("start to transfer adata to R")
-
-    with localconverter(anndata2ri.converter):
-        ro.globalenv["adata"] = adata
-    logger.info("start to preprocess adata")
-    ro.r(
-        f"""
-    library(Seurat)
-    library(DoubletFinder)
-    seuratObj <- as.Seurat(adata, counts="X", data = NULL)
-    seuratObj <- SCTransform(seuratObj, )
-    seuratObj <- RunPCA(seuratObj)
-    seuratObj <- RunUMAP(seuratObj, dims = 1:10)
-    seuratObj <- FindNeighbors(seuratObj, dims = 1:10)
-    seuratObj <- FindClusters(seuratObj, resolution = 0.6)
-    1
-    """
-    )
-    logger.info("start to calculate DF parameters")
-    ro.r(
-        f"""
-    sweep.res.seuratObj <- paramSweep_v3(seuratObj, PCs = 1:10, sct = TRUE)
-    sweep.stats.seuratObj <- summarizeSweep(sweep.res.seuratObj, GT = FALSE)
-    annotationsDf <- seuratObj@meta.data$seurat_clusters
-    homotypic.prop <- modelHomotypic(annotationsDf)
-    nExp_poi <- round({doubletRatio}*nrow(seuratObj@meta.data)) 
-    nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
-    1
-    """
-    )
-    logger.info("start to calculate doublets")
-    ro.r(
-        f"""
-    seuratObj <- doubletFinder_v3(seuratObj, PCs = 1:10, pN = 0.25, pK = 0.09, nExp = nExp_poi, reuse.pANN = FALSE, sct = TRUE)
-    seuratObj <- doubletFinder_v3(seuratObj, PCs = 1:10, pN = 0.25, pK = 0.09, nExp = nExp_poi.adj, reuse.pANN = paste('pANN_0.25_0.09_', nExp_poi, sep=''), sct = TRUE)
-    1
-    """
-    )
-    logger.info("start to intergrate result with adata")
-    with localconverter(ro.default_converter + pandas2ri.converter):
-        finalDf = ro.r("seuratObj@meta.data")
-    colNameSr = list(
+        with localconverter(anndata2ri.converter):
+            ro.globalenv["adata"] = adata
+        logger.info("start to preprocess adata")
         ro.r(
-            "c(paste('DF.classifications_0.25_0.09_', nExp_poi, sep=''), paste('DF.classifications_0.25_0.09_', nExp_poi.adj, sep=''))"
+            f"""
+        library(Seurat)
+        library(DoubletFinder)
+        seuratObj <- as.Seurat(adata, counts="X", data = NULL)
+        seuratObj <- SCTransform(seuratObj, )
+        seuratObj <- RunPCA(seuratObj)
+        seuratObj <- RunUMAP(seuratObj, dims = 1:10)
+        seuratObj <- FindNeighbors(seuratObj, dims = 1:10)
+        seuratObj <- FindClusters(seuratObj, resolution = 0.6)
+        1
+        """
         )
-    )
-    finalDf = finalDf.filter(colNameSr).rename(
-        {
-            x: y
-            for x, y in zip(colNameSr, ["doubletFinder_raw", "doubletFinder_adjusted"])
-        },
-        axis=1,
-    )
-    adata.obs = adata.obs.join(finalDf.copy(deep=True))
+        logger.info("start to calculate DF parameters")
+        ro.r(
+            f"""
+        sweep.res.seuratObj <- paramSweep_v3(seuratObj, PCs = 1:10, sct = TRUE)
+        sweep.stats.seuratObj <- summarizeSweep(sweep.res.seuratObj, GT = FALSE)
+        annotationsDf <- seuratObj@meta.data$seurat_clusters
+        homotypic.prop <- modelHomotypic(annotationsDf)
+        nExp_poi <- round({doubletRatio}*nrow(seuratObj@meta.data)) 
+        nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
+        1
+        """
+        )
+        logger.info("start to calculate doublets")
+        ro.r(
+            f"""
+        seuratObj <- doubletFinder_v3(seuratObj, PCs = 1:10, pN = 0.25, pK = 0.09, nExp = nExp_poi, reuse.pANN = FALSE, sct = TRUE)
+        seuratObj <- doubletFinder_v3(seuratObj, PCs = 1:10, pN = 0.25, pK = 0.09, nExp = nExp_poi.adj, reuse.pANN = paste('pANN_0.25_0.09_', nExp_poi, sep=''), sct = TRUE)
+        1
+        """
+        )
+        logger.info("start to intergrate result with adata")
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            finalDf = ro.r("seuratObj@meta.data")
+        colNameSr = list(
+            ro.r(
+                "c(paste('DF.classifications_0.25_0.09_', nExp_poi, sep=''), paste('DF.classifications_0.25_0.09_', nExp_poi.adj, sep=''))"
+            )
+        )
+        finalDf = finalDf.filter(colNameSr).rename(
+            {
+                x: y
+                for x, y in zip(
+                    colNameSr, ["doubletFinder_raw", "doubletFinder_adjusted"]
+                )
+            },
+            axis=1,
+        )
+        adata.obs = adata.obs.join(finalDf.copy(deep=True))
 
-    if copy:
-        return adata
+        if copy:
+            return adata
 
+    @staticmethod
+    def byScDblFinder(
+        adata: anndata.AnnData,
+        layer: str = "X",
+        copy: bool = False,
+        doubletRatio: float = 0.1,
+        skipCheck: bool = False,
+    ) -> Optional[anndata.AnnData]:
+        """
+        use ScDblFinder detect doublets.
 
-def detectDoubletsByScDblFinder(
-    adata: anndata.AnnData,
-    layer: str = "X",
-    copy: bool = False,
-    doubletRatio: float = 0.1,
-) -> Optional[anndata.AnnData]:
-    """
-    use ScDblFinder detect doublets.
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            anndata
+        layer : str, optional
+            use this layer. must is raw counts. Defaults to X
+        copy : bool, optional
+            copy adata or not. Defaults to False.
+        doubletRatio : float, optional
+            expected doublet ratio. Defaults to 0.1
 
+        Returns
+        -------
+        Optional[anndata.AnnData]
+            anndata if copy
+        """
+        import rpy2
+        import rpy2.robjects as ro
+        from rpy2.robjects.packages import importr
+        from jpy_tools.rTools import py2r, r2py
+        import scipy.sparse as sp
 
-    Args:
-        adata (anndata.AnnData): anndata
-        layer (str): use this layer. must is raw counts. Defaults to X
-        copy (bool, optional): copy adata or not. Defaults to False.
-        doubletRatio (float, optional): expected doublet ratio. Defaults to 0.1
+        importr("base")
+        importr("utils")
+        scDblFinder = importr("scDblFinder")
 
-    Returns:
-        Optional[anndata.AnnData]: anndata if copy
-    """
-    import rpy2
-    import rpy2.robjects as ro
-    from rpy2.robjects.packages import importr
-    from jpy_tools.rTools import py2r, r2py
-    import scipy.sparse as sp
+        testColCounts = min([10, adata.shape[0]])
+        if layer == "X":
+            X_subset = adata.X[:testColCounts]
+        else:
+            X_subset = adata.layers[layer][:testColCounts]
+        if not skipCheck:
+            err = "Make sure that adata.X contains unnormalized count data"
+            if sp.issparse(X_subset):
+                assert (X_subset.astype(int) != X_subset).nnz == 0, err
+            else:
+                assert np.all(X_subset.astype(int) == X_subset), err
 
-    importr("base")
-    importr("utils")
-    scDblFinder = importr("scDblFinder")
+        mtx = adata.X if layer == "X" else adata.layers[layer]
+        tempAd = anndata.AnnData(
+            None, obs=adata.obs[[]], var=adata.var[[]], layers=dict(counts=mtx)
+        )
+        del mtx
 
-    testColCounts = min([10, adata.shape[0]])
-    if layer == "X":
-        X_subset = adata.X[:testColCounts]
-    else:
-        X_subset = adata.layers[layer][:testColCounts]
-    err = "Make sure that adata.X contains unnormalized count data"
-    if sp.issparse(X_subset):
-        assert (X_subset.astype(int) != X_subset).nnz == 0, err
-    else:
-        assert np.all(X_subset.astype(int) == X_subset), err
+        logger.info("start to transfer adata to R")
+        tempAdr = py2r(tempAd)
+        del tempAd
 
-    mtx = adata.X if layer == "X" else adata.layers[layer]
-    tempAd = anndata.AnnData(
-        None, obs=adata.obs[[]], var=adata.var[[]], layers=dict(counts=mtx)
-    )
-    del mtx
+        logger.info("start to calculate doublets")
+        tempAdr = scDblFinder.scDblFinder(tempAdr, dbr=doubletRatio)
 
-    logger.info("start to transfer adata to R")
-    tempAdr = py2r(tempAd)
-    del tempAd
+        logger.info("start to intergrate result with adata")
+        scDblFinderResultDf = r2py(tempAdr.slots["colData"])
 
-    logger.info("start to calculate doublets")
-    tempAdr = scDblFinder.scDblFinder(tempAdr, dbr=doubletRatio)
-
-    logger.info("start to intergrate result with adata")
-    scDblFinderResultDf = r2py(tempAdr.slots["colData"])
-
-    adata.obs = adata.obs.join(
-        scDblFinderResultDf.filter(regex=r"^scDblFinder[\w\W]*").copy(deep=True)
-    )
-    if copy:
-        return adata
-
-
-def clusterBySC3(
-    adata: anndata.AnnData,
-    layer: str,
-    clusterNum: Union[int, list],
-    biologyInfo: bool = False,
-    threads: int = 24,
-    needSCE: bool = False,
-    copy: bool = False,
-) -> Tuple[Optional[anndata.AnnData], Optional[Any]]:
-    """
-    Cluster by SC3
-
-    Parameters
-    ----------
-    adata : anndata.AnnData
-        anndata
-    layer : str
-        use this layer as input for SC3. WARNING: this layer must is not log-scaled.
-    clusterNum : Union[int, list]
-        cluster counts.
-    biologyInfo : bool, optional
-        need biology info or not. It is means that the DEG, marker, and others. This information will stored in var. by default False
-    threads : int, optional
-        by default 24
-    needSCE : bool, optional
-        need sce object or not. this object could be used for plot. by default False
-    copy : bool, optional
-        by default False
-
-    Returns
-    -------
-    Tuple[Optional[anndata.AnnData], Optional[Any]]
-        anndata and singleCellExperiment. DEPOND ON copy and needSCE
-    """   
-    import scipy.sparse as ss
-    import rpy2.robjects as ro
-    from rpy2.robjects.packages import importr
-    from .rTools import r2py, py2r
-    R = ro.r
-
-    adata = adata.copy() if copy else adata
-
-    importr("SC3")
-    importr("SingleCellExperiment")
-    useMtx = adata.layers[layer] if layer != 'X' else adata.X
-
-    _adata = anndata.AnnData(
-        None, obs=adata.obs[[]], var=adata.var[[]], layers=dict(counts=useMtx)
-    )
-    _adata.var["feature_symbol"] = _adata.var.index
-    _adata.layers["logcounts"] = sc.pp.log1p(_adata.layers["counts"], copy=True)
-
-    logger.info("transform data to R")
-    sceObj = py2r(_adata)
-    logger.info("transform end")
-
-    setAssay = R("`assay<-`")
-    sceObj = setAssay(sceObj, "counts", value=R("as.matrix")(R.assay(sceObj, "counts")))
-    sceObj = setAssay(
-        sceObj, "logcounts", value=R("as.matrix")(R.assay(sceObj, "logcounts"))
-    )
-
-    if isinstance(clusterNum, list):
-        clusterNum = np.array(clusterNum)
-    else:
-        clusterNum = np.array([clusterNum]) # if is int, transform it to list.
-
-    sceObj = R.sc3(sceObj, ks=py2r(clusterNum), biology=biologyInfo, n_cores=threads)
-    adata.uns[f"SC3_consensus"] = {}
-    trainSvmObsIndexSr = r2py(R.metadata(sceObj).rx2['sc3'].rx2['svm_train_inds']).copy() # To record obs which used for calculate consensus matrix
-    adata.uns[f"SC3_consensus"]['useObs'] = adata.obs.index[trainSvmObsIndexSr].values
-    
-    if _adata.shape[0] > 5000:
-        logger.info("To start predicts cell labels by SVM")
-        sceObj = R.sc3_run_svm(sceObj, ks=py2r(clusterNum))
-        if biologyInfo:
-            logger.info("To start calculates biology information")
-            ro.globalenv["sceObj"] = sceObj
-            R("metadata(sceObj)$sc3$svm_train_inds <- NULL")
-            sceObj = R.sc3_calc_biology(sceObj, ks = clusterNum)
-    try:
-        adata.obs = adata.obs.join(r2py(R.colData(sceObj))).copy()
-        adata.var = adata.var.join(r2py(R.rowData(sceObj))).copy()
-    except ValueError:
-        logger.warning('obs or var is not updated, because overlaped attributes is existed!')
-
-    for singleClusterNum in clusterNum:
-        singleClusterNum = str(singleClusterNum)
-        adata.uns["SC3_consensus"][singleClusterNum] = r2py(
-            sceObj.slots["metadata"]
-            .rx2["sc3"]
-            .rx2["consensus"]
-            .rx2[singleClusterNum]
-            .rx2["consensus"]
-        ).copy()
-
-    returnAd = adata if copy else None
-    returnSe = sceObj if needSCE else None
-    # with r_inline_plot():
-    #     R.sc3_plot_consensus(sceObj, k=3, show_pdata=py2r(np.array(["sc3_3_clusters", "sc3_4_clusters"])))
-    return returnAd, returnSe
+        adata.obs = adata.obs.join(
+            scDblFinderResultDf.filter(regex=r"^scDblFinder[\w\W]*").copy(deep=True)
+        )
+        adata.obs.columns = adata.obs.columns.astype(str)
+        if copy:
+            return adata

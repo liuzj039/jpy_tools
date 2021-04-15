@@ -31,18 +31,18 @@ def main(CONFIG_FILE,
     if NOT_RUN:
         if FORCE_RERUN:
             with os.popen(
-                    f"snakemake -npFj {THREADS} --local-cores {HOST_THREADS} -s {SNAKEFILE} --configfile {configFile}"
+                    f"snakemake -npF --cores {THREADS} --local-cores {HOST_THREADS} -s {SNAKEFILE} --configfile {configFile}"
             ) as fh:
                 print(fh.read())
         else:
             with os.popen(
-                    f"snakemake -npj {THREADS} --local-cores {HOST_THREADS} -s {SNAKEFILE} --configfile {configFile}"
+                    f"snakemake -np --cores {THREADS} --local-cores {HOST_THREADS} -s {SNAKEFILE} --configfile {configFile}"
             ) as fh:
                 print(fh.read())
 
     elif UNLOCK:
         with os.popen(
-                f"snakemake -j {THREADS} -s {SNAKEFILE} --unlock --configfile {configFile}"
+                f"snakemake --cores {THREADS} -s {SNAKEFILE} --unlock --configfile {configFile}"
         ) as fh:
             print(fh.read())
 
@@ -62,13 +62,13 @@ def main(CONFIG_FILE,
 
         if FORCE_RERUN:
             os.system(
-                f"nohup snakemake -pFj {THREADS} --local-cores {HOST_THREADS} -s {SNAKEFILE} --configfile {configFile} -c \
+                f"nohup snakemake -F --cores {THREADS} --local-cores {HOST_THREADS} -s {SNAKEFILE} --configfile {configFile} -c \
                     'jsub.py --sm -N {{rulename}} -t {{threads}} -g {{params.gpu}}'\
                         > {logFile} 2>&1 && {messageRunTrue} || {messageRunFalse} &"
             )
         else:
             os.system(
-                f"nohup snakemake -pj {THREADS} --local-cores {HOST_THREADS} -s {SNAKEFILE} --configfile {configFile} -c \
+                f"nohup snakemake --cores {THREADS} --local-cores {HOST_THREADS} -s {SNAKEFILE} --configfile {configFile} -c \
                     'jsub.py --sm -N {{rulename}} -t {{threads}} -g {{params.gpu}}'\
                         > {logFile} 2>&1 && {messageRunTrue} || {messageRunFalse} &"
             )
