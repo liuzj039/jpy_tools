@@ -88,7 +88,7 @@ def getRBH(inPath, ALabel, BLabel, ALambda, BLambda, outputPath):
     useHitSq = aDf["mergeBy"][aDf["mergeBy"].isin(bDf["mergeBy"])].str.split("_split_")
     rbDf = pd.DataFrame()
     rbDf = rbDf.assign(specieA=useHitSq.str[0], specieB=useHitSq.str[1])
-    rbDf.columns = [ALabel, BLabel]
+    rbDf.columns = [BLabel, ALabel]
     rbDf.to_csv(outputPath, sep="\t", index=None)
 
 

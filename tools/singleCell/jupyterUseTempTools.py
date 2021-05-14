@@ -59,9 +59,7 @@ from .rTools import (
 
 class basic(object):
     @staticmethod
-    def splitadata(
-        adata: anndata.AnnData, batchKey: str
-    ) -> Iterator[anndata.AnnData]:
+    def splitadata(adata: anndata.AnnData, batchKey: str) -> Iterator[anndata.AnnData]:
         assert batchKey in adata.obs.columns, f"{batchKey} not detected in adata"
         indexName = "index" if (not adata.obs.index.name) else adata.obs.index.name
         batchObsLs = (
@@ -72,6 +70,51 @@ class basic(object):
         )
         for batchObs in batchObsLs:
             yield adata[batchObs].copy()
+
+    @staticmethod
+    def getOnlyOneLayerAdata(
+        adata: anndata.AnnData,
+        layer: Optional[str] = None,
+        obsInfoLs: Optional[Sequence[str]] = None,
+    ) -> anndata.AnnData:
+        """
+        get a subset of adata. Only contains one layer expression matrix, and several obs information.
+        """
+        if layer == "X":
+            layer = None
+
+        mtxAr = adata.X if not layer else adata.layers[layer]
+        if not obsInfoLs:
+            obsInfoLs = []
+        else:
+            assert sum([x in adata.obs.columns for x in obsInfoLs]) == len(
+                obsInfoLs
+            ), "Requested feature not located in adata.obs"
+
+        subAd = anndata.AnnData(mtxAr, adata.obs[obsInfoLs], adata.var[[]])
+        return subAd
+
+    @staticmethod
+    def testAllCountIsInt(adata: anndata.AnnData, layer: Optional[str]) -> None:
+        """
+        Test whether all counts is int
+        """
+        import scipy.sparse as sp
+
+        if layer == "X":
+            layer = None
+
+        testColCounts = min([10, adata.shape[0]])
+        if not layer:
+            X_subset = adata.X[:testColCounts]
+        else:
+            X_subset = adata.layers[layer][:testColCounts]
+
+        err = "Make sure that adata.X contains unnormalized count data"
+        if sp.issparse(X_subset):
+            assert (X_subset.astype(int) != X_subset).nnz == 0, err
+        else:
+            assert np.all(X_subset.astype(int) == X_subset), err
 
     @staticmethod
     def getadataColor(adata, label):
@@ -250,8 +293,8 @@ class basic(object):
         return returnAd, returnSe
 
     @staticmethod
-    def constclustWriteResult(pth, params, clusterings, adata):
-        with h5py.File(pth, "w") as f:
+    def constclustWriteResult(path, params, clusterings, adata):
+        with h5py.File(path, "w") as f:
             cluster_group = f.create_group("clusterings")
             cluster_group.create_dataset(
                 "clusterings", data=clusterings.values, compression="lzf"
@@ -265,9 +308,9 @@ class basic(object):
                 params_group.create_dataset(k, data=v.values, compression="lzf")
 
     @staticmethod
-    def constclustReadResult(pth) -> "Tuple[pd.DataFrame, pd.DataFrame]":
+    def constclustReadResult(path) -> "Tuple[pd.DataFrame, pd.DataFrame]":
         """Read params and clusterings which have been stored to disk."""
-        with h5py.File(pth, "r") as f:
+        with h5py.File(path, "r") as f:
             params_group = f["params"]
             params = pd.DataFrame(
                 {
@@ -627,7 +670,7 @@ class basic(object):
         adata.obs = adata.obs.assign(
             n_genes=(adata.X > 0).sum(1), n_counts=adata.X.sum(1)
         )
-        adata.var = adata.var.assign(n_cells=(adata.X > 0).sum(0))
+        # adata.var = adata.var.assign(n_cells=(adata.X > 0).sum(0))
         ctGene = (adata.var_names.str.startswith("ATCG")) | (
             adata.var_names.str.startswith("ATMG")
         )
@@ -744,7 +787,7 @@ class basic(object):
         for i, gene in enumerate(allGeneLs):
             sc.pl.umap(adata, layer=layer, color=gene, cmap="Reds", show=False)
             plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
-            print('\r' + f'Progress: {i} / {geneCounts}', end='', flush=True)           
+            print("\r" + f"Progress: {i} / {geneCounts}", end="", flush=True)
 
 
 class multiModle(object):
@@ -1231,14 +1274,15 @@ class geneEnrichInfo(object):
         groupby: str,
         key_added: str,
         groups: Union[Literal["all"], Sequence[str]] = "all",
-        use_raw: bool = True,
+        use_raw: bool = False,
+        layer: Optional[str] = None,
         method: Literal[
             "logreg", "t-test", "wilcoxon", "t-test_overestim_var"
         ] = "wilcoxon",
         pts: bool = True,
         min_in_group_fraction: float = 0.5,
         max_out_group_fraction: float = 0.25,
-        min_fold_change: float = 2,
+        min_fold_change: float = 0.585,
         rawDt: dict = {},
         filterDt: dict = {},
     ):
@@ -1257,7 +1301,9 @@ class geneEnrichInfo(object):
             Subset of groups, e.g. ['g1', 'g2', 'g3'], to which comparison shall be restricted, or 'all' (default), for all groups.
             Defaults to "all".
         use_raw : bool, optional
-            by default True
+            by default False.
+        layer: Optional, str.
+            use which matrix as the used expression matrix. it takes precedence of use_raw.
         method : Literal[, optional
             't-test', 't-test_overestim_var' overestimates variance of each group,
             'wilcoxon' uses Wilcoxon rank-sum,
@@ -1280,6 +1326,7 @@ class geneEnrichInfo(object):
             groupby=groupby,
             groups=groups,
             use_raw=use_raw,
+            layer=layer,
             method=method,
             pts=pts,
             key_added=key_added,
@@ -1517,8 +1564,24 @@ class annotation(object):
         if copy:
             return adata
 
+    def getPrividedMarkerInSpecificiGene(
+        adata: anndata.AnnData,
+        markerDt: Mapping[str, Sequence[str]],
+        key: str = "rank_genes_groups",
+        min_in_group_fraction: float = 0.5,
+        max_out_group_fraction: float = 0.25,
+        minFc: float = 0.585,
+    ) -> Mapping[str, Sequence[str]]:
+        minLog2Fc = np.exp2(minFc)
+        specificMarkerDf = sc.get.rank_genes_groups_df(adata, None, key=key).query(
+            "logfoldchanges >= @minLog2Fc & pct_nz_group >= @min_in_group_fraction & pct_nz_reference <= @max_out_group_fraction"
+        )
+        specificMarkerLs = set(specificMarkerDf["names"])
+        markerDt = {x: (set(y) & specificMarkerLs) for x, y in markerDt.items()}
+        return markerDt
 
-class discard(object):
+
+class deprecated(object):
     @staticmethod
     def cellTypeAnnoByCorr(
         adata,
@@ -2767,29 +2830,13 @@ class detectDoublet(object):
         import rpy2.robjects as ro
         from rpy2.robjects.packages import importr
         from jpy_tools.rTools import py2r, r2py
-        import scipy.sparse as sp
 
-        importr("base")
-        importr("utils")
         scDblFinder = importr("scDblFinder")
 
-        testColCounts = min([10, adata.shape[0]])
-        if layer == "X":
-            X_subset = adata.X[:testColCounts]
-        else:
-            X_subset = adata.layers[layer][:testColCounts]
         if not skipCheck:
-            err = "Make sure that adata.X contains unnormalized count data"
-            if sp.issparse(X_subset):
-                assert (X_subset.astype(int) != X_subset).nnz == 0, err
-            else:
-                assert np.all(X_subset.astype(int) == X_subset), err
+            basic.testAllCountIsInt(adata, layer)
 
-        mtx = adata.X if layer == "X" else adata.layers[layer]
-        tempAd = anndata.AnnData(
-            None, obs=adata.obs[[]], var=adata.var[[]], layers=dict(counts=mtx)
-        )
-        del mtx
+        tempAd = basic.getOnlyOneLayerAdata(adata, layer)
 
         logger.info("start to transfer adata to R")
         tempAdr = py2r(tempAd)
