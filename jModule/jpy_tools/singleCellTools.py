@@ -2845,6 +2845,7 @@ class detectDoublet(object):
             basic.testAllCountIsInt(adata, layer)
 
         tempAd = basic.getOnlyOneLayerAdata(adata, layer)
+        tempAd.layers['counts'] = tempAd.X
 
         logger.info("start to transfer adata to R")
         tempAdr = py2r(tempAd)
