@@ -1578,6 +1578,14 @@ class annotation(object):
         )
         specificMarkerLs = set(specificMarkerDf["names"])
         markerDt = {x: (set(y) & specificMarkerLs) for x, y in markerDt.items()}
+
+        delKeyLs = []
+        for x,y in markerDt.items():
+            if not y:
+                logger.warning(f"Specific genes dont have any overlap with cell type <{x}>")
+                delKeyLs.append(x)
+        [markerDt.pop(x) for x in delKeyLs]
+
         return markerDt
 
 
