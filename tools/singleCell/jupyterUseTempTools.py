@@ -43,9 +43,8 @@ from typing import (
     Tuple,
     Iterator,
     Mapping,
+    Callable
 )
-
-
 import collections
 from .rTools import (
     anndata2ri_check,
@@ -55,6 +54,7 @@ from .rTools import (
     r_is_installed,
     r_set_seed,
 )
+from .otherTools import myAsync
 
 
 class basic(object):
@@ -330,8 +330,10 @@ class basic(object):
         complist,
         obs_names: pd.Index,
         cutoff: float = 0.75,
-        compNameLs: Optional[Union[Sequence[str], Mapping[int, str]]] = None,
-        figsize: Sequence[int] = [6, 5],
+        compNameLs: Optional[
+            Union[Sequence[str], Sequence[int], Mapping[int, str]]
+        ] = None,
+        figsizePerComponent: float = 0.4,
     ) -> pd.Series:
         """
         Convenience function for creating a flat labelling from some components.
@@ -345,8 +347,10 @@ class basic(object):
             adata.obs_names
         cutoff : float, optional
             used to determine which cell is included in component, by default 0.75
-        compNameLs: Optional[Union[Sequence[str], Mapping[int,str]]], optional
-            if Sequence, the length must same as the complist; if Mapping, only these components located in the Mapping's key will be used, and values are corresponding names.
+        compNameLs: Optional[Union[Sequence[str], Sequence[int], Mapping[int,str]]], optional
+            if Sequence and content is string, the length must same as the complist;
+            if Sequence and content is int, the sum must same as the complist;
+            if Mapping, only these components located in the Mapping's key will be used, and values are corresponding names.
 
         Returns
         -------
@@ -368,9 +372,26 @@ class basic(object):
             compNameLs = [str(x) for x in range(compLength)]
         else:
             if isinstance(compNameLs, Sequence):
-                assert (
-                    len(compNameLs) == compLength
-                ), "compNameLs length is not equals to complist length"
+                if isinstance(compNameLs[0], str):
+                    assert (
+                        len(compNameLs) == compLength
+                    ), "compNameLs length is not equals to complist length"
+
+                elif isinstance(compNameLs[0], int):
+                    logger.warning("compNameLs will be re-parsed")
+                    assert (
+                        sum(compNameLs) == compLength
+                    ), "compNameLs length is not equals to complist length"
+                    compNameLs_ = []
+                    for mainNum, subCounts in enumerate(compNameLs, start=1):
+                        if subCounts == 1:
+                            compNameLs_.append(f"{mainNum}")
+                        else:
+                            for subNum in range(1, subCounts + 1):
+                                compNameLs_.append(f"{mainNum}-{subNum}")
+                    compNameLs = compNameLs_
+                    del compNameLs_
+
             elif isinstance(compNameLs, Mapping):
                 useCompLs = list(compNameLs.keys())
                 complist = complist[useCompLs]
@@ -406,16 +427,27 @@ class basic(object):
         overlapCountInfoDf = pd.DataFrame(
             overlapCountInfo, index=compNameLs, columns=compNameLs
         )
+
+        figsize = (
+            figsizePerComponent * compLength + 1,
+            figsizePerComponent * compLength,
+        )
+        compAddOriNumLs = [
+            f"{x} ({y})" for x, y in zip(compNameLs, complist._comps.index)
+        ]
         _, ax = plt.subplots(figsize=figsize)
         sns.heatmap(
             overlapCountInfoDf / overlapCountInfoDf.max(0),
             cmap="Reds",
             ax=ax,
             annot=overlapCountInfoDf,
+            fmt=".4g",
         )
         plt.title("overlap info among all components")
-        plt.xticks(rotation=90)
-        plt.yticks(rotation=90)
+        plt.xticks([x + 0.5 for x in range(compLength)], compAddOriNumLs, rotation=90)
+        plt.yticks(
+            [x + 0.5 for x in range(compLength)], compAddOriNumLs, rotation=0
+        )
         plt.show()
 
         logger.info("remove overlap of components")
@@ -430,7 +462,7 @@ class basic(object):
             .reindex(obs_names)
             .fillna("unstable")["compName"]
         )
-        return flatObsNameWithCompNameSr
+        return flatObsNameWithCompNameSr.astype("category")
 
     @staticmethod
     def scIB_hvg_batch(
@@ -727,19 +759,45 @@ class basic(object):
         return ax
 
     @staticmethod
+    def maskGeneOutSpecialCluster(
+        adata: anndata.AnnData,
+        obsKey: str,
+        clusterNameLs: Sequence[str],
+        layer: Optional[str] = None,
+        embedding: str = "X_umap",
+    ) -> anndata.AnnData:
+        """
+        all expression value of cell which not belong to <clusterNameLs> is equal to 0
+        """
+        import scipy.sparse as ss
+
+        tempAd = basic.getOnlyOneLayerAdata(adata, layer, [obsKey]).copy()
+        tempAd.obsm[embedding] = adata.obsm[embedding]
+
+        inClusterBoolLs = tempAd.obs[obsKey].isin(clusterNameLs)
+
+        tempAd.layers[layer] = tempAd.X.A if ss.issparse(tempAd.X) else tempAd.X
+        tempAd.layers[layer][~inClusterBoolLs, :] = 0
+        return tempAd
+
+    
+    @staticmethod
     def saveMarkerGeneToPdf(
         adata: anndata.AnnData,
         outputDirPath: str,
         group: Optional[str] = None,
         key: str = "rank_genes_groups_filtered",
         layer: Optional[str] = None,
+        pval_cutoff: float = 0.05,
     ):
         """save all marker gene as pdf format"""
         import os
         from PyPDF2 import PdfFileMerger
 
         outputDirPath = outputDirPath.rstrip("/") + "/"
-        markerDf = sc.get.rank_genes_groups_df(adata, group=group, key=key)
+        markerDf = sc.get.rank_genes_groups_df(
+            adata, group=group, key=key, pval_cutoff=pval_cutoff
+        )
         markerDt = markerDf.groupby("group")["names"].agg(list).to_dict()
         for groupName, groupMarkerGeneLs in markerDt.items():
             pdfMerger = PdfFileMerger()
@@ -752,8 +810,11 @@ class basic(object):
             pdfMerger.write(f"{outputDirPath}{groupName}_all.pdf")
             pdfMerger.close()
             [os.remove(x) for x in groupMarkerPathLs]
+            logger.info(f"{groupName} finished")
+        logger.info("All finished")
 
     @staticmethod
+    @myAsync
     def saveAllGeneEmbedding(
         adata: anndata.AnnData,
         outputDirPath: str,
@@ -788,6 +849,8 @@ class basic(object):
             sc.pl.umap(adata, layer=layer, color=gene, cmap="Reds", show=False)
             plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
             print("\r" + f"Progress: {i} / {geneCounts}", end="", flush=True)
+
+        logger.info("All finished")
 
 
 class multiModle(object):
@@ -1263,6 +1326,7 @@ class normalize(object):
         )
         adata.var["highly_variable"] = adata.var_names.isin(top_genes)
 
+        logger.warning("sct_corrected layer is NOT log-scaled")
         if not inplace:
             return adata
 
@@ -1273,7 +1337,7 @@ class geneEnrichInfo(object):
         adata: anndata.AnnData,
         groupby: str,
         key_added: str,
-        groups: Union[Literal["all"], Sequence[str]] = "all",
+        groups: Union[Literal["all"], Sequence[str], Callable[[str], bool]] = "all",
         use_raw: bool = False,
         layer: Optional[str] = None,
         method: Literal[
@@ -1299,6 +1363,7 @@ class geneEnrichInfo(object):
             The key in adata.uns information is saved to.
         groups : Union[Literal[, optional
             Subset of groups, e.g. ['g1', 'g2', 'g3'], to which comparison shall be restricted, or 'all' (default), for all groups.
+            Function also is supported. e.g. lambda x: x!='g1'
             Defaults to "all".
         use_raw : bool, optional
             by default False.
@@ -1322,6 +1387,16 @@ class geneEnrichInfo(object):
         filterDt : dict, optional
             ther parameters for sc.tl.filter_rank_genes_groups. Defaults to {}.
         """
+        if groups != "all":
+            if isinstance(groups, Callable):
+                allCategoriesSq = adata.obs[groupby].astype('category').cat.categories
+                groups = allCategoriesSq[allCategoriesSq.map(groups)]
+                groups = list(groups)
+
+            _adata = adata[adata.obs.query(f"{groupby} in @groups").index]
+        else:
+            _adata = adata
+
         rawDt = dict(
             groupby=groupby,
             groups=groups,
@@ -1340,10 +1415,6 @@ class geneEnrichInfo(object):
             min_fold_change=min_fold_change,
             **filterDt,
         )
-        if groups != "all":
-            _adata = adata[adata.obs.query(f"{groupby} in @groups").index]
-        else:
-            _adata = adata
 
         sc.tl.rank_genes_groups(_adata, **rawDt)
         sc.tl.filter_rank_genes_groups(_adata, **filterDt)
@@ -1580,9 +1651,11 @@ class annotation(object):
         markerDt = {x: (set(y) & specificMarkerLs) for x, y in markerDt.items()}
 
         delKeyLs = []
-        for x,y in markerDt.items():
+        for x, y in markerDt.items():
             if not y:
-                logger.warning(f"Specific genes dont have any overlap with cell type <{x}>")
+                logger.warning(
+                    f"Specific genes dont have any overlap with cell type <{x}>"
+                )
                 delKeyLs.append(x)
         [markerDt.pop(x) for x in delKeyLs]
 
@@ -2845,7 +2918,7 @@ class detectDoublet(object):
             basic.testAllCountIsInt(adata, layer)
 
         tempAd = basic.getOnlyOneLayerAdata(adata, layer)
-        tempAd.layers['counts'] = tempAd.X
+        tempAd.layers["counts"] = tempAd.X
 
         logger.info("start to transfer adata to R")
         tempAdr = py2r(tempAd)

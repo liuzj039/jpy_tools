@@ -12,6 +12,8 @@ import pandas as pd
 from loguru import logger
 from io import StringIO
 import sys
+from threading import Thread
+
 
 class Capturing(list):
     "Capture std output"
@@ -101,3 +103,12 @@ def groupby(dtframe, key):
             i = j
             j += 1
     yield dtframe[i:]
+
+def myAsync(f):
+    def wrapper(*args, **kwargs):
+        logger.warning("async, you will don't get any results from this function")
+        thr = Thread(target=f, args=args, kwargs=kwargs)
+        thr.start()
+        return thr
+ 
+    return wrapper
