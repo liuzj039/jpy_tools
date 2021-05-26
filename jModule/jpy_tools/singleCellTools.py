@@ -1,12 +1,23 @@
 ##########################################################################################
 #                                     Author: Liu ZJ                                     #
+#                          Creation Date: May 26, 2021 03:29 PM                          #
+#                          Last Updated: May 26, 2021 03:55 PM                           #
+#                                Source Language: python                                 #
+#               Repository: https://github.com/liuzj039/myPythonTools.git                #
+#                                                                                        #
+#                                --- Code Description ---                                #
+#                                      add plotting                                      #
+##########################################################################################
+
+##########################################################################################
+#                                     Author: Liu ZJ                                     #
 #                         Creation Date: April 14, 2021 04:08 PM                         #
 #                         Last Updated: April 14, 2021 04:08 PM                          #
 #                                Source Language: python                                 #
 #               Repository: https://github.com/liuzj039/myPythonTools.git                #
 #                                                                                        #
 #                                --- Code Description ---                                #
-#                             update:classify functions                                  #
+#                                    classify functions                                  #
 ##########################################################################################
 
 ##########################################################################################
