@@ -34,6 +34,7 @@ from concurrent.futures import ProcessPoolExecutor as Mtp
 import sh
 import h5py
 from typing import (
+    Dict,
     List,
     Optional,
     Union,
@@ -43,7 +44,7 @@ from typing import (
     Tuple,
     Iterator,
     Mapping,
-    Callable
+    Callable,
 )
 import collections
 from .rTools import (
@@ -92,7 +93,7 @@ class basic(object):
             ), "Requested feature not located in adata.obs"
 
         subAd = anndata.AnnData(mtxAr, adata.obs[obsInfoLs], adata.var[[]])
-        return subAd
+        return subAd.copy()
 
     @staticmethod
     def testAllCountIsInt(adata: anndata.AnnData, layer: Optional[str]) -> None:
@@ -445,9 +446,7 @@ class basic(object):
         )
         plt.title("overlap info among all components")
         plt.xticks([x + 0.5 for x in range(compLength)], compAddOriNumLs, rotation=90)
-        plt.yticks(
-            [x + 0.5 for x in range(compLength)], compAddOriNumLs, rotation=0
-        )
+        plt.yticks([x + 0.5 for x in range(compLength)], compAddOriNumLs, rotation=0)
         plt.show()
 
         logger.info("remove overlap of components")
@@ -696,67 +695,16 @@ class basic(object):
         return adata
 
     @staticmethod
-    def plotCellScatter(
-        adata, plotFeature: Sequence[str] = ["n_counts", "n_genes", "percent_ct"]
-    ):
-        adata.obs = adata.obs.assign(
-            n_genes=(adata.X > 0).sum(1), n_counts=adata.X.sum(1)
-        )
-        # adata.var = adata.var.assign(n_cells=(adata.X > 0).sum(0))
-        ctGene = (adata.var_names.str.startswith("ATCG")) | (
-            adata.var_names.str.startswith("ATMG")
-        )
-        adata.obs["percent_ct"] = np.sum(adata[:, ctGene].X, axis=1) / np.sum(
-            adata.X, axis=1
-        )
-        sc.pl.violin(adata, plotFeature, multi_panel=True, jitter=0.4)
+    def plotCellScatter(**plotDt):
+        return plotting.plotCellScatter(plotDt)
 
     @staticmethod
-    def plotLabelPercentageInCluster(
-        adata, groupby, label, labelColor: Optional[dict] = None
-    ):
-        """
-        根据label在adata.obs中groupby的占比绘图
+    def plotLabelPercentageInCluster(**plotDt):
+        return plotting.plotLabelPercentageInCluster(plotDt)
 
-        groupby:
-            表明cluster。需要存在于adata.obs
-        label:
-            展示的占比。需要存在于adata.obs
-        labelColor:
-            label的颜色
-        """
-        if not labelColor:
-            labelColor = {
-                x: y for x, y in zip(adata.obs[label].unique(), sns.color_palette())
-            }
-
-        groupbyWithLabelCountsDf = (
-            adata.obs.groupby(groupby)[label]
-            .apply(lambda x: x.value_counts())
-            .unstack()
-        )
-        groupbyWithLabelCounts_CumsumPercDf = groupbyWithLabelCountsDf.pipe(
-            lambda x: x.cumsum(1).div(x.sum(1), 0) * 100
-        )
-        legendHandleLs = []
-        legendLabelLs = []
-        for singleLabel in groupbyWithLabelCounts_CumsumPercDf.columns[::-1]:
-            ax = sns.barplot(
-                x=groupbyWithLabelCounts_CumsumPercDf.index,
-                y=groupbyWithLabelCounts_CumsumPercDf[singleLabel],
-                color=labelColor[singleLabel],
-            )
-            legendHandleLs.append(
-                plt.Rectangle(
-                    (0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none"
-                )
-            )
-            legendLabelLs.append(singleLabel)
-        legendHandleLs, legendLabelLs = legendHandleLs[::-1], legendLabelLs[::-1]
-        plt.legend(legendHandleLs, legendLabelLs, bbox_to_anchor=[1, 1], frameon=False)
-        plt.xlabel(groupby.capitalize())
-        plt.ylabel(f"Percentage")
-        return ax
+    @staticmethod
+    def plotClusterSankey(**plotDt):
+        return plotting.plotClusterSankey(plotDt)
 
     @staticmethod
     def maskGeneOutSpecialCluster(
@@ -780,7 +728,6 @@ class basic(object):
         tempAd.layers[layer][~inClusterBoolLs, :] = 0
         return tempAd
 
-    
     @staticmethod
     def saveMarkerGeneToPdf(
         adata: anndata.AnnData,
@@ -851,6 +798,124 @@ class basic(object):
             print("\r" + f"Progress: {i} / {geneCounts}", end="", flush=True)
 
         logger.info("All finished")
+
+
+class plotting(object):
+    @staticmethod
+    def plotCellScatter(
+        adata, plotFeature: Sequence[str] = ["n_counts", "n_genes", "percent_ct"]
+    ):
+        adata.obs = adata.obs.assign(
+            n_genes=(adata.X > 0).sum(1), n_counts=adata.X.sum(1)
+        )
+        # adata.var = adata.var.assign(n_cells=(adata.X > 0).sum(0))
+        ctGene = (adata.var_names.str.startswith("ATCG")) | (
+            adata.var_names.str.startswith("ATMG")
+        )
+        adata.obs["percent_ct"] = np.sum(adata[:, ctGene].X, axis=1) / np.sum(
+            adata.X, axis=1
+        )
+        sc.pl.violin(adata, plotFeature, multi_panel=True, jitter=0.4)
+
+    @staticmethod
+    def plotLabelPercentageInCluster(
+        adata, groupby, label, labelColor: Optional[dict] = None
+    ):
+        """
+        根据label在adata.obs中groupby的占比绘图
+
+        groupby:
+            表明cluster。需要存在于adata.obs
+        label:
+            展示的占比。需要存在于adata.obs
+        labelColor:
+            label的颜色
+        """
+        if not labelColor:
+            labelColor = {
+                x: y for x, y in zip(adata.obs[label].unique(), sns.color_palette())
+            }
+
+        groupbyWithLabelCountsDf = (
+            adata.obs.groupby(groupby)[label]
+            .apply(lambda x: x.value_counts())
+            .unstack()
+        )
+        groupbyWithLabelCounts_CumsumPercDf = groupbyWithLabelCountsDf.pipe(
+            lambda x: x.cumsum(1).div(x.sum(1), 0) * 100
+        )
+        legendHandleLs = []
+        legendLabelLs = []
+        for singleLabel in groupbyWithLabelCounts_CumsumPercDf.columns[::-1]:
+            ax = sns.barplot(
+                x=groupbyWithLabelCounts_CumsumPercDf.index,
+                y=groupbyWithLabelCounts_CumsumPercDf[singleLabel],
+                color=labelColor[singleLabel],
+            )
+            legendHandleLs.append(
+                plt.Rectangle(
+                    (0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none"
+                )
+            )
+            legendLabelLs.append(singleLabel)
+        legendHandleLs, legendLabelLs = legendHandleLs[::-1], legendLabelLs[::-1]
+        plt.legend(legendHandleLs, legendLabelLs, bbox_to_anchor=[1, 1], frameon=False)
+        plt.xlabel(groupby.capitalize())
+        plt.ylabel(f"Percentage")
+        return ax
+
+    @staticmethod
+    def plotClusterSankey(
+        adata: anndata.AnnData, clusterNameLs: Sequence[str], figsize=[5, 5]
+    ):
+        """
+        Returns
+        -------
+        pyecharts.charts.basic_charts.sankey.Sankey
+            Utilize Function render_notebook can get the final figure
+        """
+        from .otherTools import sankeyPlotByPyechart
+
+        df = adata.obs
+        colorDictLs = [basic.getadataColor(adata, x) for x in clusterNameLs]
+        sankey = sankeyPlotByPyechart(df, clusterNameLs, figsize, colorDictLs)
+        return sankey
+
+    @staticmethod
+    def plotSC3sConsensusMatrix(
+        adata: anndata.AnnData,
+        matrixLabel: str,
+        clusterResultLs: Sequence[str],
+        cmap="Reds",
+        metrix="cosine",
+        **clustermapParamsDt: Dict,
+    ):
+        import sys
+        sys.setrecursionlimit(100000)
+
+        matrixLabel = matrixLabel.rstrip('_consensus') + '_consensus'
+
+        colorDt = adata.obs.filter(clusterResultLs)
+        for clusterName in clusterResultLs:
+            if f"{clusterName}_colors" not in adata.uns:
+                sc.pl._utils._set_default_colors_for_categorical_obs(adata, clusterName)
+            clusterColorMapDt = basic.getadataColor(adata, clusterName)
+            colorDt[clusterName] = colorDt[clusterName].map(clusterColorMapDt)
+
+        consensusMatrix = pd.DataFrame(adata.obsm[matrixLabel], index=adata.obs.index)
+
+        sns.clustermap(
+            consensusMatrix,
+            cmap=cmap,
+            metric=metrix,
+            row_colors=colorDt,
+            cbar_pos=None,
+            **clustermapParamsDt
+        )
+        plt.xticks([])
+        plt.yticks([])
+
+        sys.setrecursionlimit(20000)
 
 
 class multiModle(object):
@@ -1065,6 +1130,7 @@ class normalize(object):
     @staticmethod
     def normalizeByScran(
         adata: anndata.AnnData,
+        layer: Optional[str] = None,
         logScaleOut: bool = True,
         needNormalizePre: bool = True,
         resolutionPre: float = 0.7,
@@ -1107,9 +1173,8 @@ class normalize(object):
         adata = adata.copy() if copy else adata
 
         if not clusterInfo:
-            adataPP = anndata.AnnData(
-                X=adata.X, obs=adata.obs[[]], var=adata.var[[]]
-            ).copy()
+            adataPP = basic.getOnlyOneLayerAdata(adata, layer)
+
             if needNormalizePre:
                 sc.pp.normalize_per_cell(adataPP, counts_per_cell_after=1e6)
             else:
@@ -1120,7 +1185,7 @@ class normalize(object):
             sc.pp.log1p(adataPP)
 
             logger.info("pre-clustering")
-            sc.pp.pca(adataPP, n_comps=20)
+            sc.pp.pca(adataPP, n_comps=15)
             sc.pp.neighbors(adataPP)
             sc.tl.leiden(adataPP, key_added="groups", resolution=resolutionPre)
 
@@ -1130,7 +1195,8 @@ class normalize(object):
             logger.info("transfer data to R")
             inputGroupDf_r = py2r(adata.obs[clusterInfo])
 
-        dataMat_r = py2r(adata.X.A.T) if isspmatrix(adata.X) else py2r(adata.X.T)
+        rawMtx = adata.X if not layer else adata.layers[layer]
+        dataMat_r = py2r(rawMtx.A.T) if isspmatrix(rawMtx) else py2r(rawMtx.T)
 
         logger.info("calculate size factor")
         sizeFactorSr_r = R.sizeFactors(
@@ -1144,7 +1210,7 @@ class normalize(object):
 
         logger.info("process result")
         adata.obs["sizeFactors"] = sizeFactorSr
-        adata.layers["scran"] = adata.X / adata.obs["sizeFactors"].values.reshape(
+        adata.layers["scran"] = rawMtx / adata.obs["sizeFactors"].values.reshape(
             [-1, 1]
         )
         if logScaleOut:
@@ -1389,7 +1455,7 @@ class geneEnrichInfo(object):
         """
         if groups != "all":
             if isinstance(groups, Callable):
-                allCategoriesSq = adata.obs[groupby].astype('category').cat.categories
+                allCategoriesSq = adata.obs[groupby].astype("category").cat.categories
                 groups = allCategoriesSq[allCategoriesSq.map(groups)]
                 groups = list(groups)
 
@@ -2395,20 +2461,25 @@ class bustools(object):
 #####
 class parseCellranger(object):
     @staticmethod
-    def extractReadCountsByUmiFromTenX(molInfoPath, kitVersion="v2", filtered=True):
+    def extractReadCountsByUmiFromTenX(
+        molInfoPath: str, kitVersion: Literal["v2", "v3"] = "v2", filtered: bool = True
+    ) -> pd.DataFrame:
         """
-        用于从cellRanger文件中提取read counts
+        parse molInfo_info.h5
 
-        molInfoPath:
-            molecule_info.h5
-        kitVersion:
-            v2|v3。v2:umi 10bp, v3:umi 12bp
-        filtered:
-            只使用过滤后的
+        Parameters
+        ----------
+        molInfoPath : strkitVersion, optional
+            molecule_info.h5, by default "v2"
+        Kitversion : 'v2' or 'v3'
+            v2: umi 10bp; v3: umi 12bp
+        filtered : bool, optional
+            only use these cells which pass the filter, by default True
 
-        return:
-            dataframe: columns = ['barcodeUmi', 'featureName', 'readCount']
-
+        Returns
+        -------
+        pd.DataFrame
+            columns : ["barcodeUmi", "featureName", "readCount"]
         """
         umiLength = {"v2": 10, "v3": 12}[kitVersion]
 
@@ -2426,25 +2497,33 @@ class parseCellranger(object):
 
             return _numToSeq
 
+        logger.warning(
+            "It consumes a lot of memory when processing files exceeding 1Gb."
+        )
         numToSeq = NumToSeq()
         molInfo = h5py.File(molInfoPath, "r")
-        allBarcode = molInfo["barcodes"][()].astype(str)
-        allFeature = molInfo["features/id"][()].astype(str)
+        allBarcodeAr = molInfo["barcodes"][()].astype(str)
+        useBarcodeAr = allBarcodeAr[molInfo["barcode_idx"][()]]
+        useFeatureAr = molInfo["features/id"][()][molInfo["feature_idx"][()]]
+        umiAr = molInfo["umi"][()]
+        countAr = molInfo["count"][()]
+
+        if filtered:
+            useCellLs = allBarcodeAr[molInfo["barcode_info/pass_filter"][()][:, 0]]
+            useCellBoolLs = np.isin(useBarcodeAr, useCellLs)
+            useBarcodeAr = useBarcodeAr[useCellBoolLs]
+            useFeatureAr = useFeatureAr[useCellBoolLs]
+            umiAr = umiAr[useCellBoolLs]
+            countAr = countAr[useCellBoolLs]
 
         allUmiCount = pd.DataFrame(
             np.c_[
-                molInfo["umi"][()],
-                allBarcode[molInfo["barcode_idx"][()]],
-                molInfo["count"][()],
-                allFeature[molInfo["feature_idx"][()]],
+                umiAr,
+                useBarcodeAr,
+                countAr,
+                useFeatureAr,
             ]
         )
-        if filtered:
-            allUmiCount = allUmiCount[
-                allUmiCount[1].isin(
-                    allBarcode[molInfo["barcode_info/pass_filter"][()][:, 0]]
-                )
-            ]
         allUmiCount[0] = allUmiCount[0].map(numToSeq)
         allUmiCount["barcodeUmi"] = allUmiCount[1] + "_" + allUmiCount[0]
         allUmiCount = allUmiCount.reindex(["barcodeUmi", 3, 2], axis=1, copy=False)

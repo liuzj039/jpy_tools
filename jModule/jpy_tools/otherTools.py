@@ -13,7 +13,21 @@ from loguru import logger
 from io import StringIO
 import sys
 from threading import Thread
-
+import matplotlib.pyplot as plt
+import seaborn as sns
+from typing import (
+    List,
+    Optional,
+    Union,
+    Sequence,
+    Literal,
+    Any,
+    Tuple,
+    Iterator,
+    Mapping,
+    Callable,
+    Dict
+)
 
 class Capturing(list):
     "Capture std output"
@@ -112,3 +126,84 @@ def myAsync(f):
         return thr
  
     return wrapper
+
+def sankeyPlotByPyechart(df:pd.DataFrame, columns:Sequence[str], figsize=[5,5], colorDictLs:Optional[List[Dict[str,str]]]=None):
+    """
+    [summary]
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+    columns : Sequence[str]
+        the columns used for sankey plot
+    figsize : list, optional
+        by default [5,5]
+    colorDict : Optional[List[Dict[str,str]]], optional
+        Color of each label in dataframe. e.g. [{'a': '#000000', 'b': '#000001'}, {'a': '#000000', 'b': '#000001'}]. Length should consistent with columns
+        by default None.
+
+    Returns
+    -------
+    pyecharts.charts.basic_charts.sankey.Sankey
+        Utilize Function render_notebook can get the final figure
+    """    
+    from matplotlib.colors import rgb2hex
+    from pyecharts.globals import CurrentConfig, NotebookType
+    from pyecharts import options as opts
+    from pyecharts.charts import Sankey
+    CurrentConfig.NOTEBOOK_TYPE = NotebookType.JUPYTER_LAB
+    CurrentConfig.ONLINE_HOST
+    def getSankeyFormatFromDf_Only2(df:pd.DataFrame, fromCol:str, toCol:str, fromColorDt:dict=None, toColorDt:dict=None, layerNum:int=0, skNameLs:list=None):
+        if not skNameLs:
+            skNameLs = []
+            
+        skUseDt = df[[fromCol, toCol]].groupby([fromCol, toCol]).agg(lambda x:len(x)).to_dict()
+        
+        if not fromColorDt:
+            fromColorDt = {x : rgb2hex(y) for x,y in zip(df[fromCol].unique(), sns.color_palette())}
+        if not toColorDt:
+            toColorDt = {x : rgb2hex(y) for x,y in zip(df[toCol].unique(), sns.color_palette())}     
+        fromColorDt = {f"{x}{' ' * layerNum}" : y for x,y in fromColorDt.items()}
+        toColorDt = {f"{x}{' ' * (layerNum+1)}" : y for x,y in toColorDt.items()}
+
+        skNodeLs = []
+        skLinkLs = []
+        for (source, target), counts in skUseDt.items():
+            source = source + " " * layerNum
+            target = target + " " * (layerNum + 1)
+            if source not in skNameLs:
+                skNameLs.append(source)
+                sourceColor = fromColorDt[source]
+                skNodeLs.append({"name": source, "itemStyle": {"color": sourceColor}})
+            if target not in skNameLs:
+                skNameLs.append(target)
+                targetColor = toColorDt[target]
+                skNodeLs.append({"name": target, "itemStyle": {"color": targetColor}})
+
+            skLinkLs.append({"source": source, "target": target, "value": counts})
+            
+        return skNodeLs, skLinkLs, skNameLs
+    
+    skNodeLs = []
+    skLinkLs = []
+    skNameLs = []
+    if not colorDictLs:
+        colorDictLs = [None] * len(columns)
+    
+    for i in range(len(columns) - 1):
+        partSkNodeLs, partSkLinkLs, skNameLs = getSankeyFormatFromDf_Only2(df, columns[i], columns[i+1], colorDictLs[i], colorDictLs[i+1], i, skNameLs)
+        skNodeLs.extend(partSkNodeLs)
+        skLinkLs.extend(partSkLinkLs)
+    
+
+    sankey = Sankey(init_opts=opts.InitOpts(width=f"{figsize[0]*100}px", height=f"{figsize[1]*100}px",))
+
+    sankey.add(
+        "",
+        skNodeLs,
+        skLinkLs,
+        linestyle_opt=opts.LineStyleOpts(opacity=0.2, curve=0.5, color="source"),
+        label_opts=opts.LabelOpts(position="right"),
+    ).set_global_opts(title_opts=opts.TitleOpts(title=""))
+
+    return sankey
