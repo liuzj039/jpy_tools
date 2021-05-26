@@ -127,15 +127,20 @@ class basic(object):
         }
 
     @staticmethod
-    def setadataColor(adata, label, colorDt, hex=True):
+    def setadataColor(adata, label, colorDt=None, hex=True):
         adata.obs[label] = adata.obs[label].astype("category")
-        if not hex:
-            from matplotlib.colors import to_hex
+        if colorDt:
+            if not hex:
+                from matplotlib.colors import to_hex
 
-            colorDt = {x: hex(y) for x, y in colorDt.items()}
-        adata.uns[f"{label}_colors"] = [
-            colorDt[x] for x in adata.obs[label].cat.categories
-        ]
+                colorDt = {x: hex(y) for x, y in colorDt.items()}
+            adata.uns[f"{label}_colors"] = [
+                colorDt[x] for x in adata.obs[label].cat.categories
+            ]
+        else:
+            if f"{label}_colors" not in adata.uns:
+                sc.pl._utils._set_default_colors_for_categorical_obs(adata, label)
+
         return adata
 
     @staticmethod
@@ -876,8 +881,11 @@ class plotting(object):
         """
         from .otherTools import sankeyPlotByPyechart
 
-        df = adata.obs
+        df = adata.obs.filter(clusterNameLs).astype(str)
+
+        [basic.setadataColor(adata, x) for x in clusterNameLs]
         colorDictLs = [basic.getadataColor(adata, x) for x in clusterNameLs]
+
         sankey = sankeyPlotByPyechart(df, clusterNameLs, figsize, colorDictLs)
         return sankey
 
@@ -891,31 +899,61 @@ class plotting(object):
         **clustermapParamsDt: Dict,
     ):
         import sys
+        from .otherTools import addColorLegendToAx
+
         sys.setrecursionlimit(100000)
 
-        matrixLabel = matrixLabel.rstrip('_consensus') + '_consensus'
+        matrixLabel = matrixLabel.rstrip("_consensus") + "_consensus"
 
         colorDt = adata.obs.filter(clusterResultLs)
         for clusterName in clusterResultLs:
-            if f"{clusterName}_colors" not in adata.uns:
-                sc.pl._utils._set_default_colors_for_categorical_obs(adata, clusterName)
+            basic.setadataColor(adata, clusterName)
             clusterColorMapDt = basic.getadataColor(adata, clusterName)
             colorDt[clusterName] = colorDt[clusterName].map(clusterColorMapDt)
 
         consensusMatrix = pd.DataFrame(adata.obsm[matrixLabel], index=adata.obs.index)
 
-        sns.clustermap(
+        g = sns.clustermap(
             consensusMatrix,
             cmap=cmap,
             metric=metrix,
             row_colors=colorDt,
             cbar_pos=None,
-            **clustermapParamsDt
+            **clustermapParamsDt,
         )
+
+        currentYPos = 1
+        currentXPos = 1.05
+        interval = 0.25
+        for clusterName in clusterResultLs:
+
+            clusterColorMapDt = basic.getadataColor(adata, clusterName)
+            length = 0.04 * (len(clusterColorMapDt) + 1)
+            if (currentYPos == 1) or (currentYPos - length > 0):
+                bbox_to_anchor = [currentXPos, currentYPos]
+
+            else:
+                currentXPos = currentXPos + interval
+                currentYPos = 1
+                bbox_to_anchor = [currentXPos, currentYPos]
+
+            currentYPos = currentYPos - length
+            addColorLegendToAx(
+                g.ax_heatmap,
+                clusterName,
+                clusterColorMapDt,
+                1,
+                bbox_to_anchor=bbox_to_anchor,
+                loc="upper left",
+                # bbox_transform=plt.gcf().transFigure,
+            )
+
         plt.xticks([])
         plt.yticks([])
 
         sys.setrecursionlimit(20000)
+
+        return g
 
 
 class multiModle(object):

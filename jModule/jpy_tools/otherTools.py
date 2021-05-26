@@ -127,6 +127,19 @@ def myAsync(f):
  
     return wrapper
 
+
+def addColorLegendToAx(ax, title, colorDt:Mapping[str, str], ncol=2, loc='upper left', bbox_to_anchor=(1.05, 1.0), **legendParamsDt):
+    from matplotlib.legend import Legend
+    artistLs = []
+    for label, color in colorDt.items():
+        artistLs.append(ax.bar(0, 0, color=color, label=label, linewidth=0))
+    leg = Legend(ax, artistLs, list(colorDt.keys()), title=title, loc=loc, ncol=ncol, bbox_to_anchor=bbox_to_anchor, **legendParamsDt)
+    ax.add_artist(leg)
+
+    # leg = ax.legend(title=title, loc=loc, ncol=ncol, bbox_to_anchor=bbox_to_anchor)
+    return leg
+
+
 def sankeyPlotByPyechart(df:pd.DataFrame, columns:Sequence[str], figsize=[5,5], colorDictLs:Optional[List[Dict[str,str]]]=None):
     """
     [summary]
@@ -146,13 +159,13 @@ def sankeyPlotByPyechart(df:pd.DataFrame, columns:Sequence[str], figsize=[5,5], 
     -------
     pyecharts.charts.basic_charts.sankey.Sankey
         Utilize Function render_notebook can get the final figure
-    """    
-    from matplotlib.colors import rgb2hex
+    """  
     from pyecharts.globals import CurrentConfig, NotebookType
+    CurrentConfig.NOTEBOOK_TYPE = NotebookType.JUPYTER_LAB
+    CurrentConfig.ONLINE_HOST  
+    from matplotlib.colors import rgb2hex
     from pyecharts import options as opts
     from pyecharts.charts import Sankey
-    CurrentConfig.NOTEBOOK_TYPE = NotebookType.JUPYTER_LAB
-    CurrentConfig.ONLINE_HOST
     def getSankeyFormatFromDf_Only2(df:pd.DataFrame, fromCol:str, toCol:str, fromColorDt:dict=None, toColorDt:dict=None, layerNum:int=0, skNameLs:list=None):
         if not skNameLs:
             skNameLs = []
