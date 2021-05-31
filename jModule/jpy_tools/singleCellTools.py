@@ -1,5 +1,12 @@
 ##########################################################################################
 #                                     Author: Liu ZJ                                     #
+#                          Last Updated: May 26, 2021 08:05 PM                           #
+#                                Source Language: python                                 #
+#               Repository: https://github.com/liuzj039/myPythonTools.git                #
+##########################################################################################
+
+##########################################################################################
+#                                     Author: Liu ZJ                                     #
 #                          Creation Date: May 26, 2021 03:29 PM                          #
 #                          Last Updated: May 26, 2021 03:55 PM                           #
 #                                Source Language: python                                 #
@@ -42,6 +49,7 @@ from scipy.stats import spearmanr, pearsonr, zscore
 from loguru import logger
 from io import StringIO
 from concurrent.futures import ProcessPoolExecutor as Mtp
+from concurrent.futures import ThreadPoolExecutor as MtT
 import sh
 import h5py
 from typing import (
@@ -907,6 +915,7 @@ class plotting(object):
         clusterResultLs: Sequence[str],
         cmap="Reds",
         metrix="cosine",
+        row_cluster=True,
         **clustermapParamsDt: Dict,
     ):
         import sys
@@ -922,13 +931,17 @@ class plotting(object):
             clusterColorMapDt = basic.getadataColor(adata, clusterName)
             colorDt[clusterName] = colorDt[clusterName].map(clusterColorMapDt)
 
-        consensusMatrix = pd.DataFrame(adata.obsm[matrixLabel], index=adata.obs.index)
+        cellIndexOrderSq = adata.obs.sort_values(matrixLabel.rstrip("_consensus")).index
+        consensusMatrix = pd.DataFrame(
+            adata.obsm[matrixLabel], index=adata.obs.index
+        ).reindex(cellIndexOrderSq)
 
         g = sns.clustermap(
             consensusMatrix,
             cmap=cmap,
             metric=metrix,
             row_colors=colorDt,
+            row_cluster=row_cluster,
             cbar_pos=None,
             **clustermapParamsDt,
         )
@@ -1447,6 +1460,39 @@ class normalize(object):
 
 
 class geneEnrichInfo(object):
+    def getOverlapInfo(
+        adata: anndata.AnnData,
+        key: str,
+        markerDt: Mapping[str, List[str]],
+        nTopGenes: int = 100,
+    ) -> Mapping[str, List[str]]:
+        """
+        get overlap between marker genes with detected cluster-enriched genes
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            after rank_genes_groups
+        key : str
+            key of rank_genes_groups
+        markerDt : Mapping[str, List[str]]
+            key is cell type, and value is corresponding marker genes
+        nTopGenes : int, optional
+            Number of cluster-enriched genes used, by default 100
+
+        Returns
+        -------
+        Mapping[str, List[str]]
+            key is cell type, and value is corresponding overlap genes
+        """
+        clusterEnrichedSt = set(
+            sc.get.rank_genes_groups_df(adata, None, key=key)
+            .groupby("group")
+            .apply(lambda x: x.iloc[:nTopGenes]["names"])
+        )
+        overlapDt = {x:list(set(y) & clusterEnrichedSt) for x,y in markerDt.items()}
+        return overlapDt
+
     @staticmethod
     def detectMarkerGene(
         adata: anndata.AnnData,
@@ -2579,62 +2625,6 @@ class parseCellranger(object):
         allUmiCount.columns = ["barcodeUmi", "featureName", "readCount"]
         return allUmiCount
 
-    @staticmethod
-    def getUmiSenseInfoNaive(bamPath, threads=None) -> pd.DataFrame:
-        def __getUmiSenseInfoOneChrom(bamPath, chrName):
-            bam = pysam.AlignmentFile(bamPath)
-            cellDt = defaultdict(lambda: {"sense": [], "antisense": []})
-            for i, read in enumerate(bam.fetch(chrName)):
-                if read.has_tag("CB") and read.has_tag("UB"):
-                    if read.has_tag("TX"):
-                        strand = "sense"
-                    elif read.has_tag("AN"):
-                        strand = "antisense"
-                    else:
-                        continue
-                    readBc = read.get_tag("CB")
-                    readUmi = read.get_tag("UB")
-                    if readUmi not in cellDt[readBc][strand]:
-                        cellDt[readBc][strand].append(readUmi)
-                if i % 1e6 == 0:
-                    logger.info(f"{chrName}, {i}")
-            logger.info(f"{chrName} process end")
-            return chrName, dict(cellDt)
-
-        bam = pysam.AlignmentFile(bamPath)
-        if not threads:
-            threads = len(bam.references)
-
-        logger.info("start parse bam file")
-        resultLs = []
-        with ProcessPoolExecutor(threads) as mtP:
-            for chrName in bam.references:
-                resultLs.append(mtP.submit(getUmiSenseInfo, bamFilePath, chrName))
-        resultLs = [x.result() for x in resultLs]
-        logger.info("start merge each chromosome results")
-
-        cellDt = defaultdict(lambda: {"sense": [], "antisense": []})
-        for chrName, singleChrDt in resultLs:
-            for cellBarcode, bcSenseDt in singleChrDt.items():
-                cellDt[cellBarcode]["sense"].extend(bcSenseDt["sense"])
-                cellDt[cellBarcode]["antisense"].extend(bcSenseDt["antisense"])
-            logger.info(chrName)
-        del resultLs
-
-        finalResultLs = []
-        for celBarcode, bcSenseDt in cellDt.items():
-            finalResultLs.append(
-                [
-                    celBarcode,
-                    len(set(bcSenseDt["sense"])),
-                    len(set(bcSenseDt["antisense"])),
-                ]
-            )
-        del cellDt
-
-        finalResultDf = pd.DataFrame(finalResultLs)
-        finalResultDf.columns = ["cellBarcode", "senseUmiCounts", "antisenseCounts"]
-        return finalResultDf
 
 
 ### multilayer use

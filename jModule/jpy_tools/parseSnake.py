@@ -196,7 +196,7 @@ class SnakeRule:
                     singlePath = parseFilePathWithWildcards(singlePath)
                     self.pathPool[f"all{single.capitalize()}"] = f"all{single.capitalize()} = {singlePath}"
                     returnList.append(f"{single} = {singlePath}")
-            else:
+            elif (pos == "stepdir") | (pos == "d"):
                 assert isinstance(singleList, dict), "not dict"
                 for stepDir, singlePaths in singleList.items():
                     for singlePath in singlePaths:
@@ -239,7 +239,7 @@ class SnakeRule:
             ['window']
         c | original :
             dict(gap = -12)
-        d:
+        d | stepDir:
             dict(step2 = ['polyACluster/polya_cluster.filtered.bed', 'testDir/']) resulted: polya_clusterFiltered, testDir
         e:
             use wildcard parser. ['window']
@@ -256,7 +256,7 @@ class SnakeRule:
             ['window']
         c | original :
             dict(gap = -12)
-        d:
+        d | stepDir:
             dict(step2 = ['polyACluster/polya_cluster.filtered.bed', 'testDir/']) resulted: polya_clusterFiltered, testDir
         e:
             use wildcard parser. ['window']
@@ -273,7 +273,7 @@ class SnakeRule:
             ['window']
         c | original :
             dict(gap = -12)
-        d:
+        d | stepDir:
             dict(step2 = ['polyACluster/polya_cluster.filtered.bed', 'testDir/']) resulted: polya_clusterFiltered, testDir
         e:
             use wildcard parser. ['window']
