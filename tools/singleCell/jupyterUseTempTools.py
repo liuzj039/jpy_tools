@@ -79,7 +79,9 @@ from .otherTools import myAsync
 
 class basic(object):
     @staticmethod
-    def splitadata(adata: anndata.AnnData, batchKey: str) -> Iterator[anndata.AnnData]:
+    def splitadata(
+        adata: anndata.AnnData, batchKey: str, copy=True
+    ) -> Iterator[anndata.AnnData]:
         assert batchKey in adata.obs.columns, f"{batchKey} not detected in adata"
         indexName = "index" if (not adata.obs.index.name) else adata.obs.index.name
         batchObsLs = (
@@ -89,7 +91,10 @@ class basic(object):
             .agg(list)
         )
         for batchObs in batchObsLs:
-            yield adata[batchObs].copy()
+            if copy:
+                yield adata[batchObs].copy()
+            else:
+                yield adata[batchObs]
 
     @staticmethod
     def getOnlyOneLayerAdata(
@@ -130,7 +135,7 @@ class basic(object):
         else:
             X_subset = adata.layers[layer][:testColCounts]
 
-        err = "Make sure that adata.X contains unnormalized count data"
+        err = "Make sure that adata.layer contains unnormalized count data" + f"\tLayer:{layer}"
         if sp.issparse(X_subset):
             assert (X_subset.astype(int) != X_subset).nnz == 0, err
         else:
@@ -760,16 +765,20 @@ class basic(object):
         key: str = "rank_genes_groups_filtered",
         layer: Optional[str] = None,
         pval_cutoff: float = 0.05,
+        geneDt:Optional[Dict[str, List[str]]] = None,
     ):
         """save all marker gene as pdf format"""
         import os
         from PyPDF2 import PdfFileMerger
 
         outputDirPath = outputDirPath.rstrip("/") + "/"
-        markerDf = sc.get.rank_genes_groups_df(
-            adata, group=group, key=key, pval_cutoff=pval_cutoff
-        )
-        markerDt = markerDf.groupby("group")["names"].agg(list).to_dict()
+        if geneDt:
+            markerDt = geneDt
+        else:
+            markerDf = sc.get.rank_genes_groups_df(
+                adata, group=group, key=key, pval_cutoff=pval_cutoff
+            )
+            markerDt = markerDf.groupby("group")["names"].agg(list).to_dict()
         for groupName, groupMarkerGeneLs in markerDt.items():
             pdfMerger = PdfFileMerger()
             groupMarkerPathLs = []
@@ -785,7 +794,6 @@ class basic(object):
         logger.info("All finished")
 
     @staticmethod
-    @myAsync
     def saveAllGeneEmbedding(
         adata: anndata.AnnData,
         outputDirPath: str,
@@ -1238,6 +1246,7 @@ class normalize(object):
             adataPP = basic.getOnlyOneLayerAdata(adata, layer)
 
             if needNormalizePre:
+                basic.testAllCountIsInt(adataPP)
                 sc.pp.normalize_per_cell(adataPP, counts_per_cell_after=1e6)
             else:
                 logger.warning(
@@ -1490,7 +1499,7 @@ class geneEnrichInfo(object):
             .groupby("group")
             .apply(lambda x: x.iloc[:nTopGenes]["names"])
         )
-        overlapDt = {x:list(set(y) & clusterEnrichedSt) for x,y in markerDt.items()}
+        overlapDt = {x: list(set(y) & clusterEnrichedSt) for x, y in markerDt.items()}
         return overlapDt
 
     @staticmethod
@@ -1711,6 +1720,46 @@ class geneEnrichInfo(object):
             .fillna(0)
         )
         return clusterZscoreDf
+
+    @staticmethod
+    def calculateEnrichScoreByCellex(
+        adata: anndata.AnnData,
+        layer: Optional[str] = None,
+        clusterName: str = "leiden",
+        copy: bool = False,
+    ) -> Optional[anndata.AnnData]:
+        """
+        calculateEnrichScoreByCellex
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+        layer : Optional[str], optional
+            Must be int, by default None
+        clusterName : str, optional
+            by default 'leiden'
+        copy : bool, optional
+            by default False
+
+        Returns
+        -------
+        anndata if copy else None
+        """
+        import cellex
+
+        if layer == "X":
+            layer = None
+
+        adata = adata.copy() if copy else adata
+        basic.testAllCountIsInt(adata, layer)
+
+        df_mtx = adata.to_df(layer).T if layer else adata.to_df().T
+        df_meta = adata.obs[[clusterName]].rename({clusterName: "cell_type"}, axis=1)
+        eso = cellex.ESObject(data=df_mtx, annotation=df_meta)
+        eso.compute()
+        adata.varm[f"{clusterName}_cellexES"] = eso.results["esmu"].reindex(adata.var.index).fillna(0)
+        if copy:
+            return adata
 
 
 class annotation(object):
@@ -2624,7 +2673,6 @@ class parseCellranger(object):
         allUmiCount = allUmiCount.reindex(["barcodeUmi", 3, 2], axis=1, copy=False)
         allUmiCount.columns = ["barcodeUmi", "featureName", "readCount"]
         return allUmiCount
-
 
 
 ### multilayer use

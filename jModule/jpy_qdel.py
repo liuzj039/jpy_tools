@@ -37,7 +37,8 @@ if not snakemake mode, PBS_ID is pbsId; else snakemake logpath
     else:
         # pbs_id = pbs_id.split('/')[-1]
         logFilePath = str(sh.realpath(pbs_id)).strip()
-        configPath = '_'.join(logFilePath.split('_')[:-3]) + '.yaml'
+        configPath = '/'.join(logFilePath.split('/')[:-1]) + '/config.yaml'
+        # configPath = '_'.join(logFilePath.split('_')[:-3]) + '.yaml'
         print(configPath)
         with os.popen('ps -u') as fh:
             commandResults = fh.readlines()

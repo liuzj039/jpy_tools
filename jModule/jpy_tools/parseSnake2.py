@@ -34,6 +34,12 @@ class SnakeFile(object):
         self.pipelineDir = ""
         self.main = ""
 
+    def __str__(self):
+        return f"Rules Name: {[x.name for x in self.ruleLs]}"
+
+    def __repr__(self):
+        return f"Rules Name: {[x.name for x in self.ruleLs]}"
+
     def addRule(self, snakeRule: SnakeRule):
         snakeRuleNameLs = [x.name for x in self.ruleLs]
         if snakeRule.name not in snakeRuleNameLs:
