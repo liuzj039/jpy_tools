@@ -66,20 +66,11 @@ from typing import (
     Callable,
 )
 import collections
-from .rTools import (
-    anndata2ri_check,
-    py2r,
-    r2py,
-    rpy2_check,
-    r_is_installed,
-    r_set_seed,
-)
-from .otherTools import myAsync
 
 
 class basic(object):
     @staticmethod
-    def splitadata(
+    def splitAdata(
         adata: anndata.AnnData, batchKey: str, copy=True
     ) -> Iterator[anndata.AnnData]:
         assert batchKey in adata.obs.columns, f"{batchKey} not detected in adata"
@@ -97,26 +88,67 @@ class basic(object):
                 yield adata[batchObs]
 
     @staticmethod
-    def getOnlyOneLayerAdata(
+    def getPartialLayersAdata(
         adata: anndata.AnnData,
-        layer: Optional[str] = None,
+        layers: Optional[Union[str, List[str]]] = None,
         obsInfoLs: Optional[Sequence[str]] = None,
+        varInfoLs: Optional[Sequence[str]] = None,
     ) -> anndata.AnnData:
         """
         get a subset of adata. Only contains one layer expression matrix, and several obs information.
-        """
-        if layer == "X":
-            layer = None
 
-        mtxAr = adata.X if not layer else adata.layers[layer]
+        Parameters
+        ----------
+        adata : anndata.AnnData
+        layers : Optional[Union[str, List[str]]], optional
+            None will be parsed as 'X', by default None
+        obsInfoLs : Optional[Sequence[str]], optional
+            by default None
+        varInfoLs : Optional[Sequence[str]], optional
+            by default None
+
+        Returns
+        -------
+        anndata.AnnData
+            if data type of `layers` is list, all element in 'X' of returned adata will be set as 0
+        """
+        import scipy.sparse as ss
+
         if not obsInfoLs:
             obsInfoLs = []
         else:
             assert sum([x in adata.obs.columns for x in obsInfoLs]) == len(
                 obsInfoLs
             ), "Requested feature not located in adata.obs"
+        if not varInfoLs:
+            varInfoLs = []
+        else:
+            assert sum([x in adata.var.columns for x in varInfoLs]) == len(
+                varInfoLs
+            ), "Requested feature not located in adata.var"
 
-        subAd = anndata.AnnData(mtxAr, adata.obs[obsInfoLs], adata.var[[]])
+        if isinstance(layers, list):
+            dt_layerMtx = {}
+            for layer in layers:
+                ar_mtx = adata.X if layer == "X" else adata.layers[layer]
+                dt_layerMtx[layer] = ar_mtx
+            subAd = anndata.AnnData(
+                ss.csr_matrix(np.zeros(adata.shape)),
+                adata.obs[obsInfoLs],
+                adata.var[varInfoLs],
+                layers=dt_layerMtx,
+            )
+
+        elif isinstance(layers, str):
+            layer = layers
+            if not layer:
+                layer = "X"
+            mtxAr = adata.X if layer == "X" else adata.layers[layer]
+            subAd = anndata.AnnData(mtxAr, adata.obs[obsInfoLs], adata.var[varInfoLs])
+
+        else:
+            assert False, f"unsupported layers data type: {type(layers)}"
+
         return subAd.copy()
 
     @staticmethod
@@ -135,7 +167,10 @@ class basic(object):
         else:
             X_subset = adata.layers[layer][:testColCounts]
 
-        err = "Make sure that adata.layer contains unnormalized count data" + f"\tLayer:{layer}"
+        err = (
+            "Make sure that adata.layer contains unnormalized count data"
+            + f"\tLayer:{layer}"
+        )
         if sp.issparse(X_subset):
             assert (X_subset.astype(int) != X_subset).nnz == 0, err
         else:
@@ -705,7 +740,7 @@ class basic(object):
         from functools import reduce
 
         adata = adata.copy()
-        batchAdLs = list(basic.splitadata(adata, batchKey))
+        batchAdLs = list(basic.splitAdata(adata, batchKey))
         [
             sc.pp.highly_variable_genes(
                 x,
@@ -748,7 +783,7 @@ class basic(object):
         """
         import scipy.sparse as ss
 
-        tempAd = basic.getOnlyOneLayerAdata(adata, layer, [obsKey]).copy()
+        tempAd = basic.getPartialLayersAdata(adata, layer, [obsKey]).copy()
         tempAd.obsm[embedding] = adata.obsm[embedding]
 
         inClusterBoolLs = tempAd.obs[obsKey].isin(clusterNameLs)
@@ -765,11 +800,16 @@ class basic(object):
         key: str = "rank_genes_groups_filtered",
         layer: Optional[str] = None,
         pval_cutoff: float = 0.05,
-        geneDt:Optional[Dict[str, List[str]]] = None,
+        geneDt: Optional[Dict[str, List[str]]] = None,
+        allGeneStoreDir: Optional[str] = None,
     ):
         """save all marker gene as pdf format"""
         import os
+        import shutil
         from PyPDF2 import PdfFileMerger
+
+        if allGeneStoreDir:
+            allGeneStoreDir = allGeneStoreDir.rstrip("/") + "/"
 
         outputDirPath = outputDirPath.rstrip("/") + "/"
         if geneDt:
@@ -783,8 +823,14 @@ class basic(object):
             pdfMerger = PdfFileMerger()
             groupMarkerPathLs = []
             for gene in groupMarkerGeneLs:
-                sc.pl.umap(adata, layer=layer, color=gene, cmap="Reds", show=False)
-                plt.savefig(f"{outputDirPath}{groupName}_{gene}.pdf", format="pdf")
+                if allGeneStoreDir:
+                    shutil.copyfile(
+                        f"{allGeneStoreDir}{gene}.pdf",
+                        f"{outputDirPath}{groupName}_{gene}.pdf",
+                    )
+                else:
+                    sc.pl.umap(adata, layer=layer, color=gene, cmap="Reds", show=False)
+                    plt.savefig(f"{outputDirPath}{groupName}_{gene}.pdf", format="pdf")
                 pdfMerger.append(f"{outputDirPath}{groupName}_{gene}.pdf")
                 groupMarkerPathLs.append(f"{outputDirPath}{groupName}_{gene}.pdf")
             pdfMerger.write(f"{outputDirPath}{groupName}_all.pdf")
@@ -1234,7 +1280,7 @@ class normalize(object):
         import rpy2
         import rpy2.robjects as ro
         from rpy2.robjects.packages import importr
-        from jpy_tools.rTools import py2r, r2py, r_inline_plot
+        from .rTools import py2r, r2py, r_inline_plot
         from scipy.sparse import csr_matrix, isspmatrix
 
         R = ro.r
@@ -1243,7 +1289,7 @@ class normalize(object):
         adata = adata.copy() if copy else adata
 
         if not clusterInfo:
-            adataPP = basic.getOnlyOneLayerAdata(adata, layer)
+            adataPP = basic.getPartialLayersAdata(adata, layer)
 
             if needNormalizePre:
                 basic.testAllCountIsInt(adataPP)
@@ -1291,8 +1337,6 @@ class normalize(object):
         return adata if copy else None
 
     @staticmethod
-    @rpy2_check
-    @anndata2ri_check
     def normalizeBySCT(
         adata: anndata.AnnData,
         layer: Union[Literal["X"], str] = "X",
@@ -1365,6 +1409,14 @@ class normalize(object):
         from scanpy.preprocessing import filter_genes
         import scipy.sparse as sp
         import anndata2ri
+        from .rTools import (
+            anndata2ri_check,
+            py2r,
+            r2py,
+            rpy2_check,
+            r_is_installed,
+            r_set_seed,
+        )
 
         r_is_installed("sctransform")
         r_set_seed(seed)
@@ -1757,9 +1809,76 @@ class geneEnrichInfo(object):
         df_meta = adata.obs[[clusterName]].rename({clusterName: "cell_type"}, axis=1)
         eso = cellex.ESObject(data=df_mtx, annotation=df_meta)
         eso.compute()
-        adata.varm[f"{clusterName}_cellexES"] = eso.results["esmu"].reindex(adata.var.index).fillna(0)
+        adata.varm[f"{clusterName}_cellexES"] = (
+            eso.results["esmu"].reindex(adata.var.index).fillna(0)
+        )
         if copy:
             return adata
+
+    @staticmethod
+    def getEnrichedGeneByCellId(
+        adata: anndata.AnnData,
+        layer: Optional[str] = None,
+        clusterName: str = "leiden",
+        n_features: int = 200,
+        copy: bool = False,
+        returnR: bool = False,
+    ) -> Optional[pd.DataFrame]:
+        """
+        use CelliD get enriched gene
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+        layer : Optional[str], optional
+            must be log-transformed data, by default None
+        clusterName : str, optional
+            by default 'leiden'
+        n_features : int, optional
+            by default 200
+        copy : bool, optional
+            by default False
+        returnR : bool, optional
+            This parameter takes precedence over copy. by default False.
+
+        Returns
+        -------
+        Optional[pd.DataFrame]
+            if copy, dataframe will be returned, else the anndata will be updated by following rules:
+                obsm/varm will be updated by mca.
+                uns will be updated by cellid_marker
+        """
+        import rpy2.robjects as ro
+        from rpy2.robjects.packages import importr
+        from .rTools import py2r, r2py
+
+        rBase = importr("base")
+        cellId = importr("CelliD")
+        R = ro.r
+        adataR = py2r(basic.getPartialLayersAdata(adata, [layer], [clusterName]))
+        adataR = cellId.RunMCA(adataR, slot=layer)
+
+        VectorR_marker = cellId.GetGroupGeneSet(
+            adataR, group_by=clusterName, n_features=n_features
+        )
+        if returnR:
+            return VectorR_marker
+
+        df_marker = r2py(rBase.data_frame(VectorR_marker, check_names=False))
+        if copy:
+            return df_marker
+        else:
+            adata.obsm["mca"] = r2py(
+                rBase.as_data_frame(
+                    R.reducedDim(adataR, "MCA"),
+                )
+            )
+            adata.varm["mca"] = r2py(
+                rBase.as_data_frame(
+                    R.attr(R.reducedDim(adataR, "MCA"), "genesCoordinates")
+                )
+            )
+            adata.uns["cellid_marker"] = df_marker
 
 
 class annotation(object):
@@ -1845,7 +1964,7 @@ class annotation(object):
         if copy:
             return adata
 
-    def getPrividedMarkerInSpecificiGene(
+    def getOverlapBetweenPrividedMarkerAndSpecificGene(
         adata: anndata.AnnData,
         markerDt: Mapping[str, Sequence[str]],
         key: str = "rank_genes_groups",
@@ -1870,6 +1989,71 @@ class annotation(object):
         [markerDt.pop(x) for x in delKeyLs]
 
         return markerDt
+
+    def labelTransferByCellId(
+        refAd: anndata.AnnData,
+        refLabel: str,
+        refLayer: str,
+        queryAd: anndata.AnnData,
+        queryLayer: str,
+        markerCount: int = 200,
+        cutoff: float = 2.0,
+        copy: bool = False,
+    ) -> Optional[anndata.AnnData]:
+        """
+        annotate queryAd based on refAd annotation result.
+
+        Parameters
+        ----------
+        refAd : anndata.AnnData
+        refLabel : str
+            column's name in refAd.obs
+        refLayer : str
+            must be log-transformed
+        queryAd : anndata.AnnData
+        queryLayer : str
+            must be log-transformed
+        markerCount : int
+            Gene number extracted from refAd. These gene will be used to annotate queryAd
+        cutoff : float, optional
+            by default 2.0
+        copy : bool, optional
+            by default False
+
+        Returns
+        -------
+        Optional[anndata.AnnData]
+            if copy is False, queryAd will be updated as following rules:
+                obsm will be updated by f"cellid_{refLabel}_labelTranferScore".
+                obs will be updated by f"cellid_{refLabel}_labelTranfer"
+        """    
+        import rpy2
+        import rpy2.robjects as ro
+        from rpy2.robjects.packages import importr
+        from .rTools import py2r, r2py, r_inline_plot, rHelp
+
+        rBase = importr("base")
+        rUtils = importr("utils")
+        cellId = importr("CelliD")
+        R = ro.r
+        VectorR_Refmarker = geneEnrichInfo.getEnrichedGeneByCellId(
+            refAd, refLayer, refLabel, markerCount, copy=True, returnR=True
+        )
+
+        queryAd = queryAd.copy() if copy else queryAd
+        adR_query = py2r(basic.getPartialLayersAdata(queryAd, [queryLayer]))
+        adR_query = cellId.RunMCA(adR_query, slot=queryLayer)
+        df_labelTransfered = r2py(
+            rBase.data_frame(
+                cellId.RunCellHGT(adR_query, VectorR_Refmarker), check_names=False
+            )
+        ).T
+        queryAd.obsm[f"cellid_{refLabel}_labelTranferScore"] = df_labelTransfered
+        queryAd.obs[f"cellid_{refLabel}_labelTranfer"] = queryAd.obsm[
+            f"cellid_{refLabel}_labelTranferScore"
+        ].pipe(lambda df: np.select([df.max(1) > cutoff], [df.idxmax(1)], "unknown"))
+        if copy:
+            return queryAd
 
 
 class deprecated(object):
@@ -3083,7 +3267,7 @@ class detectDoublet(object):
         if not skipCheck:
             basic.testAllCountIsInt(adata, layer)
 
-        tempAd = basic.getOnlyOneLayerAdata(adata, layer)
+        tempAd = basic.getPartialLayersAdata(adata, layer)
         tempAd.layers["counts"] = tempAd.X
 
         logger.info("start to transfer adata to R")
