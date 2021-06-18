@@ -1,11 +1,11 @@
-'''
+"""
 @Date: 2020-06-05 22:08:50
 LastEditors: liuzj
 LastEditTime: 2021-01-29 13:20:18
 @Description: 无法归类的工具
 @Author: liuzj
 FilePath: /jpy_tools/otherTools.py
-'''
+"""
 import os
 import sh
 import pandas as pd
@@ -26,18 +26,21 @@ from typing import (
     Iterator,
     Mapping,
     Callable,
-    Dict
+    Dict,
 )
+
 
 class Capturing(list):
     "Capture std output"
+
     def __enter__(self):
         self._stdout = sys.stdout
         sys.stdout = self._stringio = StringIO()
         return self
+
     def __exit__(self, *args):
         self.extend(self._stringio.getvalue().splitlines())
-        del self._stringio    # free up some memory
+        del self._stringio  # free up some memory
         sys.stdout = self._stdout
 
 
@@ -47,11 +50,12 @@ def mkdir(dirPath):
     except:
         logger.warning(f"{dirPath} existed!!")
 
-        
+
 class Jinterval:
-    '''
+    """
     自己写的区间操作， 极其不完善
-    '''
+    """
+
     def __init__(self, lower, upper, overlapLimit=0.5):
         self.lower, self.upper = lower, upper
         self.interval = [lower, upper]
@@ -78,29 +82,29 @@ class Jinterval:
 
 
 def creatUnexistedDir(directory):
-    '''
+    """
     @description: 目录不存在时创建目录
-    '''
+    """
     if not os.path.exists(directory):
         os.makedirs(directory)
 
 
 def isOne(n, i):
-    '''
+    """
     @description: 判断n的从右向左第i位是否为1
-    @param 
-        n:{int} 
+    @param
+        n:{int}
         i:{int}
-    @return: 
+    @return:
         bool
-    '''
+    """
     return (n & (1 << i)) != 0
 
 
 def groupby(dtframe, key):
-    '''
+    """
     @description: 用于groupby操作
-    '''
+    """
     dtframe.sort_values(key, inplace=True, ignore_index=True)
     dtframeCol = dtframe[key].values
     i = 0
@@ -118,29 +122,54 @@ def groupby(dtframe, key):
             j += 1
     yield dtframe[i:]
 
+
 def myAsync(f):
     def wrapper(*args, **kwargs):
         logger.warning("async, you will don't get any results from this function")
         thr = Thread(target=f, args=args, kwargs=kwargs)
         thr.start()
         return thr
- 
+
     return wrapper
 
 
-def addColorLegendToAx(ax, title, colorDt:Mapping[str, str], ncol=2, loc='upper left', bbox_to_anchor=(1.05, 1.0), **legendParamsDt):
+def addColorLegendToAx(
+    ax,
+    title,
+    colorDt: Mapping[str, str],
+    ncol=2,
+    loc="upper left",
+    bbox_to_anchor=(1.05, 1.0),
+    **legendParamsDt,
+):
     from matplotlib.legend import Legend
+
     artistLs = []
     for label, color in colorDt.items():
         artistLs.append(ax.bar(0, 0, color=color, label=label, linewidth=0))
-    leg = Legend(ax, artistLs, list(colorDt.keys()), title=title, loc=loc, ncol=ncol, bbox_to_anchor=bbox_to_anchor, **legendParamsDt)
+    leg = Legend(
+        ax,
+        artistLs,
+        list(colorDt.keys()),
+        title=title,
+        loc=loc,
+        ncol=ncol,
+        bbox_to_anchor=bbox_to_anchor,
+        **legendParamsDt,
+    )
     ax.add_artist(leg)
 
     # leg = ax.legend(title=title, loc=loc, ncol=ncol, bbox_to_anchor=bbox_to_anchor)
     return leg
 
 
-def sankeyPlotByPyechart(df:pd.DataFrame, columns:Sequence[str], figsize=[5,5], colorDictLs:Optional[List[Dict[str,str]]]=None):
+def sankeyPlotByPyechart(
+    df: pd.DataFrame,
+    columns: Sequence[str],
+    figsize=[5, 5],
+    colorDictLs: Optional[List[Dict[str, str]]] = None,
+    defaultJupyter: Literal["notebook", "lab"] = "notebook",
+):
     """
     [summary]
 
@@ -159,25 +188,48 @@ def sankeyPlotByPyechart(df:pd.DataFrame, columns:Sequence[str], figsize=[5,5], 
     -------
     pyecharts.charts.basic_charts.sankey.Sankey
         Utilize Function render_notebook can get the final figure
-    """  
+    """
     from pyecharts.globals import CurrentConfig, NotebookType
-    CurrentConfig.NOTEBOOK_TYPE = NotebookType.JUPYTER_LAB
-    CurrentConfig.ONLINE_HOST  
+
+    CurrentConfig.NOTEBOOK_TYPE = (
+        NotebookType.JUPYTER_NOTEBOOK
+        if defaultJupyter == "notebook"
+        else NotebookType.JUPYTER_LAB
+    )
+    CurrentConfig.ONLINE_HOST
     from matplotlib.colors import rgb2hex
     from pyecharts import options as opts
     from pyecharts.charts import Sankey
-    def getSankeyFormatFromDf_Only2(df:pd.DataFrame, fromCol:str, toCol:str, fromColorDt:dict=None, toColorDt:dict=None, layerNum:int=0, skNameLs:list=None):
+
+    def getSankeyFormatFromDf_Only2(
+        df: pd.DataFrame,
+        fromCol: str,
+        toCol: str,
+        fromColorDt: dict = None,
+        toColorDt: dict = None,
+        layerNum: int = 0,
+        skNameLs: list = None,
+    ):
         if not skNameLs:
             skNameLs = []
-            
-        skUseDt = df[[fromCol, toCol]].groupby([fromCol, toCol]).agg(lambda x:len(x)).to_dict()
-        
+
+        skUseDt = (
+            df[[fromCol, toCol]]
+            .groupby([fromCol, toCol])
+            .agg(lambda x: len(x))
+            .to_dict()
+        )
+
         if not fromColorDt:
-            fromColorDt = {x : rgb2hex(y) for x,y in zip(df[fromCol].unique(), sns.color_palette())}
+            fromColorDt = {
+                x: rgb2hex(y) for x, y in zip(df[fromCol].unique(), sns.color_palette())
+            }
         if not toColorDt:
-            toColorDt = {x : rgb2hex(y) for x,y in zip(df[toCol].unique(), sns.color_palette())}     
-        fromColorDt = {f"{x}{' ' * layerNum}" : y for x,y in fromColorDt.items()}
-        toColorDt = {f"{x}{' ' * (layerNum+1)}" : y for x,y in toColorDt.items()}
+            toColorDt = {
+                x: rgb2hex(y) for x, y in zip(df[toCol].unique(), sns.color_palette())
+            }
+        fromColorDt = {f"{x}{' ' * layerNum}": y for x, y in fromColorDt.items()}
+        toColorDt = {f"{x}{' ' * (layerNum+1)}": y for x, y in toColorDt.items()}
 
         skNodeLs = []
         skLinkLs = []
@@ -194,22 +246,34 @@ def sankeyPlotByPyechart(df:pd.DataFrame, columns:Sequence[str], figsize=[5,5], 
                 skNodeLs.append({"name": target, "itemStyle": {"color": targetColor}})
 
             skLinkLs.append({"source": source, "target": target, "value": counts})
-            
+
         return skNodeLs, skLinkLs, skNameLs
-    
+
     skNodeLs = []
     skLinkLs = []
     skNameLs = []
     if not colorDictLs:
         colorDictLs = [None] * len(columns)
-    
+
     for i in range(len(columns) - 1):
-        partSkNodeLs, partSkLinkLs, skNameLs = getSankeyFormatFromDf_Only2(df, columns[i], columns[i+1], colorDictLs[i], colorDictLs[i+1], i, skNameLs)
+        partSkNodeLs, partSkLinkLs, skNameLs = getSankeyFormatFromDf_Only2(
+            df,
+            columns[i],
+            columns[i + 1],
+            colorDictLs[i],
+            colorDictLs[i + 1],
+            i,
+            skNameLs,
+        )
         skNodeLs.extend(partSkNodeLs)
         skLinkLs.extend(partSkLinkLs)
-    
 
-    sankey = Sankey(init_opts=opts.InitOpts(width=f"{figsize[0]*100}px", height=f"{figsize[1]*100}px",))
+    sankey = Sankey(
+        init_opts=opts.InitOpts(
+            width=f"{figsize[0]*100}px",
+            height=f"{figsize[1]*100}px",
+        )
+    )
 
     sankey.add(
         "",

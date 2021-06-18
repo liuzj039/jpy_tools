@@ -39,6 +39,7 @@
 ##########################################################################################
 
 
+from logging import log
 import pandas as pd
 import numpy as np
 import scanpy as sc
@@ -127,6 +128,8 @@ class basic(object):
                 varInfoLs
             ), "Requested feature not located in adata.var"
 
+        if not layers:
+            layers = "X"
         if isinstance(layers, list):
             dt_layerMtx = {}
             for layer in layers:
@@ -141,8 +144,6 @@ class basic(object):
 
         elif isinstance(layers, str):
             layer = layers
-            if not layer:
-                layer = "X"
             mtxAr = adata.X if layer == "X" else adata.layers[layer]
             subAd = anndata.AnnData(mtxAr, adata.obs[obsInfoLs], adata.var[varInfoLs])
 
@@ -238,7 +239,7 @@ class basic(object):
                 .groupby(groupby)
                 .agg(method)
             )
-        return creatAnndataFromDf(groupbyXDf, **adataLayerDfDt)
+        return basic.creatAnndataFromDf(groupbyXDf, **adataLayerDfDt)
 
     @staticmethod
     def clusterBySC3(
@@ -771,28 +772,6 @@ class basic(object):
         return plotting.plotClusterSankey(plotDt)
 
     @staticmethod
-    def maskGeneOutSpecialCluster(
-        adata: anndata.AnnData,
-        obsKey: str,
-        clusterNameLs: Sequence[str],
-        layer: Optional[str] = None,
-        embedding: str = "X_umap",
-    ) -> anndata.AnnData:
-        """
-        all expression value of cell which not belong to <clusterNameLs> is equal to 0
-        """
-        import scipy.sparse as ss
-
-        tempAd = basic.getPartialLayersAdata(adata, layer, [obsKey]).copy()
-        tempAd.obsm[embedding] = adata.obsm[embedding]
-
-        inClusterBoolLs = tempAd.obs[obsKey].isin(clusterNameLs)
-
-        tempAd.layers[layer] = tempAd.X.A if ss.issparse(tempAd.X) else tempAd.X
-        tempAd.layers[layer][~inClusterBoolLs, :] = 0
-        return tempAd
-
-    @staticmethod
     def saveMarkerGeneToPdf(
         adata: anndata.AnnData,
         outputDirPath: str,
@@ -1032,6 +1011,28 @@ class plotting(object):
         sys.setrecursionlimit(20000)
 
         return g
+
+    @staticmethod
+    def maskGeneExpNotInSpecialCluster(
+        adata: anndata.AnnData,
+        obsKey: str,
+        clusterNameLs: Sequence[str],
+        layer: Optional[str] = None,
+        embedding: str = "X_umap",
+    ) -> anndata.AnnData:
+        """
+        all expression value of cell which not belongs to <clusterNameLs> is equal to 0
+        """
+        import scipy.sparse as ss
+
+        tempAd = basic.getPartialLayersAdata(adata, layer, [obsKey]).copy()
+        tempAd.obsm[embedding] = adata.obsm[embedding]
+
+        inClusterBoolLs = tempAd.obs[obsKey].isin(clusterNameLs)
+
+        tempAd.layers[layer] = tempAd.X.A if ss.issparse(tempAd.X) else tempAd.X
+        tempAd.layers[layer][~inClusterBoolLs, :] = 0
+        return tempAd
 
 
 class multiModle(object):
@@ -1348,6 +1349,7 @@ class normalize(object):
         min_cells: int = 5,
         store_residuals: bool = True,
         correct_counts: bool = True,
+        log_scale_correct: bool = False,
         verbose: bool = True,
         inplace: bool = True,
         seed: int = 0,
@@ -1387,6 +1389,8 @@ class normalize(object):
             high memory use for big matrices, they are not stored by default.
         correct_counts
             Store corrected counts in adata.layers['sct_corrected']. Default is True.
+        log_scale_correct
+            Default is False
         verbose
             Show progress bar during normalization.
         inplace
@@ -1408,12 +1412,9 @@ class normalize(object):
         from rpy2.robjects.packages import importr
         from scanpy.preprocessing import filter_genes
         import scipy.sparse as sp
-        import anndata2ri
         from .rTools import (
-            anndata2ri_check,
             py2r,
             r2py,
-            rpy2_check,
             r_is_installed,
             r_set_seed,
         )
@@ -1502,6 +1503,11 @@ class normalize(object):
         if correct_counts:
             corrected = r2py(sct.correct_counts(vst_out, mat)).T
             adata.layers["sct_corrected"] = corrected.copy()
+            if log_scale_correct:
+                sc.pp.log1p(adata, layer="sct_corrected")
+                logger.warning("sct_corrected layer IS log-scaled")
+            else:
+                logger.warning("sct_corrected layer is NOT log-scaled")
 
         adata.var["highly_variable_sct_residual_var"] = res_var.copy()
 
@@ -1515,7 +1521,6 @@ class normalize(object):
         )
         adata.var["highly_variable"] = adata.var_names.isin(top_genes)
 
-        logger.warning("sct_corrected layer is NOT log-scaled")
         if not inplace:
             return adata
 
@@ -1901,7 +1906,6 @@ class annotation(object):
         specDfPath:
             ICITools::compute_spec_table result
         """
-        import rpy2.rinterface_lib.callbacks
         from rpy2.robjects import pandas2ri
         import rpy2.robjects as ro
 
@@ -2026,7 +2030,7 @@ class annotation(object):
             if copy is False, queryAd will be updated as following rules:
                 obsm will be updated by f"cellid_{refLabel}_labelTranferScore".
                 obs will be updated by f"cellid_{refLabel}_labelTranfer"
-        """    
+        """
         import rpy2
         import rpy2.robjects as ro
         from rpy2.robjects.packages import importr
@@ -2639,10 +2643,10 @@ class bustools(object):
                 columns = ["barcode", "umi", "geneSet"]
         """
         logger.info("start parse index")
-        t2gDt, trLs, geneLs = parseBustoolsIndex(t2gPath)
+        t2gDt, trLs, geneLs = bustools.parseBustoolsIndex(t2gPath)
 
         logger.info("start parse mat")
-        ec2GeneFun = parseMatEc(ecPath, t2gDt, trLs)
+        ec2GeneFun = bustools.parseMatEc(ecPath, t2gDt, trLs)
 
         busFh = StringIO()
 
@@ -2722,11 +2726,11 @@ class bustools(object):
             (umiMappingDf)
         """
         logger.info("start parse splice bus")
-        spliceBusDf = getBustoolsMappingResult(
+        spliceBusDf = bustools.getBustoolsMappingResult(
             t2gPath, ecPath, splicePath, "inner", True
         )
         logger.info("start parse unsplice bus")
-        unspliceBusDf = getBustoolsMappingResult(
+        unspliceBusDf = bustools.getBustoolsMappingResult(
             t2gPath, ecPath, unsplicePath, "inner", True
         )
         kbDf = pd.concat([spliceBusDf, unspliceBusDf])
@@ -2864,6 +2868,36 @@ class parseCellranger(object):
 
 
 class parseSnuupy(object):
+    @staticmethod
+    def createMdFromSnuupy(ad: anndata.AnnData, removeAmbiguous: bool = True) -> "mu.MuData":
+        import muon as mu
+
+        ad = parseSnuupy.updateOldMultiAd(ad)
+        md = mu.MuData(
+            dict(
+                apa=basic.getPartialLayersAdata(
+                    multiModle.getMatFromObsm(ad, "APA", raw=True)
+                ),
+                abundance=basic.getPartialLayersAdata(
+                    multiModle.getMatFromObsm(ad, "Abundance", raw=True)
+                ),
+                spliced=basic.getPartialLayersAdata(
+                    multiModle.getMatFromObsm(ad, "Spliced", raw=True)
+                ),
+            )
+        )
+        if removeAmbiguous:
+            ad_apa = md['apa']
+            ad_apa = ad_apa[:, ~ad_apa.var.index.str.contains("_N_")]
+            md.mod['apa'] = ad_apa
+
+            ad_spliced = md['spliced']
+            ad_spliced = ad_spliced[:, ~ad_spliced.var.index.str.contains("_Ambiguous_")]
+            md.mod['spliced'] = ad_spliced
+            
+            md.update()
+        return md
+
     @staticmethod
     def updateOldMultiAd(adata: anndata.AnnData) -> anndata.AnnData:
         """
