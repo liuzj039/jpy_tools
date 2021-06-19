@@ -2871,6 +2871,7 @@ class parseSnuupy(object):
     @staticmethod
     def createMdFromSnuupy(ad: anndata.AnnData, removeAmbiguous: bool = True) -> "mu.MuData":
         import muon as mu
+        import scipy.sparse as ss
 
         ad = parseSnuupy.updateOldMultiAd(ad)
         md = mu.MuData(
@@ -2886,16 +2887,15 @@ class parseSnuupy(object):
                 ),
             )
         )
-        if removeAmbiguous:
-            ad_apa = md['apa']
-            ad_apa = ad_apa[:, ~ad_apa.var.index.str.contains("_N_")]
-            md.mod['apa'] = ad_apa
+        # md['apa'].X = ss.csr_matrix(md['apa'].X.A)
+        # md['abundance'].X = ss.csr_matrix(md['abundance'].X.A)
+        # md['spliced'].X = ss.csr_matrix(md['spliced'].X.A)
 
-            ad_spliced = md['spliced']
-            ad_spliced = ad_spliced[:, ~ad_spliced.var.index.str.contains("_Ambiguous_")]
-            md.mod['spliced'] = ad_spliced
-            
-            md.update()
+        if removeAmbiguous:
+            md = md[:, ~md.var.index.str.contains("_N_APA|_Ambiguous_fullySpliced")]
+
+        md = md.copy()
+        md.update()
         return md
 
     @staticmethod
