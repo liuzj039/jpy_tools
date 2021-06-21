@@ -1,0 +1,29 @@
+resultDir:
+  '/public/home/liuzj/projects/singleCell/singleCellMouseNeuron/02_result/20210621/'
+pipelineDir:
+  '/public/home/liuzj/projects/singleCell/singleCellMouseNeuron/02_result/20210621/'
+starIndex:
+  '/public/home/liuzj/data/mm39/STAR_INDEX'
+samples:
+  allen_scRNA:
+    sampleDir:
+      '/public/home/liuzj/projects/singleCell/singleCellMouseNeuron/01_data/publicData/allen_scRNA/'
+    expectedCell:
+      5000
+    umiLength:
+      12
+    whiteList:
+      /public/home/liuzj/data/10xWhiteList/10xV3.txt
+    includeIntron:
+      False
+  allen_snRNA:
+    sampleDir:
+      '/public/home/liuzj/projects/singleCell/singleCellMouseNeuron/01_data/publicData/allen_snRNA/'
+    expectedCell:
+      5000
+    umiLength:
+      12
+    whiteList:
+      /public/home/liuzj/data/10xWhiteList/10xV3.txt
+    includeIntron:
+      True

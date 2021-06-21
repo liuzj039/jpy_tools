@@ -1,6 +1,6 @@
 ##################################################################################
 #                              Author: Author Name                               #
-#File Name: /public/home/liuzj/softwares/python_scripts/jpy_modules/jpy_tools/rTools.py#
+# File Name: /public/home/liuzj/softwares/python_scripts/jpy_modules/jpy_tools/rTools.py#
 #                     Creation Date: March 23, 2021 10:42 AM                     #
 #                     Last Updated: March 23, 2021 10:46 AM                      #
 #                            Source Language: python                             #
@@ -10,14 +10,18 @@
 #                    use R in python. forked from gokceneraslan                  #
 ##################################################################################
 
-# from gokceneraslan 
+# from gokceneraslan
 
 import functools
 import scipy.sparse as sp
+from contextlib import contextmanager
+from rpy2.robjects.lib import grdevices
+from IPython.display import Image, display
 from .otherTools import Capturing
 
+
 def rpy2_check(func):
-    '''Decorator to check whether rpy2 is installed at runtime'''
+    """Decorator to check whether rpy2 is installed at runtime"""
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -31,7 +35,7 @@ def rpy2_check(func):
 
 
 def anndata2ri_check(func):
-    '''Decorator to check whether anndata2ri is installed at runtime'''
+    """Decorator to check whether anndata2ri is installed at runtime"""
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -46,7 +50,7 @@ def anndata2ri_check(func):
 
 @rpy2_check
 def r_is_installed(package_name):
-    '''Checks whether a given R package is installed'''
+    """Checks whether a given R package is installed"""
     from rpy2.robjects.packages import isinstalled
 
     if not isinstalled(package_name):
@@ -55,16 +59,16 @@ def r_is_installed(package_name):
 
 @rpy2_check
 def r_set_seed(seed):
-    '''Set the seed of R random number generator'''
+    """Set the seed of R random number generator"""
     from rpy2.robjects import r
 
-    set_seed = r('set.seed')
+    set_seed = r("set.seed")
     set_seed(seed)
 
 
 @rpy2_check
 def r_set_logger_level(level):
-    '''Set the logger level of rpy2'''
+    """Set the logger level of rpy2"""
     import rpy2.rinterface_lib.callbacks
 
     rpy2.rinterface_lib.callbacks.logger.setLevel(level)
@@ -72,34 +76,44 @@ def r_set_logger_level(level):
 
 @rpy2_check
 @anndata2ri_check
-def py2r(x):
-    '''Convert a Python object to an R object using rpy2'''
+def py2r(x, name=None):
+    """Convert a Python object to an R object using rpy2"""
     import rpy2.robjects as ro
     from rpy2.robjects import numpy2ri, pandas2ri
     from rpy2.robjects.conversion import localconverter
     import anndata2ri
+    if not name:
+        name = ''
+
+    print(f"transfer data to R: {name} start", end="")
 
     if sp.issparse(x):
         # workaround for: https://github.com/theislab/anndata2ri/issues/47
-        return anndata2ri.scipy2ri.py2rpy(x)
-
+        x = anndata2ri.scipy2ri.py2rpy(x)
+    
     with localconverter(
-        ro.default_converter + numpy2ri.converter + pandas2ri.converter + anndata2ri.converter
+        ro.default_converter
+        + numpy2ri.converter
+        + pandas2ri.converter
+        + anndata2ri.converter
     ):
         x = ro.conversion.py2rpy(x)
-
+    print("\r" + f"transfer data to R: {name} End  ", flush=True)
     return x
 
 
 @rpy2_check
 @anndata2ri_check
-def r2py(x):
-    '''Convert an rpy2 (R)  object to a Python object'''
+def r2py(x, name=None):
+    """Convert an rpy2 (R)  object to a Python object"""
     import rpy2.robjects as ro
     from rpy2.robjects import numpy2ri, pandas2ri
     from rpy2.robjects.conversion import localconverter
     import anndata2ri
+    if not name:
+        name = ''
 
+    print(f"transfer data to python: {name} start", end="")
     try:
         with localconverter(
             ro.default_converter
@@ -113,29 +127,24 @@ def r2py(x):
     except TypeError:
         # workaround for: https://github.com/theislab/anndata2ri/issues/47
         x = anndata2ri.scipy2ri.rpy2py(x)
-
+    print("\r" + f"transfer data to python: {name} End  ", flush=True)
     return x
-
-
-from contextlib import contextmanager
-from rpy2.robjects.lib import grdevices
-from IPython.display import Image, display
 
 
 @contextmanager
 def r_inline_plot(width=512, height=512, dpi=100):
-    with grdevices.render_to_bytesio(grdevices.png, 
-                                     width=width,
-                                     height=height, 
-                                     res=dpi) as b:
+    with grdevices.render_to_bytesio(
+        grdevices.png, width=width, height=height, res=dpi
+    ) as b:
         yield
     data = b.getvalue()
-    display(Image(data=data, format='png', embed=True))
+    display(Image(data=data, format="png", embed=True))
 
-def rHelp(x:str):
+
+def rHelp(x: str):
     import rpy2.robjects as ro
-    R=ro.r
+
+    R = ro.r
     with Capturing() as output:
         str(R.help(x))
-    print('\n'.join(output[1::2]))
-    return None
+    print("\n".join(output[1::2]))

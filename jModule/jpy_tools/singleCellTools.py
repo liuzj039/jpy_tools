@@ -179,6 +179,8 @@ class basic(object):
 
     @staticmethod
     def getadataColor(adata, label):
+        if f"{label}_colors" not in adata.uns:
+            basic.setadataColor(adata, label)
         return {
             x: y
             for x, y in zip(
@@ -193,7 +195,7 @@ class basic(object):
             if not hex:
                 from matplotlib.colors import to_hex
 
-                colorDt = {x: hex(y) for x, y in colorDt.items()}
+                colorDt = {x: to_hex(y) for x, y in colorDt.items()}
             adata.uns[f"{label}_colors"] = [
                 colorDt[x] for x in adata.obs[label].cat.categories
             ]
@@ -400,6 +402,7 @@ class basic(object):
             Union[Sequence[str], Sequence[int], Mapping[int, str]]
         ] = None,
         figsizePerComponent: float = 0.4,
+        start_num: int = 1,
     ) -> pd.Series:
         """
         Convenience function for creating a flat labelling from some components.
@@ -449,11 +452,11 @@ class basic(object):
                         sum(compNameLs) == compLength
                     ), "compNameLs length is not equals to complist length"
                     compNameLs_ = []
-                    for mainNum, subCounts in enumerate(compNameLs, start=1):
+                    for mainNum, subCounts in enumerate(compNameLs, start=start_num):
                         if subCounts == 1:
                             compNameLs_.append(f"{mainNum}")
                         else:
-                            for subNum in range(1, subCounts + 1):
+                            for subNum in range(start_num, subCounts + start_num):
                                 compNameLs_.append(f"{mainNum}-{subNum}")
                     compNameLs = compNameLs_
                     del compNameLs_
@@ -889,9 +892,7 @@ class plotting(object):
             label的颜色
         """
         if not labelColor:
-            labelColor = {
-                x: y for x, y in zip(adata.obs[label].unique(), sns.color_palette())
-            }
+            labelColor = basic.getadataColor(adata, label)
 
         groupbyWithLabelCountsDf = (
             adata.obs.groupby(groupby)[label]
@@ -1495,6 +1496,7 @@ class normalize(object):
             return_cell_attr=True,
             min_cells=min_cells,
             method=method,
+            n_genes=n_top_genes,
             show_progress=verbose,
         )
 
@@ -1826,6 +1828,7 @@ class geneEnrichInfo(object):
         layer: Optional[str] = None,
         clusterName: str = "leiden",
         n_features: int = 200,
+        nmcs: int = 50,
         copy: bool = False,
         returnR: bool = False,
     ) -> Optional[pd.DataFrame]:
@@ -1861,10 +1864,10 @@ class geneEnrichInfo(object):
         cellId = importr("CelliD")
         R = ro.r
         adataR = py2r(basic.getPartialLayersAdata(adata, [layer], [clusterName]))
-        adataR = cellId.RunMCA(adataR, slot=layer)
+        adataR = cellId.RunMCA(adataR, slot=layer, nmcs=nmcs)
 
         VectorR_marker = cellId.GetGroupGeneSet(
-            adataR, group_by=clusterName, n_features=n_features
+            adataR, group_by=clusterName, n_features=n_features, dims=py2r(np.arange(1, 1+nmcs))
         )
         if returnR:
             return VectorR_marker
@@ -1883,7 +1886,139 @@ class geneEnrichInfo(object):
                     R.attr(R.reducedDim(adataR, "MCA"), "genesCoordinates")
                 )
             )
-            adata.uns["cellid_marker"] = df_marker
+            adata.uns[f"{clusterName}_cellid_marker"] = df_marker
+
+    @staticmethod
+    def getMarekrByFcCellexCellid(
+        adata: anndata.AnnData,
+        layer: str,
+        groupby: str,
+        groups: List[str] = None,
+        forceAllRun: bool = False,
+        dt_ByFcParams={},
+        cutoff_cellex: float = 0.9,
+        markerCounts_CellId: int = 50,
+    ):
+        """
+        use three method to identify markers
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+        layer : str
+            must be log-transformed
+        groupby : str
+            column name in adata.obs
+        groups : List[str], optional
+            Only use these clusters, by default None
+        forceAllRun : bool, optional
+            by default False
+        dt_ByFcParams : dict, optional
+            params transfered to geneEnrichInfo.detectMarkerGene, by default {}
+        cutoff_cellex : float, optional
+            by default 0.9
+        markerCounts_CellId : int, optional
+            by default 50
+        """
+        from itertools import product
+
+        adata.uns[f"marker_threeMethod_{groupby}"] = {}
+        if not groups:
+            groups = list(adata.obs["groupby"].unique())
+
+        ad_sub = adata[adata.obs.eval(f"{groupby} in @groups")].copy()
+        ad_sub.layers[f"{layer}_raw"] = np.around(np.exp(ad_sub.layers[layer].A) - 1)
+        if forceAllRun | (f"{groupby}_fcMarker" not in ad_sub.uns):
+            geneEnrichInfo.detectMarkerGene(
+                ad_sub,
+                groupby,
+                f"{groupby}_fcMarker",
+                layer=layer,
+                **dt_ByFcParams,
+            )
+            adata.uns[f"{groupby}_fcMarker"] = ad_sub.uns[f"{groupby}_fcMarker"]
+            adata.uns[f"{groupby}_fcMarker_filtered"] = ad_sub.uns[
+                f"{groupby}_fcMarker_filtered"
+            ]
+        dt_markerByFc = (
+            sc.get.rank_genes_groups_df(
+                ad_sub, None, key=f"{groupby}_fcMarker_filtered"
+            )
+            .groupby("group")["names"]
+            .agg(list)
+            .to_dict()
+        )
+        adata.uns[f"marker_threeMethod_{groupby}"]["fcMarker"] = dt_markerByFc
+
+        if forceAllRun | (f"{groupby}_cellexES" not in ad_sub.varm):
+            geneEnrichInfo.calculateEnrichScoreByCellex(ad_sub, f"{layer}_raw", groupby)
+            adata.varm[f"{groupby}_cellexES"] = ad_sub.varm[f"{groupby}_cellexES"]
+        dt_marker_cellex = (
+            ad_sub.varm[f"{groupby}_cellexES"]
+            .apply(
+                lambda x: list(x[x > cutoff_cellex].sort_values(ascending=False).index)
+            )
+            .to_dict()
+        )
+        adata.uns[f"marker_threeMethod_{groupby}"]["cellexMarker"] = dt_marker_cellex
+
+        if forceAllRun | (f"{groupby}_cellid_marker" not in adata.uns):
+            geneEnrichInfo.getEnrichedGeneByCellId(
+                ad_sub, layer, "comps_coarse", markerCounts_CellId
+            )
+            adata.uns[f"{groupby}_cellid_marker"] = ad_sub.uns[
+                f"{groupby}_cellid_marker"
+            ]
+        dt_markerCellId = {
+            x: list(y)
+            for x, y in ad_sub.uns[f"{groupby}_cellid_marker"].to_dict("series").items()
+        }
+
+        adata.uns[f"marker_threeMethod_{groupby}"]["cellidMarker"] = dt_markerCellId
+
+        for markerCat, cluster in product(
+            ["fcMarker", "cellexMarker", "cellidMarker"], groups
+        ):
+            if cluster not in adata.uns[f"marker_threeMethod_{groupby}"][markerCat]:
+                adata.uns[f"marker_threeMethod_{groupby}"][markerCat][cluster] = []
+
+        ls_allClusterMarker = []
+        for cluster in groups:
+            ls_clusterMarker = [
+                y
+                for x in ["fcMarker", "cellexMarker", "cellidMarker"]
+                for y in adata.uns[f"marker_threeMethod_{groupby}"][x][cluster]
+            ]
+
+            ls_clusterMarker = list(set(ls_clusterMarker))
+            ls_clusterName = [cluster] * len(ls_clusterMarker)
+            df_clusterMarker = pd.DataFrame(
+                [ls_clusterName, ls_clusterMarker], index=["cluster", "marker"]
+            ).T
+            df_clusterMarker = df_clusterMarker.pipe(
+                lambda df: df.assign(
+                    fcMarker=df["marker"].isin(
+                        adata.uns[f"marker_threeMethod_{groupby}"]["fcMarker"][cluster]
+                    ),
+                    cellexMarker=df["marker"].isin(
+                        adata.uns[f"marker_threeMethod_{groupby}"]["cellexMarker"][
+                            cluster
+                        ]
+                    ),
+                    cellidMarker=df["marker"].isin(
+                        adata.uns[f"marker_threeMethod_{groupby}"]["cellidMarker"][
+                            cluster
+                        ]
+                    ),
+                ).assign(
+                    detectedMethodCounts=lambda df: df[
+                        ["fcMarker", "cellexMarker", "cellidMarker"]
+                    ].sum(1)
+                )
+            )
+            ls_allClusterMarker.append(df_clusterMarker)
+        df_allClusterMarker = pd.concat(ls_allClusterMarker)
+        adata.uns[f"marker_threeMethod_{groupby}"]["unionInfo"] = df_allClusterMarker
 
 
 class annotation(object):
@@ -2002,6 +2137,7 @@ class annotation(object):
         queryLayer: str,
         markerCount: int = 200,
         cutoff: float = 2.0,
+        nmcs: int = 50,
         copy: bool = False,
     ) -> Optional[anndata.AnnData]:
         """
@@ -2041,15 +2177,18 @@ class annotation(object):
         cellId = importr("CelliD")
         R = ro.r
         VectorR_Refmarker = geneEnrichInfo.getEnrichedGeneByCellId(
-            refAd, refLayer, refLabel, markerCount, copy=True, returnR=True
+            refAd, refLayer, refLabel, markerCount, copy=True, returnR=True, nmcs=nmcs
         )
 
         queryAd = queryAd.copy() if copy else queryAd
         adR_query = py2r(basic.getPartialLayersAdata(queryAd, [queryLayer]))
-        adR_query = cellId.RunMCA(adR_query, slot=queryLayer)
+        adR_query = cellId.RunMCA(adR_query, slot=queryLayer, nmcs=nmcs)
         df_labelTransfered = r2py(
             rBase.data_frame(
-                cellId.RunCellHGT(adR_query, VectorR_Refmarker), check_names=False
+                cellId.RunCellHGT(
+                    adR_query, VectorR_Refmarker, dims=py2r(np.arange(1, 1 + nmcs))
+                ),
+                check_names=False,
             )
         ).T
         queryAd.obsm[f"cellid_{refLabel}_labelTranferScore"] = df_labelTransfered
@@ -2869,7 +3008,9 @@ class parseCellranger(object):
 
 class parseSnuupy(object):
     @staticmethod
-    def createMdFromSnuupy(ad: anndata.AnnData, removeAmbiguous: bool = True) -> "mu.MuData":
+    def createMdFromSnuupy(
+        ad: anndata.AnnData, removeAmbiguous: bool = True
+    ) -> "mu.MuData":
         import muon as mu
         import scipy.sparse as ss
 
