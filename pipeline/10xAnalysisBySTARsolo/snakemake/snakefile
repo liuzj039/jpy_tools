@@ -12,9 +12,18 @@ df_runStarsolo['sampleR1'] = df_runStarsolo['sampleDir'].map(lambda x:','.join(g
 for column in ['outputDir']:
     df_runStarsolo[column] = resultDir + 'step1_runStarsolo/' + df_runStarsolo[column]
 
+import glob
+df_runStarsoloWithAt = pd.DataFrame(config['samples']).T
+df_runStarsoloWithAt = df_runStarsoloWithAt.assign(starIndex = config['starIndex'], outputDir=df_runStarsoloWithAt.index + '/')
+df_runStarsoloWithAt['sampleR2'] = df_runStarsoloWithAt['sampleDir'].map(lambda x:','.join(glob.glob(f"{x}/*/*R2*.fastq.gz")))
+df_runStarsoloWithAt['sampleR1'] = df_runStarsoloWithAt['sampleDir'].map(lambda x:','.join(glob.glob(f"{x}/*/*R1*.fastq.gz")))
+for column in ['outputDir']:
+    df_runStarsoloWithAt[column] = resultDir + 'step2_runStarsoloWithAt/' + df_runStarsoloWithAt[column]
+
 rule all:
     input:
         runStarsoloFinished = [resultDir + 'step1_runStarsolo/' + "" + sample + ".finished" for sample in sampleLs],
+        runStarsoloWithAtFinished = [resultDir + 'step2_runStarsoloWithAt/' + "" + sample + ".finished" for sample in sampleLs],
 
 rule runStarsolo:
     input:
@@ -31,21 +40,53 @@ rule runStarsolo:
         outputDir = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'outputDir'],
         sampleR2 = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'sampleR2'],
         sampleR1 = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'sampleR1'],
-    threads:48
+    threads:32
     shell:
         """
 mkdir -p {params.outputDir}
 cd {params.outputDir}
 if [ {params.includeIntron} = True ]
 then
-    STAR --runThreadN {threads} --genomeDir {params.starIndex} --soloType CB_UMI_Simple --soloCBwhitelist {params.whiteList}        --soloUMIlen {params.umiLength} --readFilesIn {params.sampleR2} {params.sampleR1} --soloFeatures Gene GeneFull Velocyto        --clipAdapterType CellRanger4 --outFilterScoreMin 30 --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR        --soloUMIdedup 1MM_CR --soloCellFilter  EmptyDrops_CR {params.expectedCell} 0.99 10 45000 90000 500 0.01 20000 0.01 10000         --readFilesCommand zcat --outSAMattributes NH HI nM AS CR UR CB UB GX GN sS sQ sM
+    STAR --runThreadN {threads} --genomeDir {params.starIndex} --soloType CB_UMI_Simple --soloCBwhitelist {params.whiteList}        --soloUMIlen {params.umiLength} --readFilesIn {params.sampleR2} {params.sampleR1} --soloFeatures Gene GeneFull Velocyto        --clipAdapterType CellRanger4 --outFilterScoreMin 30 --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR        --soloUMIdedup 1MM_CR --soloCellFilter  EmptyDrops_CR {params.expectedCell} 0.99 10 45000 90000 500 0.01 20000 0.01 10000         --readFilesCommand zcat
 else
-    STAR --runThreadN {threads} --genomeDir {params.starIndex} --soloType CB_UMI_Simple --soloCBwhitelist {params.whiteList}        --soloUMIlen {params.umiLength} --readFilesIn {params.sampleR2} {params.sampleR1} --soloFeatures Gene Velocyto        --clipAdapterType CellRanger4 --outFilterScoreMin 30 --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR        --soloUMIdedup 1MM_CR --soloCellFilter  EmptyDrops_CR {params.expectedCell} 0.99 10 45000 90000 500 0.01 20000 0.01 10000         --readFilesCommand zcat --outSAMattributes NH HI nM AS CR UR CB UB GX GN sS sQ sM
+    STAR --runThreadN {threads} --genomeDir {params.starIndex} --soloType CB_UMI_Simple --soloCBwhitelist {params.whiteList}        --soloUMIlen {params.umiLength} --readFilesIn {params.sampleR2} {params.sampleR1} --soloFeatures Gene Velocyto        --clipAdapterType CellRanger4 --outFilterScoreMin 30 --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR        --soloUMIdedup 1MM_CR --soloCellFilter  EmptyDrops_CR {params.expectedCell} 0.99 10 45000 90000 500 0.01 20000 0.01 10000         --readFilesCommand zcat
 fi
-samtools view -@ {threads} -S -O BAM ./Aligned.out.sam > ./Aligned.out.bam
+samtools view -@ {threads} -S -O BAM ./Aligned.out.sam  | samtools sort -@ {threads} - -O BAM -o ./Aligned.out.bam
 samtools index -@ {threads} ./Aligned.out.bam
 rm ./Aligned.out.sam
 touch {output.runStarsoloFinished}
+        """
+
+rule runStarsoloWithAt:
+    input:
+        sampleDir = lambda wildcard: df_runStarsoloWithAt.at[wildcard.sample, 'sampleDir'],
+    output:
+        runStarsoloWithAtFinished = resultDir + 'step2_runStarsoloWithAt/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        expectedCell = lambda wildcard: df_runStarsoloWithAt.at[wildcard.sample, 'expectedCell'],
+        umiLength = lambda wildcard: df_runStarsoloWithAt.at[wildcard.sample, 'umiLength'],
+        whiteList = lambda wildcard: df_runStarsoloWithAt.at[wildcard.sample, 'whiteList'],
+        includeIntron = lambda wildcard: df_runStarsoloWithAt.at[wildcard.sample, 'includeIntron'],
+        starIndex = lambda wildcard: df_runStarsoloWithAt.at[wildcard.sample, 'starIndex'],
+        outputDir = lambda wildcard: df_runStarsoloWithAt.at[wildcard.sample, 'outputDir'],
+        sampleR2 = lambda wildcard: df_runStarsoloWithAt.at[wildcard.sample, 'sampleR2'],
+        sampleR1 = lambda wildcard: df_runStarsoloWithAt.at[wildcard.sample, 'sampleR1'],
+    threads:32
+    shell:
+        """
+mkdir -p {params.outputDir}
+cd {params.outputDir}
+if [ {params.includeIntron} = True ]
+then
+    STAR --runThreadN {threads} --genomeDir {params.starIndex} --soloType CB_UMI_Simple --soloCBwhitelist {params.whiteList}        --soloUMIlen {params.umiLength} --readFilesIn {params.sampleR2} {params.sampleR1} --soloFeatures Gene GeneFull Velocyto        --clipAdapterType CellRanger4 --outFilterScoreMin 30 --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR        --soloUMIdedup 1MM_CR --soloCellFilter  EmptyDrops_CR {params.expectedCell} 0.99 10 45000 90000 500 0.01 20000 0.01 10000         --readFilesCommand zcat --soloStrand Unstranded
+else
+    STAR --runThreadN {threads} --genomeDir {params.starIndex} --soloType CB_UMI_Simple --soloCBwhitelist {params.whiteList}        --soloUMIlen {params.umiLength} --readFilesIn {params.sampleR2} {params.sampleR1} --soloFeatures Gene Velocyto        --clipAdapterType CellRanger4 --outFilterScoreMin 30 --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR        --soloUMIdedup 1MM_CR --soloCellFilter  EmptyDrops_CR {params.expectedCell} 0.99 10 45000 90000 500 0.01 20000 0.01 10000         --readFilesCommand zcat --soloStrand Unstranded
+fi
+samtools view -@ {threads} -S -O BAM ./Aligned.out.sam  | samtools sort -@ {threads} - -O BAM -o ./Aligned.out.bam
+samtools index -@ {threads} ./Aligned.out.bam
+rm ./Aligned.out.sam
+touch {output.runStarsoloWithAtFinished}
         """
 
 

@@ -739,10 +739,13 @@ class basic(object):
         layer: Optional[str] = None,
         flavor: Literal["seurat", "cell_ranger", "seurat_v3"] = "cell_ranger",
         singleBatchHvgCounts: int = 1000,
+        keyAdded: str = "highly_variable",
+        copy: bool = False,
         **highly_variable_genes_params,
     ) -> anndata.AnnData:
         from functools import reduce
 
+        adata_org = adata
         adata = adata.copy()
         batchAdLs = list(basic.splitAdata(adata, batchKey))
         [
@@ -758,9 +761,12 @@ class basic(object):
         finalHvgBoolLs = reduce(
             lambda a, b: a | b, [x.var.highly_variable for x in batchAdLs]
         )
-        adata = sc.concat(batchAdLs)
-        adata.var["highly_variable"] = finalHvgBoolLs
-        return adata
+        if copy:
+            adata = sc.concat(batchAdLs)
+            adata.var[keyAdded] = finalHvgBoolLs
+            return adata
+        else:
+            adata_org.var[keyAdded] = finalHvgBoolLs
 
     @staticmethod
     def plotCellScatter(**plotDt):
@@ -1294,7 +1300,7 @@ class normalize(object):
             adataPP = basic.getPartialLayersAdata(adata, layer)
 
             if needNormalizePre:
-                basic.testAllCountIsInt(adataPP)
+                basic.testAllCountIsInt(adataPP, layer)
                 sc.pp.normalize_per_cell(adataPP, counts_per_cell_after=1e6)
             else:
                 logger.warning(
@@ -1867,7 +1873,10 @@ class geneEnrichInfo(object):
         adataR = cellId.RunMCA(adataR, slot=layer, nmcs=nmcs)
 
         VectorR_marker = cellId.GetGroupGeneSet(
-            adataR, group_by=clusterName, n_features=n_features, dims=py2r(np.arange(1, 1+nmcs))
+            adataR,
+            group_by=clusterName,
+            n_features=n_features,
+            dims=py2r(np.arange(1, 1 + nmcs)),
         )
         if returnR:
             return VectorR_marker
@@ -1885,7 +1894,7 @@ class geneEnrichInfo(object):
                 rBase.as_data_frame(
                     R.attr(R.reducedDim(adataR, "MCA"), "genesCoordinates")
                 )
-            )
+            ).reindex(adata.var.index, fill_value=0)
             adata.uns[f"{clusterName}_cellid_marker"] = df_marker
 
     @staticmethod
@@ -1921,13 +1930,18 @@ class geneEnrichInfo(object):
             by default 50
         """
         from itertools import product
+        import scipy.sparse as ss
 
         adata.uns[f"marker_threeMethod_{groupby}"] = {}
         if not groups:
             groups = list(adata.obs["groupby"].unique())
 
         ad_sub = adata[adata.obs.eval(f"{groupby} in @groups")].copy()
-        ad_sub.layers[f"{layer}_raw"] = np.around(np.exp(ad_sub.layers[layer].A) - 1)
+        ad_sub.layers[f"{layer}_raw"] = (
+            np.around(np.exp(ad_sub.layers[layer].A) - 1)
+            if ss.issparse(ad_sub.layers[layer])
+            else np.around(np.exp(ad_sub.layers[layer]) - 1)
+        )
         if forceAllRun | (f"{groupby}_fcMarker" not in ad_sub.uns):
             geneEnrichInfo.detectMarkerGene(
                 ad_sub,
@@ -1964,7 +1978,7 @@ class geneEnrichInfo(object):
 
         if forceAllRun | (f"{groupby}_cellid_marker" not in adata.uns):
             geneEnrichInfo.getEnrichedGeneByCellId(
-                ad_sub, layer, "comps_coarse", markerCounts_CellId
+                ad_sub, layer, groupby, markerCounts_CellId
             )
             adata.uns[f"{groupby}_cellid_marker"] = ad_sub.uns[
                 f"{groupby}_cellid_marker"
@@ -3461,3 +3475,412 @@ class detectDoublet(object):
         adata.obs.columns = adata.obs.columns.astype(str)
         if copy:
             return adata
+
+
+class parseStarsolo(object):
+    @staticmethod
+    def transferMtxToH5ad(starsoloMtxDir):
+        import scipy.sparse as ss
+        import glob
+
+        starsoloMtxDir = starsoloMtxDir.rstrip("/") + "/"
+        ls_allMtx = glob.glob(f"{starsoloMtxDir}*.mtx")
+        ls_mtxName = [x.split("/")[-1].split(".")[0] for x in ls_allMtx]
+        path_barcode = f"{starsoloMtxDir}barcodes.tsv"
+        path_feature = f"{starsoloMtxDir}features.tsv"
+        df_barcode = pd.read_table(path_barcode, names=["barcodes"]).set_index(
+            "barcodes"
+        )
+        df_feature = pd.read_table(
+            path_feature, names=["geneid", "symbol", "category"]
+        ).set_index("geneid")
+        path_out = f"{starsoloMtxDir}adata.h5ad"
+        adata = sc.AnnData(
+            X=ss.csr_matrix((len(df_barcode), len(df_feature))),
+            obs=df_barcode,
+            var=df_feature,
+        )
+        for mtxName, mtxPath in zip(ls_mtxName, ls_allMtx):
+            adata.layers[mtxName] = sc.read_mtx(mtxPath).X.T
+            logger.info(f"read {mtxName} done")
+        adata.write_h5ad(path_out)
+
+
+class diffxpy(object):
+    @staticmethod
+    def parseAdToDiffxpyFormat(
+        adata: anndata.AnnData,
+        testLabel: str,
+        testComp: str,
+        otherComp: Optional[Union[str, List[str]]] = None,
+        batchLabel: Optional[str] = None,
+        minCellCounts: int = 5,
+        keyAdded: str = "temp",
+    ):
+        if not otherComp:
+            otherComp = list(adata.obs[testLabel].unique())
+            otherComp = [x for x in otherComp if x != testComp]
+        if isinstance(otherComp, str):
+            otherComp = [otherComp]
+        adata = adata[adata.obs[testLabel].isin([testComp, *otherComp])].copy()
+        sc.pp.filter_genes(adata, min_cells=minCellCounts)
+        adata.obs = adata.obs.assign(
+            **{keyAdded: np.select([adata.obs[testLabel] == testComp], ["1"], "0")}
+        )
+        if batchLabel:
+            adata.obs = adata.obs.assign(
+                **{
+                    f"{batchLabel}_{keyAdded}": adata.obs[batchLabel].astype(str)
+                    + "_"
+                    + adata.obs[keyAdded].astype(str)
+                }
+            )
+        return adata
+
+    def testTwoSample(
+        adata: anndata.AnnData,
+        keyTest: str = "temp",
+        batchLabel: Optional[str] = None,
+        quickScale: bool = False,
+        sizeFactor: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """
+        Use wald test between two sample.
+        This function is always following `parseAdToDiffxpyFormat`
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            generated by `parseAdToDiffxpyFormat`
+        keyTest : str, optional
+            `keyAdded` parameter of `parseAdToDiffxpyFormat`, by default 'temp'
+        batchLabel : Optional[str], optional
+            by default None
+        quickScale : bool, optional
+            by default False
+        sizeFactor : Optional[str], optional
+            by default None
+
+        Returns
+        -------
+        pd.DataFrame
+        """
+        import diffxpy.api as de
+
+        assert len(adata.obs[keyTest].unique()) == 2, "More Than Two Samples found"
+        if batchLabel:
+            test = de.test.wald(
+                data=adata,
+                formula_loc=f"~ 1 + {keyTest} + {batchLabel}_{keyTest}",
+                factor_loc_totest=keyTest,
+                constraints_loc={f"{batchLabel}_{keyTest}": keyTest},
+                quick_scale=quickScale,
+                size_factors=sizeFactor,
+            )
+        else:
+            test = de.test.wald(
+                data=adata,
+                formula_loc=f"~ 1 + {keyTest}",
+                factor_loc_totest=keyTest,
+                quick_scale=quickScale,
+                size_factors=sizeFactor,
+            )
+        return test.summary()
+
+    @staticmethod
+    def vsRest(
+        adata: anndata.AnnData,
+        layer: Optional[str],
+        testLabel: str,
+        groups: Optional[List[str]] = None,
+        batchLabel: Optional[str] = None,
+        minCellCounts: int = 5,
+        sizeFactor: Optional[str] = None,
+        inputIsLog: bool = True,
+        keyAdded: str = None,
+        quickScale: bool = True,
+        copy: bool = False,
+    ) -> Optional[Dict[str, pd.DataFrame]]:
+        """
+        use wald to find DEG
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+        layer : Optional[str]
+            if is not log-transformed, the `inpuIsLog` must be assigned by `False`
+        testLabel : str
+            column name in adata.obs. used as grouping Infomation
+        groups : Optional[List[str]], optional
+            only use these groups, by default None
+        batchLabel : Optional[str], optional
+            column name in adata.obs. used as batch Infomation. by default None
+        minCellCounts : int, optional
+            used to filter genes. by default 5
+        sizeFactor : Optional[str], optional
+            column name in adata.obs. used as size factor Infomation. by default None
+        inputIsLog : bool, optional
+            is determined by `layer`. by default True
+        keyAdded : str, optional
+            key used to update adata.uns, by default None
+        quickScale : bool, optional
+            by default True
+        copy : bool, optional
+            by default False
+
+        Returns
+        -------
+        Optional[Dict[str, pd.DataFrame]]
+            return pd.DataFrame if copy
+        """
+        import scipy.sparse as ss
+
+        layer = "X" if not layer else layer
+        if not groups:
+            groups = list(adata.obs[testLabel].unique())
+        if not keyAdded:
+            keyAdded = f"diffxpyVsRest_{testLabel}"
+        ls_useCol = [testLabel]
+        if batchLabel:
+            ls_useCol.append(batchLabel)
+        if sizeFactor:
+            ls_useCol.append(batchLabel)
+        adataOrg = adata.copy() if copy else adata
+        adata = basic.getPartialLayersAdata(adataOrg, layer, ls_useCol)
+        adata.X = adata.X.A if ss.issparse(adata.X) else adata.X
+        if inputIsLog:
+            adata.X = np.exp(adata.X) - 1
+        adata = adata[adata.obs[testLabel].isin(groups)].copy()
+
+        logger.info("start performing test")
+        adataOrg.uns[keyAdded] = {"__cat": "vsRest"}
+        for singleGroup in groups:
+            ad_test = diffxpy.parseAdToDiffxpyFormat(
+                adata,
+                testLabel,
+                singleGroup,
+                batchLabel=batchLabel,
+                minCellCounts=minCellCounts,
+                keyAdded="temp",
+            )
+            test = diffxpy.testTwoSample(
+                ad_test, "temp", batchLabel, quickScale, sizeFactor
+            )
+            adataOrg.uns[keyAdded][singleGroup] = test
+            logger.info(f"{singleGroup} done")
+        if copy:
+            return adataOrg.uns[keyAdded]
+
+    def pairWise(
+        adata: anndata.AnnData,
+        layer: Optional[str],
+        testLabel: str,
+        groups: Optional[List[str]] = None,
+        batchLabel: Optional[str] = None,
+        minCellCounts: int = 5,
+        sizeFactor: Optional[str] = None,
+        inputIsLog: bool = True,
+        keyAdded: str = None,
+        quickScale: bool = True,
+        copy: bool = False,
+    ) -> Optional[Dict[str, pd.DataFrame]]:
+        """
+        use wald to find DEG
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+        layer : Optional[str]
+            if is not log-transformed, the `inpuIsLog` must be assigned by `False`
+        testLabel : str
+            column name in adata.obs. used as grouping Infomation
+        groups : Optional[List[str]], optional
+            only use these groups, by default None
+        batchLabel : Optional[str], optional
+            column name in adata.obs. used as batch Infomation. by default None
+        minCellCounts : int, optional
+            used to filter genes. by default 5
+        sizeFactor : Optional[str], optional
+            column name in adata.obs. used as size factor Infomation. by default None
+        inputIsLog : bool, optional
+            is determined by `layer`. by default True
+        keyAdded : str, optional
+            key used to update adata.uns, by default None
+        quickScale : bool, optional
+            by default True
+        copy : bool, optional
+            by default False
+
+        Returns
+        -------
+        Optional[Dict[str, pd.DataFrame]]
+            return pd.DataFrame if copy
+        """
+        from itertools import product
+        import scipy.sparse as ss
+
+        layer = "X" if not layer else layer
+        if not groups:
+            groups = list(adata.obs[testLabel].unique())
+        if not keyAdded:
+            keyAdded = f"diffxpyPairWise_{testLabel}"
+        ls_useCol = [testLabel]
+        if batchLabel:
+            ls_useCol.append(batchLabel)
+        if sizeFactor:
+            ls_useCol.append(batchLabel)
+        adataOrg = adata.copy() if copy else adata
+        adata = basic.getPartialLayersAdata(adataOrg, layer, ls_useCol)
+        adata.X = adata.X.A if ss.issparse(adata.X) else adata.X
+        if inputIsLog:
+            adata.X = np.exp(adata.X) - 1
+        adata = adata[adata.obs[testLabel].isin(groups)].copy()
+
+        logger.info("start performing test")
+        adataOrg.uns[keyAdded] = {"__cat": "pairWise"}
+        for x, y in product(range(len(groups)), range(len(groups))):
+            if (
+                x >= y
+            ):  # only calculate half combination of groups, then use these result to fullfill another half
+                continue
+            testGroup = groups[x]
+            backgroundGroup = groups[y]
+            ad_test = diffxpy.parseAdToDiffxpyFormat(
+                adata,
+                testLabel,
+                testGroup,
+                backgroundGroup,
+                batchLabel=batchLabel,
+                minCellCounts=minCellCounts,
+                keyAdded="temp",
+            )
+            test = diffxpy.testTwoSample(
+                ad_test, "temp", batchLabel, quickScale, sizeFactor
+            )
+            adataOrg.uns[keyAdded][f"test_{testGroup}_bg_{backgroundGroup}"] = test
+            logger.info(f"{testGroup} vs {backgroundGroup} done")
+        for x, y in product(range(len(groups)), range(len(groups))):
+            if x <= y:  # use these result to fullfill another half
+                continue
+            testGroup = groups[x]
+            backgroundGroup = groups[y]
+            adataOrg.uns[keyAdded][
+                f"test_{testGroup}_bg_{backgroundGroup}"
+            ] = adataOrg.uns[keyAdded][f"test_{backgroundGroup}_bg_{testGroup}"].copy()
+            adataOrg.uns[keyAdded][f"test_{testGroup}_bg_{backgroundGroup}"][
+                "log2fc"
+            ] = -adataOrg.uns[keyAdded][f"test_{testGroup}_bg_{backgroundGroup}"][
+                "log2fc"
+            ]
+
+        if copy:
+            return adataOrg.uns[keyAdded]
+
+    @staticmethod
+    def getMarker(
+        adata: anndata.AnnData,
+        key: str,
+        qvalue=0.05,
+        log2fc=np.log2(1.5),
+        mean=0.5,
+        detectedCounts=-1,
+    ) -> pd.DataFrame:
+        """
+        parse `vsRest` and `pairWise` results
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            after appy `vsRest` or `pairWise`
+        key : str
+            `keyAdded` parameter of `vsRest` or `pairWise`
+        qvalue : float, optional
+            cutoff, by default 0.05
+        log2fc : [type], optional
+            cutoff, by default np.log2(1.5)
+        mean : float, optional
+            cutoff, by default 0.5
+        detectedCounts : int, optional
+            cutoff, only usefull for `pairWise`, by default -1
+
+        Returns
+        -------
+        pd.DataFrame
+            [description]
+        """    
+        def __twoSample(df_marker, qvalue=0.05, log2fc=np.log2(1.5), mean=0.5):
+            df_marker = df_marker.query(
+                f"qval < {qvalue} & log2fc > {log2fc} & mean > {mean}"
+            ).sort_values("coef_mle", ascending=False)
+            return df_marker
+
+        def __vsRest(
+            dt_marker: Dict[str, pd.DataFrame],
+            qvalue,
+            log2fc,
+            mean,
+            detectedCounts,
+        ) -> pd.DataFrame:
+            ls_markerParsed = []
+            for comp, df_marker in dt_marker.items():
+                if comp == "__cat":
+                    continue
+                if "clusterName" not in df_marker.columns:
+                    df_marker.insert(0, "clusterName", comp)
+                df_marker = __twoSample(df_marker, qvalue, log2fc, mean)
+                ls_markerParsed.append(df_marker)
+            return pd.concat(ls_markerParsed)
+
+        def __pairWise(
+            dt_marker: Dict[str, pd.DataFrame],
+            qvalue,
+            log2fc,
+            mean,
+            detectedCounts=-1,
+        ) -> pd.DataFrame:
+            import re
+
+            ls_markerParsed = []
+            ls_compName = []
+            for comp, df_marker in dt_marker.items():
+                if comp == "__cat":
+                    continue
+                testedCluster = re.findall(r"test_([\w\W]+)_bg", comp)[0]
+                bgCluster = re.findall(r"_bg_([\w\W]+)", comp)[0]
+                ls_compName.append(bgCluster)
+                if "testedCluster" not in df_marker.columns:
+                    df_marker.insert(0, "testedCluster", testedCluster)
+                if "bgCluster" not in df_marker.columns:
+                    df_marker.insert(1, "bgCluster", bgCluster)
+
+                df_marker = __twoSample(df_marker, qvalue, log2fc, mean)
+                ls_markerParsed.append(df_marker)
+            df_markerMerged = pd.concat(ls_markerParsed)
+            df_markerMerged = (
+                df_markerMerged.groupby(["testedCluster", "gene"])
+                .agg(
+                    {
+                        "gene": "count",
+                        "bgCluster": lambda x: list(x),
+                        "qval": lambda x: list(x),
+                        "log2fc": lambda x: list(x),
+                        "mean": lambda x: list(x),
+                        "coef_mle": lambda x: list(x),
+                    }
+                )
+                .rename(columns={"gene": "counts"})
+                .reset_index()
+            )
+            if detectedCounts <= 0:
+                detectedCounts = len(set(ls_compName)) + detectedCounts
+                logger.info(f"`detectedCounts` is parsed to {detectedCounts}")
+
+            return df_markerMerged.query(f"counts >= {detectedCounts}")
+
+        dt_marker = adata.uns[key]
+        cate = dt_marker["__cat"]
+        fc_parse = {
+            "vsRest": __vsRest,
+            "pairWise": __pairWise,
+        }[cate]
+        return fc_parse(dt_marker, qvalue, log2fc, mean, detectedCounts)
