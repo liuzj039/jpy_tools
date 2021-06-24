@@ -1898,13 +1898,15 @@ class geneEnrichInfo(object):
             adata.uns[f"{clusterName}_cellid_marker"] = df_marker
 
     @staticmethod
-    def getMarekrByFcCellexCellid(
+    def getMarkerByFcCellexCellidDiffxpy(
         adata: anndata.AnnData,
         layer: str,
         groupby: str,
         groups: List[str] = None,
         forceAllRun: bool = False,
         dt_ByFcParams={},
+        dt_DiffxpyParams={},
+        dt_DiffxpyGetMarkerParams={"detectedCounts": -2},
         cutoff_cellex: float = 0.9,
         markerCounts_CellId: int = 50,
     ):
@@ -1923,7 +1925,11 @@ class geneEnrichInfo(object):
         forceAllRun : bool, optional
             by default False
         dt_ByFcParams : dict, optional
-            params transfered to geneEnrichInfo.detectMarkerGene, by default {}
+            params transfered to `geneEnrichInfo.detectMarkerGene`, by default {}
+        dt_DiffxpyParams : dict, optional
+            params transfered to `diffxpy.vsRest`, by default {}
+        dt_DiffxpyGetMarkerParams : dict, optional
+            params transfered to `diffxpy.getMarker`, by default {"detectedCounts":-2)}
         cutoff_cellex : float, optional
             by default 0.9
         markerCounts_CellId : int, optional
@@ -1931,10 +1937,12 @@ class geneEnrichInfo(object):
         """
         from itertools import product
         import scipy.sparse as ss
+        import upsetplot
+        import matplotlib.pyplot as plt
 
-        adata.uns[f"marker_threeMethod_{groupby}"] = {}
+        adata.uns[f"marker_multiMethod_{groupby}"] = {}
         if not groups:
-            groups = list(adata.obs["groupby"].unique())
+            groups = list(adata.obs[groupby].unique())
 
         ad_sub = adata[adata.obs.eval(f"{groupby} in @groups")].copy()
         ad_sub.layers[f"{layer}_raw"] = (
@@ -1962,7 +1970,7 @@ class geneEnrichInfo(object):
             .agg(list)
             .to_dict()
         )
-        adata.uns[f"marker_threeMethod_{groupby}"]["fcMarker"] = dt_markerByFc
+        adata.uns[f"marker_multiMethod_{groupby}"]["fcMarker"] = dt_markerByFc
 
         if forceAllRun | (f"{groupby}_cellexES" not in ad_sub.varm):
             geneEnrichInfo.calculateEnrichScoreByCellex(ad_sub, f"{layer}_raw", groupby)
@@ -1974,7 +1982,7 @@ class geneEnrichInfo(object):
             )
             .to_dict()
         )
-        adata.uns[f"marker_threeMethod_{groupby}"]["cellexMarker"] = dt_marker_cellex
+        adata.uns[f"marker_multiMethod_{groupby}"]["cellexMarker"] = dt_marker_cellex
 
         if forceAllRun | (f"{groupby}_cellid_marker" not in adata.uns):
             geneEnrichInfo.getEnrichedGeneByCellId(
@@ -1988,20 +1996,39 @@ class geneEnrichInfo(object):
             for x, y in ad_sub.uns[f"{groupby}_cellid_marker"].to_dict("series").items()
         }
 
-        adata.uns[f"marker_threeMethod_{groupby}"]["cellidMarker"] = dt_markerCellId
+        adata.uns[f"marker_multiMethod_{groupby}"]["cellidMarker"] = dt_markerCellId
+
+        if forceAllRun | (f"{groupby}_diffxpy_marker" not in adata.uns):
+            diffxpy.pairWise(
+                ad_sub,
+                layer,
+                groupby,
+                keyAdded=f"{groupby}_diffxpy_marker",
+                **dt_DiffxpyParams,
+            )
+            adata.uns[f"{groupby}_diffxpy_marker"] = ad_sub.uns[
+                f"{groupby}_diffxpy_marker"
+            ]
+
+        df_diffxpyMarker = diffxpy.getMarker(
+            adata, key=f"{groupby}_diffxpy_marker", **dt_DiffxpyGetMarkerParams
+        )
+        adata.uns[f"marker_multiMethod_{groupby}"]["diffxpyMarker"] = (
+            df_diffxpyMarker.groupby("testedCluster")["gene"].agg(list).to_dict()
+        )
 
         for markerCat, cluster in product(
-            ["fcMarker", "cellexMarker", "cellidMarker"], groups
+            ["fcMarker", "cellexMarker", "cellidMarker", "diffxpyMarker"], groups
         ):
-            if cluster not in adata.uns[f"marker_threeMethod_{groupby}"][markerCat]:
-                adata.uns[f"marker_threeMethod_{groupby}"][markerCat][cluster] = []
+            if cluster not in adata.uns[f"marker_multiMethod_{groupby}"][markerCat]:
+                adata.uns[f"marker_multiMethod_{groupby}"][markerCat][cluster] = []
 
         ls_allClusterMarker = []
         for cluster in groups:
             ls_clusterMarker = [
                 y
-                for x in ["fcMarker", "cellexMarker", "cellidMarker"]
-                for y in adata.uns[f"marker_threeMethod_{groupby}"][x][cluster]
+                for x in ["fcMarker", "cellexMarker", "cellidMarker", "diffxpyMarker"]
+                for y in adata.uns[f"marker_multiMethod_{groupby}"][x][cluster]
             ]
 
             ls_clusterMarker = list(set(ls_clusterMarker))
@@ -2012,27 +2039,41 @@ class geneEnrichInfo(object):
             df_clusterMarker = df_clusterMarker.pipe(
                 lambda df: df.assign(
                     fcMarker=df["marker"].isin(
-                        adata.uns[f"marker_threeMethod_{groupby}"]["fcMarker"][cluster]
+                        adata.uns[f"marker_multiMethod_{groupby}"]["fcMarker"][cluster]
                     ),
                     cellexMarker=df["marker"].isin(
-                        adata.uns[f"marker_threeMethod_{groupby}"]["cellexMarker"][
+                        adata.uns[f"marker_multiMethod_{groupby}"]["cellexMarker"][
                             cluster
                         ]
                     ),
                     cellidMarker=df["marker"].isin(
-                        adata.uns[f"marker_threeMethod_{groupby}"]["cellidMarker"][
+                        adata.uns[f"marker_multiMethod_{groupby}"]["cellidMarker"][
+                            cluster
+                        ]
+                    ),
+                    diffxpyMarker=df["marker"].isin(
+                        adata.uns[f"marker_multiMethod_{groupby}"]["diffxpyMarker"][
                             cluster
                         ]
                     ),
                 ).assign(
                     detectedMethodCounts=lambda df: df[
-                        ["fcMarker", "cellexMarker", "cellidMarker"]
+                        ["fcMarker", "cellexMarker", "cellidMarker", "diffxpyMarker"]
                     ].sum(1)
                 )
             )
             ls_allClusterMarker.append(df_clusterMarker)
         df_allClusterMarker = pd.concat(ls_allClusterMarker)
-        adata.uns[f"marker_threeMethod_{groupby}"]["unionInfo"] = df_allClusterMarker
+        adata.uns[f"marker_multiMethod_{groupby}"]["unionInfo"] = df_allClusterMarker
+
+        axs = upsetplot.plot(
+            df_allClusterMarker[
+                ["fcMarker", "cellexMarker", "cellidMarker", "diffxpyMarker"]
+            ].value_counts(),
+            sort_by="cardinality",
+        )
+        plt.sca(axs["intersections"])
+        plt.yscale("log")
 
 
 class annotation(object):
@@ -3807,7 +3848,8 @@ class diffxpy(object):
         -------
         pd.DataFrame
             [description]
-        """    
+        """
+
         def __twoSample(df_marker, qvalue=0.05, log2fc=np.log2(1.5), mean=0.5):
             df_marker = df_marker.query(
                 f"qval < {qvalue} & log2fc > {log2fc} & mean > {mean}"
