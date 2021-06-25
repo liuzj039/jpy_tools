@@ -1837,6 +1837,7 @@ class geneEnrichInfo(object):
         nmcs: int = 50,
         copy: bool = False,
         returnR: bool = False,
+        layerScaled: bool = False,
     ) -> Optional[pd.DataFrame]:
         """
         use CelliD get enriched gene
@@ -1869,7 +1870,10 @@ class geneEnrichInfo(object):
         rBase = importr("base")
         cellId = importr("CelliD")
         R = ro.r
-        adataR = py2r(basic.getPartialLayersAdata(adata, [layer], [clusterName]))
+        _ad = basic.getPartialLayersAdata(adata, [layer], [clusterName])
+        if not layerScaled:
+            sc.pp.scale(_ad, layer=layer, max_value=10)
+        adataR = py2r(_ad)
         adataR = cellId.RunMCA(adataR, slot=layer, nmcs=nmcs)
 
         VectorR_marker = cellId.GetGroupGeneSet(
@@ -2193,6 +2197,8 @@ class annotation(object):
         markerCount: int = 200,
         cutoff: float = 2.0,
         nmcs: int = 50,
+        refScaled: bool = False,
+        queryScaled: bool = False,
         copy: bool = False,
     ) -> Optional[anndata.AnnData]:
         """
@@ -2231,12 +2237,26 @@ class annotation(object):
         rUtils = importr("utils")
         cellId = importr("CelliD")
         R = ro.r
+        queryAd_org = queryAd.copy() if copy else queryAd
+        ls_overlapGene = refAd.var.index & queryAd.var.index
+        refAd = refAd[:, ls_overlapGene]
+        queryAd = queryAd[:, ls_overlapGene]
+
         VectorR_Refmarker = geneEnrichInfo.getEnrichedGeneByCellId(
-            refAd, refLayer, refLabel, markerCount, copy=True, returnR=True, nmcs=nmcs
+            refAd,
+            refLayer,
+            refLabel,
+            markerCount,
+            copy=True,
+            returnR=True,
+            nmcs=nmcs,
+            layerScaled=refScaled,
         )
 
-        queryAd = queryAd.copy() if copy else queryAd
-        adR_query = py2r(basic.getPartialLayersAdata(queryAd, [queryLayer]))
+        _ad = basic.getPartialLayersAdata(queryAd, [queryLayer])
+        if not queryScaled:
+            sc.pp.scale(_ad, layer=queryLayer, max_value=10)
+        adR_query = py2r(_ad)
         adR_query = cellId.RunMCA(adR_query, slot=queryLayer, nmcs=nmcs)
         df_labelTransfered = r2py(
             rBase.data_frame(
@@ -2246,12 +2266,202 @@ class annotation(object):
                 check_names=False,
             )
         ).T
-        queryAd.obsm[f"cellid_{refLabel}_labelTranferScore"] = df_labelTransfered
-        queryAd.obs[f"cellid_{refLabel}_labelTranfer"] = queryAd.obsm[
+        queryAd_org.obsm[f"cellid_{refLabel}_labelTranferScore"] = df_labelTransfered
+        queryAd_org.obs[f"cellid_{refLabel}_labelTranfer"] = queryAd_org.obsm[
             f"cellid_{refLabel}_labelTranferScore"
         ].pipe(lambda df: np.select([df.max(1) > cutoff], [df.idxmax(1)], "unknown"))
         if copy:
-            return queryAd
+            return queryAd_org
+
+    @staticmethod
+    def labelTransferByScanpy(
+        refAd: anndata.AnnData,
+        refLabel: str,
+        refLayer: str,
+        queryAd: anndata.AnnData,
+        queryLayer: str,
+        features: Optional[None] = None,
+        method: Literal["harmony", "scanorama"] = "harmony",
+        cutoff: float = 0.5,
+        copy: bool = False,
+    ) -> Optional[anndata.AnnData]:
+        """
+        annotate queryAd based on refAd annotation result.
+
+        Parameters
+        ----------
+        refAd : anndata.AnnData
+        refLabel : str
+        refLayer : str
+            log-transformed
+        queryAd : anndata.AnnData
+        queryLayer : str
+            log-transformed
+        features : Optional[None]
+            list, used gene to DR
+        method : Literal['harmony', 'scanorama'], optional
+            by default 'harmony'
+        cutoff : float, optional
+            by default 0.5
+        copy : bool, optional
+            by default False
+
+        Returns
+        -------
+        Optional[anndata.AnnData]
+        """
+        from sklearn.metrics.pairwise import cosine_distances
+        import scanpy.external as sce
+
+        def label_transfer(dist, labels):
+            lab = pd.get_dummies(labels).to_numpy().T
+            class_prob = lab @ dist
+            norm = np.linalg.norm(class_prob, 2, axis=0)
+            class_prob = class_prob / norm
+            class_prob = (class_prob.T - class_prob.min(1)) / class_prob.ptp(1)
+            return class_prob
+
+        queryAdOrg = queryAd.copy() if copy else queryAd
+        refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel])
+        queryAd = basic.getPartialLayersAdata(queryAd, queryLayer)
+
+        ls_overlapGene = refAd.var.index & queryAd.var.index
+        queryAd = queryAd[:, ls_overlapGene]
+        refAd = refAd[:, ls_overlapGene]
+
+        ad_concat = sc.concat([queryAd, refAd], label="batch", keys=["query", "ref"])
+        if not features:
+            features = basic.scIB_hvg_batch(ad_concat, "batch")
+        ad_concat.var["highly_variable"] = ad_concat.var.index.isin(features)
+        sc.pp.scale(ad_concat)
+        sc.tl.pca(ad_concat)
+        if method == "harmony":
+            sce.pp.harmony_integrate(ad_concat, key="batch")
+            useObsmKey = "X_pca_harmony"
+        elif method == "scanorama":
+            sce.pp.scanorama_integrate(ad_concat, key="batch")
+            useObsmKey = "X_scanorama"
+        else:
+            assert False, f"Unrealized method ：{method}"
+
+        sc.pp.neighbors(ad_concat, n_pcs=50, use_rep=useObsmKey)
+        sc.tl.umap(ad_concat)
+        sc.pl.umap(ad_concat, color="batch")
+        ad_concat.obs = ad_concat.obs.join(refAd.obs[refLabel])
+        sc.pl.umap(ad_concat, color=refLabel)
+
+        distances = 1 - cosine_distances(
+            ad_concat[ad_concat.obs["batch"] == "ref"].obsm[useObsmKey],
+            ad_concat[ad_concat.obs["batch"] == "query"].obsm[useObsmKey],
+        )
+
+        class_prob = label_transfer(
+            distances, ad_concat[ad_concat.obs["batch"] == "ref"].obs[refLabel]
+        )
+        df_labelScore = pd.DataFrame(
+            class_prob,
+            columns=np.sort(
+                ad_concat[ad_concat.obs["batch"] == "ref"].obs[refLabel].unique()
+            ),
+        )
+        df_labelScore.index = ad_concat[ad_concat.obs["batch"] == "query"].obs.index
+        queryAdOrg.obsm[
+            f"labelTransfer_score_scanpy_{method}_{refLabel}"
+        ] = df_labelScore.reindex(queryAdOrg.obs.index)
+        queryAdOrg.obs[f"labelTransfer_scanpy_{method}_{refLabel}"] = queryAdOrg.obsm[
+            f"labelTransfer_score_scanpy_{method}_{refLabel}"
+        ].pipe(lambda df: np.select([df.max(1) > cutoff], [df.idxmax(1)], "unknown"))
+        if copy:
+            return queryAdOrg
+
+    @staticmethod
+    def labelTransferBySeurat(
+        refAd: anndata.AnnData,
+        refLabel: str,
+        refLayer: str,
+        queryAd: anndata.AnnData,
+        queryLayer: str,
+        features: Optional[None] = None,
+        cutoff: float = 0.5,
+        copy: bool = False,
+    ) -> Optional[anndata.AnnData]:
+        import rpy2
+        import rpy2.robjects as ro
+        from rpy2.robjects.packages import importr
+        from .rTools import py2r, r2py, r_inline_plot, rHelp
+
+        rBase = importr("base")
+        rUtils = importr("utils")
+        R = ro.r
+        seurat = importr("Seurat")
+        seuratObject = importr("SeuratObject")
+
+        queryAdOrg = queryAd.copy() if copy else queryAd
+        refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel])
+        queryAd = basic.getPartialLayersAdata(queryAd, queryLayer)
+        queryAd.obs["empty"] = 0
+
+        ls_overlapGene = refAd.var.index & queryAd.var.index
+        queryAd = queryAd[:, ls_overlapGene]
+        refAd = refAd[:, ls_overlapGene]
+
+        ad_concat = sc.concat([queryAd, refAd], label="batch", keys=["query", "ref"])
+        if not features:
+            features = basic.scIB_hvg_batch(ad_concat, "batch")
+        ar_features = np.array(features)
+        arR_features = py2r(ar_features)
+
+        adR_query = py2r(queryAd)
+        adR_query = seurat.as_Seurat_SingleCellExperiment(
+            adR_query, counts=R("NULL"), data="X"
+        )
+        adR_query = seuratObject.RenameAssays(object=adR_query, originalexp="RNA")
+
+        adR_ref = py2r(refAd)
+        adR_ref = seurat.as_Seurat_SingleCellExperiment(
+            adR_ref, counts=R("NULL"), data="X"
+        )
+        adR_ref = seuratObject.RenameAssays(object=adR_ref, originalexp="RNA")
+
+        ro.globalenv["adR_ref"] = adR_ref
+        ro.globalenv["adR_query"] = adR_query
+        ro.globalenv["arR_features"] = arR_features
+
+        R(
+            f"""
+        anchors <- FindTransferAnchors(reference = adR_ref, query = adR_query, dims = 1:50, features = arR_features)
+        predictions <- TransferData(anchorset = anchors, refdata = adR_ref${refLabel}, dims = 1:50)
+        """
+        )
+
+        df_predScore = r2py(R("predictions"))
+        df_predScore = df_predScore[
+            [
+                x
+                for x in df_predScore.columns
+                if (x.startswith("prediction.score")) & (x != "prediction.score.max")
+            ]
+        ]
+        df_predScore = df_predScore.rename(
+            columns=lambda x: x.lstrip("prediction.score.")
+        )
+
+        dt_name2Org = {
+            y: x
+            for x, y in zip(
+                sorted(list(refAd.obs["components"].unique())),
+                sorted(list(df_predScore.columns)),
+            )
+        }
+        df_predScore = df_predScore.rename(columns=dt_name2Org)
+        queryAdOrg.obsm[
+            f"labelTransfer_score_seurat_{refLabel}"
+        ] = df_predScore.reindex(queryAdOrg.obs.index)
+        queryAdOrg.obs[f"labelTransfer_seurat_{refLabel}"] = queryAdOrg.obsm[
+            f"labelTransfer_score_seurat_{refLabel}"
+        ].pipe(lambda df: np.select([df.max(1) > cutoff], [df.idxmax(1)], "unknown"))
+        if copy:
+            return queryAdOrg
 
 
 class deprecated(object):
