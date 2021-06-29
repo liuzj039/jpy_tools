@@ -76,12 +76,14 @@ class basic(object):
     ) -> Iterator[anndata.AnnData]:
         assert batchKey in adata.obs.columns, f"{batchKey} not detected in adata"
         indexName = "index" if (not adata.obs.index.name) else adata.obs.index.name
+        adata.obs["_group"] = adata.obs[batchKey]
         batchObsLs = (
-            adata.obs.filter([batchKey])
+            adata.obs.filter(["_group"])
             .reset_index()
-            .groupby(batchKey)[indexName]
+            .groupby("_group")[indexName]
             .agg(list)
         )
+        del adata.obs["_group"]
         for batchObs in batchObsLs:
             if copy:
                 yield adata[batchObs].copy()
@@ -865,6 +867,13 @@ class basic(object):
 
         logger.info("All finished")
 
+    @staticmethod
+    def setLayerInfo(adata: anndata.AnnData, **dt_layerInfo):
+        if "layerInfo" not in adata.uns:
+            adata.uns["layerInfo"] = {}
+        for key, value in dt_layerInfo.items():
+            adata.uns["layerInfo"][key] = value
+
 
 class plotting(object):
     @staticmethod
@@ -1334,15 +1343,105 @@ class normalize(object):
         sizeFactorSr = r2py(sizeFactorSr_r).copy()
 
         logger.info("process result")
-        adata.obs["sizeFactors"] = sizeFactorSr
-        adata.layers["scran"] = rawMtx / adata.obs["sizeFactors"].values.reshape(
-            [-1, 1]
-        )
+        adata.obs["sizeFactor"] = sizeFactorSr
+        adata.layers["scran"] = rawMtx / adata.obs["sizeFactor"].values.reshape([-1, 1])
+
+        basic.setLayerInfo(adata, scran="raw")
         if logScaleOut:
             logger.warning("output is logScaled")
+            basic.setLayerInfo(adata, scran="log")
             sc.pp.log1p(adata, layer="scran")
 
         return adata if copy else None
+
+    @staticmethod
+    def normalizeByScranMultiBatchNorm(
+        ad: anndata.AnnData,
+        batchKey: str,
+        layer: Optional[str] = None,
+        geneMinCells: int = 1,
+        threads: int = 64,
+        argsToScran: Dict = {},
+        **argsToMultiBatchNorm,
+    ):
+        """
+        use multiBatchNorm with computeSumFactors to normalize adata
+
+        Parameters
+        ----------
+        ad : anndata.AnnData
+        batchKey : str
+            column name
+        layer : Optional[str], optional
+            must be raw, by default None
+        geneMinCells : int, optional
+            by default 1
+        threads : int, optional
+            by default 64
+        argsToScran : Dict, optional
+            transfer to `normalize.normalizeByScran`, by default {}
+        **argsToMultiBatchNorm:
+            transfer to `batchelor.multiBatchNorm`
+
+        Returns
+        -------
+        anndata:
+            layers['scranMbn'] will be updated by log-normalized data
+        """
+        from rpy2.robjects.packages import importr
+        from .rTools import (
+            py2r,
+            r2py,
+            r_set_seed,
+        )
+
+        batchelor = importr("batchelor")
+        r_set_seed(39)
+
+        if not layer:
+            layer = "X"
+
+        adOrg = ad
+        logger.info(f"input data shape: {adOrg.shape}")
+        ls_ad = list(basic.splitAdata(ad, batchKey))
+        if layer != "X":
+            for _ad in ls_ad:
+                _ad.X = _ad.layers[layer].copy()
+        [sc.pp.filter_genes(x, min_cells=geneMinCells) for x in ls_ad]
+
+        if threads > 1:
+            with Mtp(threads) as mtp:
+                ls_results = []
+                for _ad in ls_ad:
+                    ls_results.append(
+                        mtp.submit(
+                            normalize.normalizeByScran, _ad, copy=True, **argsToScran
+                        )
+                    )
+            ls_results = [x.result() for x in ls_results]
+        else:
+            ls_results = []
+            for _ad in ls_ad:
+                ls_results.append(
+                    normalize.normalizeByScran(_ad, copy=True, **argsToScran)
+                )
+
+        ad = sc.concat(ls_results)
+        ad.layers["counts"] = ad.X.copy()
+
+        _ad = basic.getPartialLayersAdata(
+            ad, layers=["counts"], obsInfoLs=["sizeFactor", batchKey]
+        )
+        adR = py2r(_ad)
+        adR = batchelor.multiBatchNorm(
+            adR, batch="index", normalize_all=True, **argsToMultiBatchNorm
+        )
+        ad = r2py(adR)
+        adOrg = adOrg[:, ad.var.index].copy()
+        adOrg.layers["scranMbn"] = ad.layers["logcounts"]
+        basic.setLayerInfo(adOrg, scranMbn="log")
+        logger.info(f"output data shape: {adOrg.shape}")
+        return adOrg
 
     @staticmethod
     def normalizeBySCT(
@@ -1513,8 +1612,10 @@ class normalize(object):
             adata.layers["sct_corrected"] = corrected.copy()
             if log_scale_correct:
                 sc.pp.log1p(adata, layer="sct_corrected")
+                basic.setLayerInfo(adata, scran="log")
                 logger.warning("sct_corrected layer IS log-scaled")
             else:
+                basic.setLayerInfo(adata, scran="raw")
                 logger.warning("sct_corrected layer is NOT log-scaled")
 
         adata.var["highly_variable_sct_residual_var"] = res_var.copy()
@@ -2083,84 +2184,89 @@ class geneEnrichInfo(object):
 class annotation(object):
     @staticmethod
     def cellTypeAnnoByICI(
-        adata,
-        specDfPath,
-        cutoff_adjPvalue,
-        layer=None,
-        copy=False,
-        threads=1,
-        logTransformed=True,
-        addName="ICI",
+        refAd: anndata.AnnData,
+        refLabel: str,
+        refLayer: str,
+        queryAd: anndata.AnnData,
+        queryLayer: str,
+        cutoff: float = 0.01,
+        threads: int = 24,
+        groups: List = [],
+        keyAdded: str = None,
     ):
         """
-        use ICI method annotate cell type
-
-        adata:
-            anndata, normalized but not log-transformed.
-        specDfPath:
-            ICITools::compute_spec_table result
+        annotate queryAd based on refAd annotation result.
+        ----------
+        refAd : anndata.AnnData
+        refLabel : str
+        refLayer : str
+            must be log-transformed
+        queryAd : anndata.AnnData
+        queryLayer : str
+            must be log-transformed
+        cutoff : float, optional
+            by default 0.01
+        threads : int, optional
+            by default 24
+        groups : List, optional
+            by default []
+        keyAdded : str, optional
+            by default None
         """
-        from rpy2.robjects import pandas2ri
-        import rpy2.robjects as ro
+        from rpy2.robjects.packages import importr
+        from .rTools import py2r, r2py
 
-        pandas2ri.activate()
+        icitools = importr("ICITools")
+        future = importr("future")
+        tibble = importr("tibble")
+        future.plan(strategy="multiprocess", workers=threads)
 
-        adata = adata.copy() if copy else adata
-
-        adataDf = adata.to_df(layer).T.rename_axis("Locus")
-        if logTransformed:
-            adataDf = np.exp(adataDf) - 1
-        logger.info("Start transfer dataframe to R")
-        ro.globalenv["adataDf"] = adataDf
-        if threads > 1:
-            ro.r(
-                f"""
-            future::plan(strategy = "multiprocess", workers = {threads})
-            1
-            """
+        if (not refLayer) | (refLayer == "X"):
+            df_refGene = basic.mergeadata(refAd, refLabel, "mean").to_df()
+        else:
+            df_refGene = basic.mergeadata(refAd, refLabel, [refLayer], "mean").to_df(
+                refLayer
             )
+        df_refGene = np.exp(df_refGene) - 1
 
-        logger.info("Start calculate ICI score")
-        ro.r(
-            f"""
-        specDf <- readRDS('{specDfPath}')
-        adataDf <- tibble::as_tibble(adataDf, rownames = 'Locus')
-        adataAnnoDf_melted <- ICITools::compute_ici_scores(expression_data = adataDf,
-                                            spec_table = specDf,
-                                            min_spec_score = 0.15,
-                                            information_level = 50, sig = TRUE)
-        1
-        """
-        )
-        logger.info("Start transfer ICI score result to python")
-        adataAnnoDf_wide = ro.globalenv["adataAnnoDf_melted"]
+        df_refGene = df_refGene.stack().reset_index()
+        df_refGene.columns = ["Cell_Type", "Locus", "Expression"]
+        df_refGene["Sample_Name"] = df_refGene["Cell_Type"]
 
-        logger.info("Start parse ICI score result")
-        adata.obsm[f"{addName}-adjPvalue"] = adataAnnoDf_wide.pivot_table(
-            "p_adj", "Cell", "Cell_Type"
-        ).reindex(adata.obs_names)
-        adata.obsm[f"{addName}-score"] = adataAnnoDf_wide.pivot_table(
-            "ici_score", "Cell", "Cell_Type"
-        ).reindex(adata.obs_names)
-
-        adata.obsm[f"{addName}-score_masked"] = pd.DataFrame(
-            np.select(
-                [adata.obsm[f"{addName}-adjPvalue"] < cutoff_adjPvalue],
-                [adata.obsm[f"{addName}-score"]],
-                0,
-            ),
-            index=adata.obsm[f"{addName}-score"].index,
-            columns=adata.obsm[f"{addName}-score"].columns,
+        df_refGene = df_refGene.reindex(
+            columns=["Locus", "Cell_Type", "Sample_Name", "Expression"]
         )
 
-        adata.obs[f"{addName}-anno"] = np.select(
-            [adata.obsm[f"{addName}-score_masked"].max(1) > 0],
-            [adata.obsm[f"{addName}-score_masked"].idxmax(1)],
-            "Unknown",
-        )
+        if not groups:
+            groups = list(df_refGene["Cell_Type"].unique())
 
-        if copy:
-            return adata
+        df_refGene = df_refGene.query("Cell_Type in @groups")
+
+        dfR_spec = icitools.compute_spec_table(expression_data=py2r(df_refGene))
+
+        if not queryLayer:
+            queryLayer = "X"
+
+        df_queryGene = (
+            queryAd.to_df() if queryLayer == "X" else queryAd.to_df(queryLayer)
+        )
+        df_queryGene = np.exp(df_queryGene) - 1
+        df_queryGene = df_queryGene.rename_axis(columns="Locus").T
+        dfR_queryGene = py2r(df_queryGene)
+        dfR_queryGene = tibble.as_tibble(dfR_queryGene, rownames="Locus")
+        dfR_iciScore = icitools.compute_ici_scores(dfR_queryGene, dfR_spec, sig=True)
+        df_iciScore = r2py(dfR_iciScore)
+        df_iciScore = df_iciScore.pivot_table(
+            index="Cell", columns="Cell_Type", values="ici_score_norm"
+        )
+        if not keyAdded:
+            keyAdded = f"ici_{refLabel}"
+
+        df_iciScore = df_iciScore.reindex(queryAd.obs.index)
+        queryAd.obsm[f"{keyAdded}_normScore"] = df_iciScore
+        queryAd.obs[f"{keyAdded}"] = np.select(
+            [df_iciScore.max(1) > cutoff], [df_iciScore.idxmax(1)], "unknown"
+        )
 
     def getOverlapBetweenPrividedMarkerAndSpecificGene(
         adata: anndata.AnnData,
@@ -2188,6 +2294,82 @@ class annotation(object):
 
         return markerDt
 
+    @staticmethod
+    def cellTypeAnnoByCorr(
+        refAd: anndata.AnnData,
+        refLabel: str,
+        refLayer: str,
+        queryAd: anndata.AnnData,
+        queryLayer: str,
+        cutoff: float = 0.5,
+        groups: List = [],
+        method: Literal["pearson", "spearman"] = "spearman",
+        keyAdded: str = None,
+    ):
+        """
+        annotate queryAd based on refAd annotation result.
+        ----------
+        refAd : anndata.AnnData
+        refLabel : str
+        refLayer : str
+            must be log-transformed
+        queryAd : anndata.AnnData
+        queryLayer : str
+            must be log-transformed
+        cutoff : float, optional
+            by default 0.01
+        method : Literal["pearson", "spearman"]
+            by default "spearman"
+        groups : List, optional
+            by default []
+        keyAdded : str, optional
+            by default None
+        """
+        from scipy.stats import mstats
+
+        if (not refLayer) | (refLayer == "X"):
+            df_refGene = basic.mergeadata(refAd, refLabel, "mean").to_df()
+        else:
+            df_refGene = basic.mergeadata(refAd, refLabel, [refLayer], "mean").to_df(
+                refLayer
+            )
+
+        if not groups:
+            groups = list(df_refGene["Cell_Type"].unique())
+
+        df_refGene = df_refGene.reindex(index=groups)
+
+        if not queryLayer:
+            queryLayer = "X"
+        df_queryGene = (
+            queryAd.to_df() if queryLayer == "X" else queryAd.to_df(queryLayer)
+        )
+
+        sr_overlap = df_queryGene.columns & df_refGene.columns
+        df_refGene = df_refGene.reindex(columns=sr_overlap)
+        df_queryGene = df_queryGene.reindex(columns=sr_overlap)
+        ix_Ref = df_refGene.index
+
+        if method == "spearman":
+            ar_Ref = mstats.rankdata(df_refGene, axis=1)
+            ar_query = mstats.rankdata(df_queryGene, axis=1)
+        elif method == "pearson":
+            ar_Ref = df_refGene.values
+            ar_query = df_queryGene.values
+        else:
+            assert False, f"unimplemented method: {method}"
+
+        ar_corr = np.corrcoef(ar_Ref, ar_query)[-len(ar_query):, : len(ar_Ref)]
+        df_corr = pd.DataFrame(ar_corr, index=queryAd.obs.index, columns=ix_Ref)
+
+        if not keyAdded:
+            keyAdded = f"corr_{method}_{refLabel}"
+
+        queryAd.obsm[f"{keyAdded}_corr"] = df_corr
+        queryAd.obs[f"{keyAdded}"] = np.select(
+            [df_corr.max(1) > cutoff], [df_corr.idxmax(1)], "unknown"
+        )
+
     def labelTransferByCellId(
         refAd: anndata.AnnData,
         refLabel: str,
@@ -2196,7 +2378,7 @@ class annotation(object):
         queryLayer: str,
         markerCount: int = 200,
         cutoff: float = 2.0,
-        nmcs: int = 50,
+        nmcs: int = 30,
         refScaled: bool = False,
         queryScaled: bool = False,
         copy: bool = False,
@@ -2283,7 +2465,9 @@ class annotation(object):
         features: Optional[None] = None,
         method: Literal["harmony", "scanorama"] = "harmony",
         cutoff: float = 0.5,
+        npcs: int = 30,
         copy: bool = False,
+        needLoc: bool = False,
     ) -> Optional[anndata.AnnData]:
         """
         annotate queryAd based on refAd annotation result.
@@ -2303,8 +2487,12 @@ class annotation(object):
             by default 'harmony'
         cutoff : float, optional
             by default 0.5
+        npcs : int, optional
+            by default 30
         copy : bool, optional
             by default False
+        needLoc: bool, optional
+            if True, and `copy` is False, intregated anndata will be returned
 
         Returns
         -------
@@ -2329,7 +2517,12 @@ class annotation(object):
         queryAd = queryAd[:, ls_overlapGene]
         refAd = refAd[:, ls_overlapGene]
 
-        ad_concat = sc.concat([queryAd, refAd], label="batch", keys=["query", "ref"])
+        ad_concat = sc.concat(
+            [queryAd, refAd],
+            label="batch",
+            keys=["query", "ref"],
+            index_unique="-batch-",
+        )
         if not features:
             features = basic.scIB_hvg_batch(ad_concat, "batch")
         ad_concat.var["highly_variable"] = ad_concat.var.index.isin(features)
@@ -2344,16 +2537,24 @@ class annotation(object):
         else:
             assert False, f"Unrealized method ：{method}"
 
-        sc.pp.neighbors(ad_concat, n_pcs=50, use_rep=useObsmKey)
+        ad_concat.obsm["temp"] = ad_concat.obsm[useObsmKey][:, :npcs]
+        sc.pp.neighbors(ad_concat, n_pcs=20, use_rep="temp")
         sc.tl.umap(ad_concat)
         sc.pl.umap(ad_concat, color="batch")
+        refAd.obs.index = refAd.obs.index + "-batch-ref"
         ad_concat.obs = ad_concat.obs.join(refAd.obs[refLabel])
-        sc.pl.umap(ad_concat, color=refLabel)
+
+        # import pdb; pdb.set_trace()
+        dt_color = basic.getadataColor(refAd, refLabel)
+        dt_color["unknown"] = "#111111"
+        ad_concat = basic.setadataColor(ad_concat, refLabel, dt_color)
+        sc.pl.umap(ad_concat, color=refLabel, legend_loc="on data")
 
         distances = 1 - cosine_distances(
-            ad_concat[ad_concat.obs["batch"] == "ref"].obsm[useObsmKey],
-            ad_concat[ad_concat.obs["batch"] == "query"].obsm[useObsmKey],
+            ad_concat[ad_concat.obs["batch"] == "ref"].obsm["temp"],
+            ad_concat[ad_concat.obs["batch"] == "query"].obsm["temp"],
         )
+        del ad_concat.obsm["temp"]
 
         class_prob = label_transfer(
             distances, ad_concat[ad_concat.obs["batch"] == "ref"].obs[refLabel]
@@ -2365,6 +2566,7 @@ class annotation(object):
             ),
         )
         df_labelScore.index = ad_concat[ad_concat.obs["batch"] == "query"].obs.index
+        df_labelScore = df_labelScore.rename(index=lambda x: x.rstrip("-batch-query"))
         queryAdOrg.obsm[
             f"labelTransfer_score_scanpy_{method}_{refLabel}"
         ] = df_labelScore.reindex(queryAdOrg.obs.index)
@@ -2373,6 +2575,8 @@ class annotation(object):
         ].pipe(lambda df: np.select([df.max(1) > cutoff], [df.idxmax(1)], "unknown"))
         if copy:
             return queryAdOrg
+        if needLoc:
+            return ad_concat
 
     @staticmethod
     def labelTransferBySeurat(
@@ -2382,8 +2586,10 @@ class annotation(object):
         queryAd: anndata.AnnData,
         queryLayer: str,
         features: Optional[None] = None,
+        npcs: int = 30,
         cutoff: float = 0.5,
         copy: bool = False,
+        needLoc: bool = False,
     ) -> Optional[anndata.AnnData]:
         import rpy2
         import rpy2.robjects as ro
@@ -2405,9 +2611,17 @@ class annotation(object):
         queryAd = queryAd[:, ls_overlapGene]
         refAd = refAd[:, ls_overlapGene]
 
-        ad_concat = sc.concat([queryAd, refAd], label="batch", keys=["query", "ref"])
+        queryAd.obs.index = queryAd.obs.index + "-batch-query"
+        refAd.obs.index = refAd.obs.index + "-batch-ref"
+        ad_concat = sc.concat(
+            [queryAd, refAd],
+            label="batch",
+            keys=["query", "ref"],
+            index_unique="-batch-",
+        )
         if not features:
             features = basic.scIB_hvg_batch(ad_concat, "batch")
+
         ar_features = np.array(features)
         arR_features = py2r(ar_features)
 
@@ -2429,8 +2643,8 @@ class annotation(object):
 
         R(
             f"""
-        anchors <- FindTransferAnchors(reference = adR_ref, query = adR_query, dims = 1:50, features = arR_features)
-        predictions <- TransferData(anchorset = anchors, refdata = adR_ref${refLabel}, dims = 1:50)
+        anchors <- FindTransferAnchors(reference = adR_ref, query = adR_query, dims = 1:{npcs}, features = arR_features)
+        predictions <- TransferData(anchorset = anchors, refdata = adR_ref${refLabel}, dims = 1:{npcs})
         """
         )
 
@@ -2453,15 +2667,49 @@ class annotation(object):
                 sorted(list(df_predScore.columns)),
             )
         }
-        df_predScore = df_predScore.rename(columns=dt_name2Org)
+        df_predScore = df_predScore.rename(
+            columns=dt_name2Org, index=lambda x: x.rstrip("-batch-query")
+        )
+
         queryAdOrg.obsm[
             f"labelTransfer_score_seurat_{refLabel}"
         ] = df_predScore.reindex(queryAdOrg.obs.index)
+
         queryAdOrg.obs[f"labelTransfer_seurat_{refLabel}"] = queryAdOrg.obsm[
             f"labelTransfer_score_seurat_{refLabel}"
         ].pipe(lambda df: np.select([df.max(1) > cutoff], [df.idxmax(1)], "unknown"))
+
+        R("adR_ref[['RNA']]@data = as.matrix(adR_ref[['RNA']]@data)")
+        R("adR_query[['RNA']]@data = as.matrix(adR_query[['RNA']]@data)")
+        R(
+            f"""
+        anchor <- FindIntegrationAnchors(list(adR_query, adR_ref), anchor.features=arR_features, dims = 1:{npcs})
+        adR_integrated <- IntegrateData(anchorset=anchor, normalization.method = "LogNormalize")
+        adR_integrated <- ScaleData(adR_integrated)
+        adR_integrated <- RunPCA(object=adR_integrated, features=arR_features)
+        adR_integrated <- RunUMAP(object=adR_integrated, dims=1:{npcs})
+        """
+        )
+        ad_integrated = r2py(
+            seurat.as_SingleCellExperiment(ro.globalenv["adR_integrated"])
+        )
+        ad_integrated.obs["batch"] = ad_integrated.obs.index.str.split("-").str[-1]
+        ad_integrated.obs[refLabel] = (
+            ad_integrated.obs[refLabel]
+            .astype(str)
+            .map(lambda x: {"NA_character_": np.nan}.get(x, x))
+        )
+        dt_color = basic.getadataColor(refAd, refLabel)
+        dt_color["unknown"] = "#111111"
+        dt_color["None"] = "#D3D3D3"
+        ad_integrated = basic.setadataColor(ad_integrated, refLabel, dt_color)
+        sc.pl.umap(ad_integrated, color="batch")
+        sc.pl.umap(ad_integrated, color=refLabel, legend_loc="on data")
+
         if copy:
             return queryAdOrg
+        if needLoc:
+            return ad_integrated
 
 
 class deprecated(object):
@@ -4136,3 +4384,51 @@ class diffxpy(object):
             "pairWise": __pairWise,
         }[cate]
         return fc_parse(dt_marker, qvalue, log2fc, mean, detectedCounts)
+
+class parseScvi(object):
+
+    @staticmethod
+    def getDEG(adata, df_deInfo, groupby, groups=None, bayesCutoff=3, nonZeroProportion=0.1, markerCounts=None, keyAdded=None):
+        adata.obs[groupby] = adata.obs[groupby].astype('category')
+        if not groups:
+            cats = list(adata.obs[groupby].cat.categories)
+
+        markers = {}
+        cats = adata.obs[groupby].cat.categories
+        for i, c in enumerate(cats):
+            cid = "{} vs Rest".format(c)
+            cell_type_df = df_deInfo.loc[df_deInfo.comparison == cid]
+
+            cell_type_df = cell_type_df[cell_type_df.lfc_mean > 0]
+
+            cell_type_df = cell_type_df[cell_type_df["bayes_factor"] > bayesCutoff]
+            cell_type_df = cell_type_df[cell_type_df["non_zeros_proportion1"] > nonZeroProportion]
+            if not markerCounts:
+                markers[c] = cell_type_df.index.tolist()
+            else:
+                markers[c] = cell_type_df.index.tolist()[:markerCounts]
+        
+        if not keyAdded:
+            keyAdded = f"scvi_marker_{groupby}"
+        adata.uns[keyAdded] = markers
+
+    @staticmethod
+    def LabelTransferBycellAssign(adata, dt_marker, layer=None, threads=60):
+        import scvi
+        import scvi.external as scve
+        scvi.settings.seed = 39
+        scvi.settings.num_threads = threads
+        if layer == 'X':
+            layer = None
+        df_marker = pd.DataFrame([dt_marker.keys(), dt_marker.values()], index=['cluster', 'genes']).T
+        df_marker = df_marker.explode('genes').assign(count = 1).pivot('cluster', 'genes', 'count').fillna(0).astype(int)
+        sr_overlapGene = adata.var.index & df_marker.columns
+        df_marker = df_marker.reindex(columns=sr_overlapGene)
+        print(f"marker used counts: {df_marker.sum(1)}")
+        ad_forCA = adata[:, sr_overlapGene].copy()
+        ad_forCA.obs['sizeForCA'] = adata.X.sum(1) if not layer else adata.layers[layer].sum(1)
+        scvi.data.setup_anndata(ad_forCA, layer=layer)
+        model = scve.CellAssign(ad_forCA, df_marker.T, size_factor_key="sizeForCA", )
+        model.train(max_epochs=1000)
+        
+
