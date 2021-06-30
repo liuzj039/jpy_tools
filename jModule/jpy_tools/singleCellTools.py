@@ -4487,6 +4487,7 @@ class useScvi(object):
         lvae.train(
             max_epochs=max_epochs,
         )
+        lvae.history["reconstruction_loss_train"].plot()
 
         ad_merge.obs["prediction_scANVI"] = lvae.predict(ad_merge)
         ad_merge.obsm["X_scANVI"] = lvae.get_latent_representation(ad_merge)
