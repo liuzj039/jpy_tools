@@ -894,7 +894,7 @@ class plotting(object):
 
     @staticmethod
     def plotLabelPercentageInCluster(
-        adata, groupby, label, labelColor: Optional[dict] = None
+        adata, groupby, label, labelColor: Optional[dict] = None, needCounts = True
     ):
         """
         根据label在adata.obs中groupby的占比绘图
@@ -935,6 +935,10 @@ class plotting(object):
         plt.legend(legendHandleLs, legendLabelLs, bbox_to_anchor=[1, 1], frameon=False)
         plt.xlabel(groupby.capitalize())
         plt.ylabel(f"Percentage")
+        if needCounts:
+            for i, label in enumerate(groupbyWithLabelCounts_CumsumPercDf.index):
+                plt.text(i, 105, f"$\it{{N}}$ = {len(adata[adata.obs[groupby] == label])}", rotation=90, ha='center', va='bottom')
+        sns.despine(top=True, right=True)
         return ax
 
     @staticmethod
@@ -2016,7 +2020,7 @@ class geneEnrichInfo(object):
         forceAllRun: bool = False,
         dt_ByFcParams={},
         dt_DiffxpyParams={},
-        dt_DiffxpyGetMarkerParams={"detectedCounts": -2},
+        dt_DiffxpyGetMarkerParams={},
         cutoff_cellex: float = 0.9,
         markerCounts_CellId: int = 50,
     ):
@@ -2060,6 +2064,8 @@ class geneEnrichInfo(object):
             if ss.issparse(ad_sub.layers[layer])
             else np.around(np.exp(ad_sub.layers[layer]) - 1)
         )
+
+        ## fc method
         if forceAllRun | (f"{groupby}_fcMarker" not in ad_sub.uns):
             geneEnrichInfo.detectMarkerGene(
                 ad_sub,
@@ -2082,6 +2088,7 @@ class geneEnrichInfo(object):
         )
         adata.uns[f"marker_multiMethod_{groupby}"]["fcMarker"] = dt_markerByFc
 
+        ## cellex method
         if forceAllRun | (f"{groupby}_cellexES" not in ad_sub.varm):
             geneEnrichInfo.calculateEnrichScoreByCellex(ad_sub, f"{layer}_raw", groupby)
             adata.varm[f"{groupby}_cellexES"] = ad_sub.varm[f"{groupby}_cellexES"]
@@ -2094,6 +2101,7 @@ class geneEnrichInfo(object):
         )
         adata.uns[f"marker_multiMethod_{groupby}"]["cellexMarker"] = dt_marker_cellex
 
+        ## cellid method
         if forceAllRun | (f"{groupby}_cellid_marker" not in adata.uns):
             geneEnrichInfo.getEnrichedGeneByCellId(
                 ad_sub, layer, groupby, markerCounts_CellId
@@ -2108,8 +2116,9 @@ class geneEnrichInfo(object):
 
         adata.uns[f"marker_multiMethod_{groupby}"]["cellidMarker"] = dt_markerCellId
 
+        ## diffxpy method
         if forceAllRun | (f"{groupby}_diffxpy_marker" not in adata.uns):
-            diffxpy.pairWise(
+            diffxpy.vsRest(
                 ad_sub,
                 layer,
                 groupby,
@@ -2124,9 +2133,10 @@ class geneEnrichInfo(object):
             adata, key=f"{groupby}_diffxpy_marker", **dt_DiffxpyGetMarkerParams
         )
         adata.uns[f"marker_multiMethod_{groupby}"]["diffxpyMarker"] = (
-            df_diffxpyMarker.groupby("testedCluster")["gene"].agg(list).to_dict()
+            df_diffxpyMarker.groupby("clusterName")["gene"].agg(list).to_dict()
         )
 
+        # concat
         for markerCat, cluster in product(
             ["fcMarker", "cellexMarker", "cellidMarker", "diffxpyMarker"], groups
         ):
@@ -4527,7 +4537,6 @@ class useScvi(object):
 
         # get predicted labels
         queryAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(queryAd)
-
         queryAdOrg.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(queryAd)
 
         if needLoc:
