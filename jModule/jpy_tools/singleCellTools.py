@@ -894,7 +894,7 @@ class plotting(object):
 
     @staticmethod
     def plotLabelPercentageInCluster(
-        adata, groupby, label, labelColor: Optional[dict] = None, needCounts = True
+        adata, groupby, label, labelColor: Optional[dict] = None, needCounts=True
     ):
         """
         根据label在adata.obs中groupby的占比绘图
@@ -937,7 +937,14 @@ class plotting(object):
         plt.ylabel(f"Percentage")
         if needCounts:
             for i, label in enumerate(groupbyWithLabelCounts_CumsumPercDf.index):
-                plt.text(i, 105, f"$\it{{N}}$ = {len(adata[adata.obs[groupby] == label])}", rotation=90, ha='center', va='bottom')
+                plt.text(
+                    i,
+                    105,
+                    f"$\it{{N}}$ = {len(adata[adata.obs[groupby] == label])}",
+                    rotation=90,
+                    ha="center",
+                    va="bottom",
+                )
         sns.despine(top=True, right=True)
         return ax
 
@@ -4492,7 +4499,7 @@ class useScvi(object):
             flavor="seurat_v3",
             n_top_genes=3000,
             batch_key="batch",
-            subset=True
+            subset=True,
         )
 
         refAd = refAd[:, ad_merge.var.index].copy()
@@ -4505,25 +4512,29 @@ class useScvi(object):
             labels_key=refLabel,
         )
         lvae = scvi.model.SCANVI(refAd, "unknown", **dt_params2Model)
-        lvae.train(
-            max_epochs=max_epochs
-        )
-        
+        lvae.train(max_epochs=max_epochs)
+
         # plot result on training dataset
         refAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae.predict(refAd)
         refAd.obsm["X_scANVI"] = lvae.get_latent_representation(refAd)
         sc.pp.neighbors(refAd, use_rep="X_scANVI")
         sc.tl.umap(refAd)
-        sc.pl.umap(refAd, color=refLabel, legend_loc='on data')
+        sc.pl.umap(refAd, color=refLabel, legend_loc="on data")
         df_color = basic.getadataColor(refAd, refLabel)
         refAd = basic.setadataColor(refAd, f"labelTransfer_scanvi_{refLabel}", df_color)
-        sc.pl.umap(refAd, color=f"labelTransfer_scanvi_{refLabel}", legend_loc='on data')
+        sc.pl.umap(
+            refAd, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data"
+        )
 
         # online learning
-        lvae_online = scvi.model.SCANVI.load_query_data(queryAd, lvae, freeze_dropout = True,)
+        lvae_online = scvi.model.SCANVI.load_query_data(
+            queryAd,
+            lvae,
+            freeze_dropout=True,
+        )
         lvae_online._unlabeled_indices = np.arange(queryAd.n_obs)
-        lvae_online._labeled_indices = []  
-        lvae_online.train(max_epochs=max_epochs, plan_kwargs=dict(weight_decay=0.0))      
+        lvae_online._labeled_indices = []
+        lvae_online.train(max_epochs=max_epochs, plan_kwargs=dict(weight_decay=0.0))
 
         # plot result on both dataset
         ad_merge.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(ad_merge)
@@ -4531,13 +4542,19 @@ class useScvi(object):
         sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
         sc.tl.umap(ad_merge)
         df_color = basic.getadataColor(refAd, refLabel)
-        ad_merge =  basic.setadataColor(ad_merge, f"labelTransfer_scanvi_{refLabel}", df_color)
+        ad_merge = basic.setadataColor(
+            ad_merge, f"labelTransfer_scanvi_{refLabel}", df_color
+        )
         sc.pl.umap(ad_merge, color="batch")
-        sc.pl.umap(ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc='on data')
+        sc.pl.umap(
+            ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data"
+        )
 
         # get predicted labels
         queryAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(queryAd)
-        queryAdOrg.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(queryAd)
+        queryAdOrg.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(
+            queryAd
+        )
 
         if needLoc:
             return ad_merge
