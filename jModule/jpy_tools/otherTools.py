@@ -284,3 +284,13 @@ def sankeyPlotByPyechart(
     ).set_global_opts(title_opts=opts.TitleOpts(title=""))
 
     return sankey
+
+def copyFromIpf(ipfPath) -> str:
+    import sh
+    tmpPath = "/scem/work/liuzj/tmp/1"
+    sh.scp(f"172.18.6.205:{ipfPath}", tmpPath)
+    return tmpPath
+
+def copyToIpf(inPath, ipfPath) -> str:
+    import sh
+    sh.scp(inPath, f"172.18.6.205:{ipfPath}")
