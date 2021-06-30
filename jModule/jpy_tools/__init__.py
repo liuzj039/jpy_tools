@@ -1,1 +1,2 @@
-from jpy_tools.sendMessage import sendMessage
+from .sendMessage import sendMessage
+from .otherTools import copyFromIpf, copyToIpf
