@@ -4448,10 +4448,10 @@ class useScvi(object):
         refAd : anndata.AnnData
         refLabel : str
         refLayer : str
-            log-transformed
+            raw-count
         queryAd : anndata.AnnData
         queryLayer : str
-            log-transformed
+            raw-count
         needLoc: bool, optional
             if True, and `copy` is False, intregated anndata will be returned
         dt_params2Model: dict, optional
@@ -4476,33 +4476,59 @@ class useScvi(object):
 
         queryAd.obs[refLabel] = "unknown"
         ad_merge = sc.concat([refAd, queryAd], label="batch", keys=["ref", "query"])
-        scvi.data.setup_anndata(
+        ad_merge.X = ad_merge.X.astype(int)
+        sc.pp.highly_variable_genes(
             ad_merge,
-            layer=None,
+            flavor="seurat_v3",
+            n_top_genes=3000,
             batch_key="batch",
+            subset=True
+        )
+
+        refAd = refAd[:, ad_merge.var.index].copy()
+        queryAd = queryAd[:, ad_merge.var.index].copy()
+
+        # train model
+        scvi.data.setup_anndata(
+            refAd,
+            layer=None,
             labels_key=refLabel,
         )
-
-        lvae = scvi.model.SCANVI(ad_merge, "unknown", **dt_params2Model)
+        lvae = scvi.model.SCANVI(refAd, "unknown", **dt_params2Model)
         lvae.train(
-            max_epochs=max_epochs,
+            max_epochs=max_epochs
         )
-        lvae.history["reconstruction_loss_train"].plot()
+        
+        # plot result on training dataset
+        refAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae.predict(refAd)
+        refAd.obsm["X_scANVI"] = lvae.get_latent_representation(refAd)
+        sc.pp.neighbors(refAd, use_rep="X_scANVI")
+        sc.tl.umap(refAd)
+        sc.pl.umap(refAd, color=refLabel, legend_loc='on data')
+        df_color = basic.getadataColor(refAd, refLabel)
+        refAd = basic.setadataColor(refAd, f"labelTransfer_scanvi_{refLabel}", df_color)
+        sc.pl.umap(refAd, color=f"labelTransfer_scanvi_{refLabel}", legend_loc='on data')
 
-        ad_merge.obs["prediction_scANVI"] = lvae.predict(ad_merge)
-        ad_merge.obsm["X_scANVI"] = lvae.get_latent_representation(ad_merge)
+        # online learning
+        lvae_online = scvi.model.SCANVI.load_query_data(queryAd, lvae, freeze_dropout = True,)
+        lvae_online._unlabeled_indices = np.arange(queryAd.n_obs)
+        lvae_online._labeled_indices = []  
+        lvae_online.train(max_epochs=max_epochs, plan_kwargs=dict(weight_decay=0.0))      
 
+        # plot result on both dataset
+        ad_merge.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(ad_merge)
+        ad_merge.obsm["X_scANVI"] = lvae_online.get_latent_representation(ad_merge)
         sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
         sc.tl.umap(ad_merge)
+        df_color = basic.getadataColor(refAd, refLabel)
+        ad_merge =  basic.setadataColor(ad_merge, f"labelTransfer_scanvi_{refLabel}", df_color)
         sc.pl.umap(ad_merge, color="batch")
-        sc.pl.umap(ad_merge, color="prediction_scANVI")
+        sc.pl.umap(ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc='on data')
 
-        queryAdOrg.obs[f"labelTransfer_scanvi_{refLabel}"] = (
-            ad_merge[queryAdOrg.obs.index]
-            .obs["prediction_scANVI"]
-            .astype(str)
-            .astype("category")
-        )
+        # get predicted labels
+        queryAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(queryAd)
+
+        queryAdOrg.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(queryAd)
 
         if needLoc:
             return ad_merge
