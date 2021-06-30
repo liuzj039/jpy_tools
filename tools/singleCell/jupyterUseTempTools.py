@@ -939,7 +939,10 @@ class plotting(object):
 
     @staticmethod
     def plotClusterSankey(
-        adata: anndata.AnnData, clusterNameLs: Sequence[str], figsize=[5, 5]
+        adata: anndata.AnnData,
+        clusterNameLs: Sequence[str],
+        figsize=[5, 5],
+        defaultJupyter: Literal["notebook", "lab"] = "notebook",
     ):
         """
         Returns
@@ -954,7 +957,9 @@ class plotting(object):
         [basic.setadataColor(adata, x) for x in clusterNameLs]
         colorDictLs = [basic.getadataColor(adata, x) for x in clusterNameLs]
 
-        sankey = sankeyPlotByPyechart(df, clusterNameLs, figsize, colorDictLs)
+        sankey = sankeyPlotByPyechart(
+            df, clusterNameLs, figsize, colorDictLs, defaultJupyter=defaultJupyter
+        )
         return sankey
 
     @staticmethod
@@ -2359,7 +2364,7 @@ class annotation(object):
         else:
             assert False, f"unimplemented method: {method}"
 
-        ar_corr = np.corrcoef(ar_Ref, ar_query)[-len(ar_query):, : len(ar_Ref)]
+        ar_corr = np.corrcoef(ar_Ref, ar_query)[-len(ar_query) :, : len(ar_Ref)]
         df_corr = pd.DataFrame(ar_corr, index=queryAd.obs.index, columns=ix_Ref)
 
         if not keyAdded:
@@ -2605,7 +2610,7 @@ class annotation(object):
         queryAdOrg = queryAd.copy() if copy else queryAd
         refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel])
         queryAd = basic.getPartialLayersAdata(queryAd, queryLayer)
-        queryAd.obs["empty"] = 0
+        queryAd.obs["empty"] = 0  # seurat need
 
         ls_overlapGene = refAd.var.index & queryAd.var.index
         queryAd = queryAd[:, ls_overlapGene]
@@ -4385,11 +4390,20 @@ class diffxpy(object):
         }[cate]
         return fc_parse(dt_marker, qvalue, log2fc, mean, detectedCounts)
 
-class parseScvi(object):
 
+class useScvi(object):
     @staticmethod
-    def getDEG(adata, df_deInfo, groupby, groups=None, bayesCutoff=3, nonZeroProportion=0.1, markerCounts=None, keyAdded=None):
-        adata.obs[groupby] = adata.obs[groupby].astype('category')
+    def getDEG(
+        adata,
+        df_deInfo,
+        groupby,
+        groups=None,
+        bayesCutoff=3,
+        nonZeroProportion=0.1,
+        markerCounts=None,
+        keyAdded=None,
+    ):
+        adata.obs[groupby] = adata.obs[groupby].astype("category")
         if not groups:
             cats = list(adata.obs[groupby].cat.categories)
 
@@ -4402,33 +4416,92 @@ class parseScvi(object):
             cell_type_df = cell_type_df[cell_type_df.lfc_mean > 0]
 
             cell_type_df = cell_type_df[cell_type_df["bayes_factor"] > bayesCutoff]
-            cell_type_df = cell_type_df[cell_type_df["non_zeros_proportion1"] > nonZeroProportion]
+            cell_type_df = cell_type_df[
+                cell_type_df["non_zeros_proportion1"] > nonZeroProportion
+            ]
             if not markerCounts:
                 markers[c] = cell_type_df.index.tolist()
             else:
                 markers[c] = cell_type_df.index.tolist()[:markerCounts]
-        
+
         if not keyAdded:
             keyAdded = f"scvi_marker_{groupby}"
         adata.uns[keyAdded] = markers
 
     @staticmethod
-    def LabelTransferBycellAssign(adata, dt_marker, layer=None, threads=60):
+    def labelTransferByScanvi(
+        refAd: anndata.AnnData,
+        refLabel: str,
+        refLayer: str,
+        queryAd: anndata.AnnData,
+        queryLayer: str,
+        needLoc: bool = False,
+        dt_params2Model={"n_latent": 30, "n_layers": 2, "dispersion": "gene"},
+        max_epochs: int = 1000,
+        threads: int = 24,
+    ) -> Optional[anndata.AnnData]:
+        """
+        annotate queryAd based on refAd annotation result.
+
+        Parameters
+        ----------
+        refAd : anndata.AnnData
+        refLabel : str
+        refLayer : str
+            log-transformed
+        queryAd : anndata.AnnData
+        queryLayer : str
+            log-transformed
+        needLoc: bool, optional
+            if True, and `copy` is False, intregated anndata will be returned
+        dt_params2Model: dict, optional
+            used for scANVI model
+
+        Returns
+        -------
+        Optional[anndata.AnnData]
+            based on needloc
+        """
+        import pandas as pd
+        import numpy as np
+        import scanpy as sc
         import scvi
-        import scvi.external as scve
+
         scvi.settings.seed = 39
         scvi.settings.num_threads = threads
-        if layer == 'X':
-            layer = None
-        df_marker = pd.DataFrame([dt_marker.keys(), dt_marker.values()], index=['cluster', 'genes']).T
-        df_marker = df_marker.explode('genes').assign(count = 1).pivot('cluster', 'genes', 'count').fillna(0).astype(int)
-        sr_overlapGene = adata.var.index & df_marker.columns
-        df_marker = df_marker.reindex(columns=sr_overlapGene)
-        print(f"marker used counts: {df_marker.sum(1)}")
-        ad_forCA = adata[:, sr_overlapGene].copy()
-        ad_forCA.obs['sizeForCA'] = adata.X.sum(1) if not layer else adata.layers[layer].sum(1)
-        scvi.data.setup_anndata(ad_forCA, layer=layer)
-        model = scve.CellAssign(ad_forCA, df_marker.T, size_factor_key="sizeForCA", )
-        model.train(max_epochs=1000)
-        
 
+        queryAdOrg = queryAd
+        refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel])
+        queryAd = basic.getPartialLayersAdata(queryAd, queryLayer)
+
+        queryAd.obs[refLabel] = "unknown"
+        ad_merge = sc.concat([refAd, queryAd], label="batch", keys=["ref", "query"])
+        scvi.data.setup_anndata(
+            ad_merge,
+            layer=None,
+            batch_key="batch",
+            labels_key=refLabel,
+        )
+
+        lvae = scvi.model.SCANVI(ad_merge, "unknown", **dt_params2Model)
+        lvae.train(
+            max_epochs=max_epochs,
+        )
+
+        ad_merge.obs["prediction_scANVI"] = lvae.predict(ad_merge)
+        ad_merge.obsm["X_scANVI"] = lvae.get_latent_representation(ad_merge)
+
+        sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
+        sc.tl.umap(ad_merge)
+        sc.pl.umap(ad_merge, color="batch")
+        sc.pl.umap(ad_merge, color="prediction_scANVI")
+
+        queryAdOrg.obs[f"labelTransfer_scanvi_{refLabel}"] = (
+            ad_merge[queryAdOrg.obs.index]
+            .obs["prediction_scANVI"]
+            .astype(str)
+            .astype("category")
+        )
+
+        if needLoc:
+            return ad_merge

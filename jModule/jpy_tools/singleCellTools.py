@@ -4429,7 +4429,7 @@ class useScvi(object):
         adata.uns[keyAdded] = markers
 
     @staticmethod
-    def LabelTransferByScanvi(
+    def labelTransferByScanvi(
         refAd: anndata.AnnData,
         refLabel: str,
         refLayer: str,
