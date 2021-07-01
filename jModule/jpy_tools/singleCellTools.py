@@ -863,12 +863,13 @@ class basic(object):
         geneCounts = len(allGeneLs)
 
         if not batch:
-            for i, gene in tqdm(enumerate(allGeneLs), 'Processed Gene', len(allGeneLs)):
+            for i, gene in tqdm(enumerate(allGeneLs), 'Processed Gene', geneCounts):
                 sc.pl.umap(adata, layer=layer, color=gene, cmap="Reds", show=False)
                 plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
+                plt.close()
         else:
             ls_batch = adata.obs[batch].unique()
-            for i, gene in tqdm(enumerate(allGeneLs), 'Processed Gene', len(allGeneLs)):
+            for i, gene in tqdm(enumerate(allGeneLs), 'Processed Gene', geneCounts):
                 for batchName in ls_batch:
                     ax = sc.pl.umap(adata, show=False)
                     sc.pl.umap(
@@ -881,6 +882,7 @@ class basic(object):
                         show=False,
                     )
                     plt.savefig(f"{outputDirPath}{gene}_{batchName}.pdf", format="pdf")
+                    plt.close()
 
         logger.info("All finished")
 
