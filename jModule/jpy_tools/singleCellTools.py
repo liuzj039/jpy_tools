@@ -53,6 +53,7 @@ from concurrent.futures import ProcessPoolExecutor as Mtp
 from concurrent.futures import ThreadPoolExecutor as MtT
 import sh
 import h5py
+from tqdm import tqdm
 from typing import (
     Dict,
     List,
@@ -835,6 +836,7 @@ class basic(object):
         outputDirPath: str,
         layer: Optional[str] = None,
         useRaw: Optional[bool] = None,
+        batch: Optional[str] = None,
     ):
         # def __saveSingleGene(gene):
         #     nonlocal adata
@@ -860,10 +862,25 @@ class basic(object):
             allGeneLs = adata.var.index
         geneCounts = len(allGeneLs)
 
-        for i, gene in enumerate(allGeneLs):
-            sc.pl.umap(adata, layer=layer, color=gene, cmap="Reds", show=False)
-            plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
-            print("\r" + f"Progress: {i} / {geneCounts}", end="", flush=True)
+        if not batch:
+            for i, gene in tqdm(enumerate(allGeneLs), 'Processed Gene', len(allGeneLs)):
+                sc.pl.umap(adata, layer=layer, color=gene, cmap="Reds", show=False)
+                plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
+        else:
+            ls_batch = adata.obs[batch].unique()
+            for i, gene in tqdm(enumerate(allGeneLs), 'Processed Gene', len(allGeneLs)):
+                for batchName in ls_batch:
+                    ax = sc.pl.umap(adata, show=False)
+                    sc.pl.umap(
+                        adata[adata.obs[batch] == batchName],
+                        layer=layer,
+                        color=gene,
+                        cmap="Reds",
+                        ax=ax,
+                        size=120000 / len(adata),
+                        show=False,
+                    )
+                    plt.savefig(f"{outputDirPath}{gene}_{batchName}.pdf", format="pdf")
 
         logger.info("All finished")
 
@@ -2499,10 +2516,10 @@ class annotation(object):
         refAd : anndata.AnnData
         refLabel : str
         refLayer : str
-            log-transformed
+            log-transformed normalized
         queryAd : anndata.AnnData
         queryLayer : str
-            log-transformed
+            log-transformed normalized
         features : Optional[None]
             list, used gene to DR
         method : Literal['harmony', 'scanorama'], optional
@@ -2613,6 +2630,33 @@ class annotation(object):
         copy: bool = False,
         needLoc: bool = False,
     ) -> Optional[anndata.AnnData]:
+        """
+        annotate queryAd based on refAd annotation result.
+
+        Parameters
+        ----------
+        refAd : anndata.AnnData
+        refLabel : str
+        refLayer : str
+            log-transformed normalized
+        queryAd : anndata.AnnData
+        queryLayer : str
+            log-transformed normalized
+        features : Optional[None]
+            list, used gene to DR
+        npcs : int, optional
+            by default 30
+        cutoff : float, optional
+            by default 0.5
+        copy : bool, optional
+            Precedence over `needLoc`. by default False.
+        needLoc: bool, optional
+            if True, and `copy` is False, intregated anndata will be returned
+
+        Returns
+        -------
+        Optional[anndata.AnnData]
+        """
         import rpy2
         import rpy2.robjects as ro
         from rpy2.robjects.packages import importr
@@ -2665,8 +2709,10 @@ class annotation(object):
 
         R(
             f"""
+        adR_ref <- ScaleData(adR_ref)
+        adR_query <- ScaleData(adR_query)
         anchors <- FindTransferAnchors(reference = adR_ref, query = adR_query, dims = 1:{npcs}, features = arR_features)
-        predictions <- TransferData(anchorset = anchors, refdata = adR_ref${refLabel}, dims = 1:{npcs})
+        predictions <- TransferData(anchorset = anchors, refdata = adR_ref${refLabel}, dims = 1:{npcs}, k.weight=10)
         """
         )
 
@@ -4454,6 +4500,8 @@ class useScvi(object):
         queryLayer: str,
         needLoc: bool = False,
         dt_params2Model={"n_latent": 30, "n_layers": 2, "dispersion": "gene"},
+        cutoff: float = 0.9,
+        keyAdded: Optional[str] = None,
         max_epochs: int = 1000,
         threads: int = 24,
     ) -> Optional[anndata.AnnData]:
@@ -4551,10 +4599,11 @@ class useScvi(object):
         )
 
         # get predicted labels
-        queryAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(queryAd)
-        queryAdOrg.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(
-            queryAd
+        if not keyAdded:
+            keyAdded = f"labelTransfer_scanvi_{refLabel}"
+        queryAdOrg.obsm[f"{keyAdded}_score"] = lvae_online.predict(queryAd, soft=True)
+        queryAdOrg.obs[keyAdded] = queryAdOrg.obsm[f"{keyAdded}_score"].pipe(
+            lambda df: np.select([df.max(1) > cutoff], [df.idxmax(1)], "unknown")
         )
-
         if needLoc:
             return ad_merge
