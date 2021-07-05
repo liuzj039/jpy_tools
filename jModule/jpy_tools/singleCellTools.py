@@ -863,13 +863,13 @@ class basic(object):
         geneCounts = len(allGeneLs)
 
         if not batch:
-            for i, gene in tqdm(enumerate(allGeneLs), 'Processed Gene', geneCounts):
+            for i, gene in tqdm(enumerate(allGeneLs), "Processed Gene", geneCounts):
                 sc.pl.umap(adata, layer=layer, color=gene, cmap="Reds", show=False)
                 plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
                 plt.close()
         else:
             ls_batch = adata.obs[batch].unique()
-            for i, gene in tqdm(enumerate(allGeneLs), 'Processed Gene', geneCounts):
+            for i, gene in tqdm(enumerate(allGeneLs), "Processed Gene", geneCounts):
                 for batchName in ls_batch:
                     ax = sc.pl.umap(adata, show=False)
                     sc.pl.umap(
@@ -2662,7 +2662,7 @@ class annotation(object):
         import rpy2
         import rpy2.robjects as ro
         from rpy2.robjects.packages import importr
-        from .rTools import py2r, r2py, r_inline_plot, rHelp
+        from .rTools import py2r, r2py, r_inline_plot, rHelp, trl, rGet, rSet
 
         rBase = importr("base")
         rUtils = importr("utils")
@@ -2705,20 +2705,23 @@ class annotation(object):
         )
         adR_ref = seuratObject.RenameAssays(object=adR_ref, originalexp="RNA")
 
-        ro.globalenv["adR_ref"] = adR_ref
-        ro.globalenv["adR_query"] = adR_query
-        ro.globalenv["arR_features"] = arR_features
-
-        R(
-            f"""
-        adR_ref <- ScaleData(adR_ref)
-        adR_query <- ScaleData(adR_query)
-        anchors <- FindTransferAnchors(reference = adR_ref, query = adR_query, dims = 1:{npcs}, features = arR_features)
-        predictions <- TransferData(anchorset = anchors, refdata = adR_ref${refLabel}, dims = 1:{npcs}, k.weight=10)
-        """
+        adR_ref = seurat.ScaleData(trl(adR_ref))
+        adR_query = seurat.ScaleData(trl(adR_query))
+        anchors = seurat.FindTransferAnchors(
+            reference=trl(adR_ref),
+            query=trl(adR_query),
+            dims=py2r(np.arange(0, npcs) + 1),
+            features=arR_features,
         )
 
-        df_predScore = r2py(R("predictions"))
+        predictions = seurat.TransferData(
+            anchorset=anchors,
+            refdata=rGet(adR_ref, "@meta.data", f"${refLabel}"),
+            dims=py2r(np.arange(0, npcs) + 1),
+            k_weight=10,
+        )
+
+        df_predScore = r2py(predictions)
         df_predScore = df_predScore[
             [
                 x
@@ -2749,20 +2752,37 @@ class annotation(object):
             f"labelTransfer_score_seurat_{refLabel}"
         ].pipe(lambda df: np.select([df.max(1) > cutoff], [df.idxmax(1)], "unknown"))
 
-        R("adR_ref[['RNA']]@data = as.matrix(adR_ref[['RNA']]@data)")
-        R("adR_query[['RNA']]@data = as.matrix(adR_query[['RNA']]@data)")
-        R(
-            f"""
-        anchor <- FindIntegrationAnchors(list(adR_query, adR_ref), anchor.features=arR_features, dims = 1:{npcs})
-        adR_integrated <- IntegrateData(anchorset=anchor, normalization.method = "LogNormalize")
-        adR_integrated <- ScaleData(adR_integrated)
-        adR_integrated <- RunPCA(object=adR_integrated, features=arR_features)
-        adR_integrated <- RunUMAP(object=adR_integrated, dims=1:{npcs})
-        """
+        rSet(
+            adR_ref,
+            rBase.as_matrix(rGet(adR_ref, "@assays", "$RNA", "@data")),
+            "@assays",
+            "$RNA",
+            "@data",
         )
-        ad_integrated = r2py(
-            seurat.as_SingleCellExperiment(ro.globalenv["adR_integrated"])
+        rSet(
+            adR_query,
+            rBase.as_matrix(rGet(adR_query, "@assays", "$RNA", "@data")),
+            "@assays",
+            "$RNA",
+            "@data",
         )
+        anchor = seurat.FindIntegrationAnchors(
+            trl(R.list(adR_query, adR_ref)),
+            anchor_features=trl(arR_features),
+            dims=py2r(np.arange(0, npcs) + 1),
+        )
+        adR_integrated = seurat.IntegrateData(
+            anchorset=trl(anchor), normalization_method="LogNormalize"
+        )
+        adR_integrated = seurat.ScaleData(trl(adR_integrated))
+        adR_integrated = seurat.RunPCA(
+            object=trl(adR_integrated), features=arR_features
+        )
+        adR_integrated = seurat.RunUMAP(
+            object=trl(adR_integrated), dims=py2r(np.arange(0, npcs) + 1)
+        )
+
+        ad_integrated = r2py(seurat.as_SingleCellExperiment(trl(adR_integrated)))
         ad_integrated.obs["batch"] = ad_integrated.obs.index.str.split("-").str[-1]
         ad_integrated.obs[refLabel] = (
             ad_integrated.obs[refLabel]

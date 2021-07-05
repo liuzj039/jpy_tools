@@ -82,15 +82,16 @@ def py2r(x, name=None):
     from rpy2.robjects import numpy2ri, pandas2ri
     from rpy2.robjects.conversion import localconverter
     import anndata2ri
+
     if not name:
-        name = ''
+        name = ""
 
     print(f"transfer data to R: {name} start", end="")
 
     if sp.issparse(x):
         # workaround for: https://github.com/theislab/anndata2ri/issues/47
         x = anndata2ri.scipy2ri.py2rpy(x)
-    
+
     with localconverter(
         ro.default_converter
         + numpy2ri.converter
@@ -110,8 +111,9 @@ def r2py(x, name=None):
     from rpy2.robjects import numpy2ri, pandas2ri
     from rpy2.robjects.conversion import localconverter
     import anndata2ri
+
     if not name:
-        name = ''
+        name = ""
 
     print(f"transfer data to python: {name} start", end="")
     try:
@@ -148,3 +150,49 @@ def rHelp(x: str):
     with Capturing() as output:
         str(R.help(x))
     print("\n".join(output[1::2]))
+
+
+def trl(objR):
+    "transfer objR to an unevaluated R language object"
+    from rpy2.robjects import rl
+    import rpy2.robjects as ro
+    import random
+    import string
+    
+    def ranstr(num):
+        salt = ''.join(random.sample(string.ascii_letters, num)) + ''.join(random.sample(string.digits, 5))
+        return salt
+
+    tempName = ranstr(40)
+    ro.globalenv[tempName] = objR
+    return rl(tempName)
+
+
+def rGet(objR, *attrs):
+    _ = objR
+    for attr in attrs:
+        cat = attr[0]
+        attr = attr[1:]
+        cat = {"@": "slots", "$": "rx2"}[cat]
+        _ = eval(f"_.{cat}['{attr}']")
+    return _
+
+
+def rSet(objR, targetObjR, *attrs):
+    _ = objR
+    for attr in attrs[:-1]:
+        cat = attr[0]
+        attr = attr[1:]
+        cat = {"@": "slots", "$": "rx2"}[cat]
+        _ = eval(f"_.{cat}['{attr}']")
+
+    attr = attrs[-1]
+    cat = attr[0]
+    attr = attr[1:]
+    cat = {"@": "slots", "$": "rx2"}[cat]
+    if cat == "slots":
+        _.slots[attr] = targetObjR
+    elif cat == "rx2":
+        _.rx2[attr] = targetObjR
+    else:
+        assert False, "Unknown"
