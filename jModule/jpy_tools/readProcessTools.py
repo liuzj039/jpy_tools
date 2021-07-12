@@ -78,6 +78,8 @@ def writeFasta(read, fh):
         fh: file fh mode w
     @return: None
     """
+    import re
+    read.seq = re.sub("(.{127})", "\\1\n", read.seq, 0, re.DOTALL)
     readContent = f">{read.name}\n{read.seq}\n"
     fh.write(readContent)
 

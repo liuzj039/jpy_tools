@@ -1,0 +1,72 @@
+pipelineDir:
+  /public/home/liuzj/scripts/pipeline/10xAnalysis_concatenatedGenome/snakemake/
+resultDir:
+  /public/home/liuzj/scripts/pipeline/10xAnalysis_concatenatedGenome/snakemake/
+concatenatedStarIndex:
+  /public/home/liuzj/data/fourSpeciesGenome/star/
+cellrangerPath:
+  /public/home/liuzj/softwares/environment/cellranger6
+dt_genome_cellRangerIndex:
+  hg:
+    /public/home/liuzj/data/singleCellRef/hg38_enb/
+  panpan:
+    /public/home/liuzj/data/singleCellRef/panpan/
+  panTro:
+    /public/home/liuzj/data/singleCellRef/panTro/
+  mmul:
+    /public/home/liuzj/data/singleCellRef/mmul_10/
+samples:
+  anteriorCingulateCortex_v2:
+    runCellRanger:
+      - hg
+      - panpan
+      - panTro
+      - mmul
+    sampleDir:
+      '/public/home/liuzj/projects/singleCell/primateBrain/01_data/GSM3638502_FourSpecies_anteriorCingulateCortex/'
+    expectedCell:
+      10000
+    umiLength:
+      10
+    whiteList:
+      /public/home/liuzj/data/10xWhiteList/10xV2.txt
+    includeIntron:
+      True
+    r2Length:
+      98
+  caudateNucleus_v2:
+    runCellRanger:
+      - hg
+      - panpan
+      - panTro
+      - mmul
+    sampleDir:
+      '/public/home/liuzj/projects/singleCell/primateBrain/01_data/GSM3638507_FourSpecies_caudateNucleus/'
+    expectedCell:
+      10000
+    umiLength:
+      10
+    whiteList:
+      /public/home/liuzj/data/10xWhiteList/10xV2.txt
+    includeIntron:
+      True
+    r2Length:
+      98
+  cerebellarGrayMatter_v2:
+    runCellRanger:
+      - hg
+      - panpan
+      - panTro
+      - mmul
+    sampleDir:
+      '/public/home/liuzj/projects/singleCell/primateBrain/01_data/GSM3638513_FourSpecies_cerebellarGrayMatter/'
+    expectedCell:
+      10000
+    umiLength:
+      10
+    whiteList:
+      /public/home/liuzj/data/10xWhiteList/10xV2.txt
+    includeIntron:
+      True
+    r2Length:
+      98

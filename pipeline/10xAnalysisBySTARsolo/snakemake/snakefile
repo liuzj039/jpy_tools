@@ -41,6 +41,7 @@ rule runStarsolo:
         sampleR2 = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'sampleR2'],
         sampleR1 = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'sampleR1'],
     threads:32
+    priority:20
     shell:
         """
 mkdir -p {params.outputDir}
@@ -73,6 +74,7 @@ rule runStarsoloWithAt:
         sampleR2 = lambda wildcard: df_runStarsoloWithAt.at[wildcard.sample, 'sampleR2'],
         sampleR1 = lambda wildcard: df_runStarsoloWithAt.at[wildcard.sample, 'sampleR1'],
     threads:32
+    priority:0
     shell:
         """
 mkdir -p {params.outputDir}

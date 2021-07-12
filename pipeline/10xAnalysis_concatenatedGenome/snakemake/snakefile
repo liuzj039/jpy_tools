@@ -1,0 +1,99 @@
+import pandas as pd
+#configfile: "/public/home/liuzj/scripts/pipeline/10xAnalysis_concatenatedGenome/snakemake/config.yaml"
+pipelineDir = config['pipelineDir']
+resultDir = config["resultDir"].rstrip("/") + "/"
+pipelineDir = config["pipelineDir"].rstrip("/") + "/"
+sampleLs = list(config['samples'].keys())
+import glob
+
+df_runStarsolo = pd.DataFrame(config["samples"]).T
+df_runStarsolo = df_runStarsolo.assign(
+    starIndex=config["concatenatedStarIndex"], outputDir=df_runStarsolo.index + "/"
+)
+df_runStarsolo["sampleR2"] = df_runStarsolo["sampleDir"].map(
+    lambda x: ",".join(glob.glob(f"{x}/*R2*.fastq.gz"))
+)
+df_runStarsolo["sampleR1"] = df_runStarsolo["sampleDir"].map(
+    lambda x: ",".join(glob.glob(f"{x}/*R1*.fastq.gz"))
+)
+for column in ['outputDir']:
+    df_runStarsolo[column] = resultDir + 'step1_runStarsolo/' + df_runStarsolo[column]
+
+df_runCellRanger = pd.DataFrame(config['samples']).T
+
+df_runCellRanger = df_runCellRanger.explode("runCellRanger")
+df_runCellRanger.index = df_runCellRanger.index + "_" + df_runCellRanger.runCellRanger
+df_runCellRanger['cellRangerIndex'] = df_runCellRanger['runCellRanger'].map(config['dt_genome_cellRangerIndex'])
+df_runCellRanger['id'] = df_runCellRanger.index
+df_runCellRanger['outDir'] = df_runCellRanger.index
+sample_specieLs = df_runCellRanger.index.to_list()
+for column in ['outDir']:
+    df_runCellRanger[column] = resultDir + 'step2_runCellRanger/' + df_runCellRanger[column]
+
+rule all:
+    input:
+        runStarsoloFinished = [resultDir + 'step1_runStarsolo/' + "" + sample + ".finished" for sample in sampleLs],
+        runCellRangerFinished = [resultDir + 'step2_runCellRanger/' + "" + sample_specie + ".finished" for sample_specie in sample_specieLs],
+
+rule runStarsolo:
+    input:
+        sampleDir = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'sampleDir'],
+    output:
+        runStarsoloFinished = resultDir + 'step1_runStarsolo/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        expectedCell = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'expectedCell'],
+        umiLength = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'umiLength'],
+        whiteList = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'whiteList'],
+        includeIntron = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'includeIntron'],
+        starIndex = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'starIndex'],
+        outputDir = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'outputDir'],
+        sampleR2 = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'sampleR2'],
+        sampleR1 = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'sampleR1'],
+    threads:56
+    priority:20
+    shell:
+        """
+mkdir -p {params.outputDir}
+cd {params.outputDir}
+if [ {params.includeIntron} = True ]
+then
+    STAR --runThreadN {threads} --genomeDir {params.starIndex} --soloType CB_UMI_Simple --soloCBwhitelist {params.whiteList}        --soloUMIlen {params.umiLength} --readFilesIn {params.sampleR2} {params.sampleR1} --soloFeatures Gene GeneFull Velocyto        --clipAdapterType CellRanger4 --outFilterScoreMin 30 --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR        --soloUMIdedup 1MM_CR --soloCellFilter  EmptyDrops_CR {params.expectedCell} 0.99 10 45000 90000 500 0.01 20000 0.01 10000         --readFilesCommand zcat --soloBarcodeReadLength 150
+else
+    STAR --runThreadN {threads} --genomeDir {params.starIndex} --soloType CB_UMI_Simple --soloCBwhitelist {params.whiteList}        --soloUMIlen {params.umiLength} --readFilesIn {params.sampleR2} {params.sampleR1} --soloFeatures Gene Velocyto        --clipAdapterType CellRanger4 --outFilterScoreMin 30 --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR        --soloUMIdedup 1MM_CR --soloCellFilter  EmptyDrops_CR {params.expectedCell} 0.99 10 45000 90000 500 0.01 20000 0.01 10000         --readFilesCommand zcat --soloBarcodeReadLength 150
+fi
+samtools view -@ {threads} -S -O BAM ./Aligned.out.sam  | samtools sort -@ {threads} - -O BAM -o ./Aligned.out.bam
+samtools index -@ {threads} ./Aligned.out.bam
+rm ./Aligned.out.sam
+touch {output.runStarsoloFinished}
+        """
+
+rule runCellRanger:
+    input:
+        sampleDir = lambda wildcard: df_runCellRanger.at[wildcard.sample_specie, 'sampleDir'],
+    output:
+        runCellRangerFinished = resultDir + 'step2_runCellRanger/' + '{sample_specie}.finished',
+    params:
+        gpu = 0,
+        includeIntron = lambda wildcard: df_runCellRanger.at[wildcard.sample_specie, 'includeIntron'],
+        expectedCell = lambda wildcard: df_runCellRanger.at[wildcard.sample_specie, 'expectedCell'],
+        r2Length = lambda wildcard: df_runCellRanger.at[wildcard.sample_specie, 'r2Length'],
+        id = lambda wildcard: df_runCellRanger.at[wildcard.sample_specie, 'id'],
+        outDir = lambda wildcard: df_runCellRanger.at[wildcard.sample_specie, 'outDir'],
+        cellRangerIndex = lambda wildcard: df_runCellRanger.at[wildcard.sample_specie, 'cellRangerIndex'],
+    threads:48
+    priority:0
+    shell:
+        """
+mkdir -p {params.outDir}
+cd {params.outDir}
+if [ {params.includeIntron} = True ]
+then
+    cellranger6 count --id {params.id} --include-introns --transcriptome {params.cellRangerIndex} --fastqs {input.sampleDir} --expect-cells {params.expectedCell} --localcores {threads} --r2-length {params.r2Length}
+else
+    cellranger6 count --id {params.id} --transcriptome {params.cellRangerIndex} --fastqs {input.sampleDir} --expect-cells {params.expectedCell} --localcores {threads} --r2-length {params.r2Length}
+fi
+touch {output.runCellRangerFinished}
+        """
+
+

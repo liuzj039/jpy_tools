@@ -129,6 +129,7 @@ class SnakeRule(object):
         threads: int,
         gpu: int = 0,
         outFile: str = "{sample}.finished",
+        priority: int = 0,
     ):
         self.name = name
         self.step = None
@@ -136,6 +137,7 @@ class SnakeRule(object):
         self.snakeFile.addRule(self)  # step will be updated
         self.threads = threads
         self.gpu = gpu
+        self.priority = f"{' ' * 4}priority:{priority}\n"
 
         self.code = ""
         self.metaDfName = ""
@@ -250,7 +252,7 @@ for column in {needAddRuleDirLs}:
         )
 
     def getMain(self):
-        return f"{self.main}{self.input}{self.output}{self.params}{self.threads}{self.shell}"
+        return f"{self.main}{self.input}{self.output}{self.params}{self.threads}{self.priority}{self.shell}"
 
     @staticmethod
     def getAttrFromDfInSnakemake(
