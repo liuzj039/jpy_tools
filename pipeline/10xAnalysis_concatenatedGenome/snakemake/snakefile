@@ -81,7 +81,7 @@ rule runCellRanger:
         id = lambda wildcard: df_runCellRanger.at[wildcard.sample_specie, 'id'],
         outDir = lambda wildcard: df_runCellRanger.at[wildcard.sample_specie, 'outDir'],
         cellRangerIndex = lambda wildcard: df_runCellRanger.at[wildcard.sample_specie, 'cellRangerIndex'],
-    threads:48
+    threads:36
     priority:0
     shell:
         """

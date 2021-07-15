@@ -224,7 +224,18 @@ def _it_sol(
     return g_new, d_new
 
 
-def normalizeByCombatFocuesOnMock(adata, batchKey, normlizeKey, mockName, layer=None):
+def normalizeByCombatFocuesOnMock(adata, batchKey, normlizeKey, mockName, layer=None, outLayer='combat_with_bg'):
+    """
+    use combat
+
+    Parameters
+    ----------
+    adata : 
+    batchKey : 
+    normlizeKey : 
+    mockName :
+    layer : must be raw count
+    """
     from .singleCellTools import basic
 
     key = batchKey
@@ -325,4 +336,5 @@ def normalizeByCombatFocuesOnMock(adata, batchKey, normlizeKey, mockName, layer=
         bayesdata * np.dot(vpsq, np.ones((1, bayesdata.shape[1]))) + stand_mean_all
     )
 
-    adataOrg.X = bayesdata.values.T
+    adataOrg.layers[outLayer] = bayesdata.values.T
+    basic.setLayerInfo(adataOrg, **{outLayer: 'raw'})
