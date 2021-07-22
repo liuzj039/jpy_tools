@@ -85,8 +85,9 @@ def py2r(x, name=None):
 
     if not name:
         name = ""
+    objType = type(x)
 
-    print(f"transfer data to R: {name} start", end="")
+    print(f"transfer `{objType}` to R: {name} start", end="")
 
     if sp.issparse(x):
         # workaround for: https://github.com/theislab/anndata2ri/issues/47
@@ -99,7 +100,7 @@ def py2r(x, name=None):
         + anndata2ri.converter
     ):
         x = ro.conversion.py2rpy(x)
-    print("\r" + f"transfer data to R: {name} End  ", flush=True)
+    print("\r" + f"transfer `{objType}` to R: {name} End  ", flush=True)
     return x
 
 
@@ -114,8 +115,9 @@ def r2py(x, name=None):
 
     if not name:
         name = ""
+    objType = list(x.rclass)[0]
 
-    print(f"transfer data to python: {name} start", end="")
+    print(f"transfer `{objType}` to python: {name} start", end="")
     try:
         with localconverter(
             ro.default_converter
@@ -129,7 +131,7 @@ def r2py(x, name=None):
     except TypeError:
         # workaround for: https://github.com/theislab/anndata2ri/issues/47
         x = anndata2ri.scipy2ri.rpy2py(x)
-    print("\r" + f"transfer data to python: {name} End  ", flush=True)
+    print("\r" + f"transfer `{objType}` to python: {name} End  ", flush=True)
     return x
 
 
@@ -169,30 +171,48 @@ def trl(objR):
 
 
 def rGet(objR, *attrs):
+    import rpy2.robjects as ro
     _ = objR
     for attr in attrs:
-        cat = attr[0]
-        attr = attr[1:]
-        cat = {"@": "slots", "$": "rx2"}[cat]
-        _ = eval(f"_.{cat}['{attr}']")
+        if attr[0] in ["@", "$"]:
+            cat = attr[0]
+            attr = attr[1:]
+            cat = {"@": "slots", "$": "rx2"}[cat]
+            _ = eval(f"_.{cat}['{attr}']")
+        else:
+            if isinstance(_, ro.methods.RS4):
+                _ = _.slots[attr]
+            else:
+                _ = _.rx2[attr]
     return _
 
 
 def rSet(objR, targetObjR, *attrs):
+    import rpy2.robjects as ro
     _ = objR
     for attr in attrs[:-1]:
+        if attr[0] in ["@", "$"]:
+            cat = attr[0]
+            attr = attr[1:]
+            cat = {"@": "slots", "$": "rx2"}[cat]
+            _ = eval(f"_.{cat}['{attr}']")
+        else:
+            if isinstance(_, ro.methods.RS4):
+                _ = _.slots[attr]
+            else:
+                _ = _.rx2[attr]
+
+    attr = attrs[-1]
+    if attr[0] in ["@", "$"]:
         cat = attr[0]
         attr = attr[1:]
         cat = {"@": "slots", "$": "rx2"}[cat]
-        _ = eval(f"_.{cat}['{attr}']")
-
-    attr = attrs[-1]
-    cat = attr[0]
-    attr = attr[1:]
-    cat = {"@": "slots", "$": "rx2"}[cat]
-    if cat == "slots":
-        _.slots[attr] = targetObjR
-    elif cat == "rx2":
-        _.rx2[attr] = targetObjR
+        if cat == "slots":
+            _.slots[attr] = targetObjR
+        elif cat == "rx2":
+            _.rx2[attr] = targetObjR
     else:
-        assert False, "Unknown"
+        if isinstance(_, ro.methods.RS4):
+            _.slots[attr] = targetObjR
+        else:
+            _.rx2[attr] = targetObjR

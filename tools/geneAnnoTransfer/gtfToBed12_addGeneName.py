@@ -34,9 +34,34 @@ def main(inPath, gtfToGpPath, gpToBedPath):
             "Strand": lambda x: x.iat[0],
         }
     )
+    df_geneBed = df_geneBed.reset_index().pipe(lambda df:df.assign(
+        Name=df['Gene'] + '||' + df['Gene'],
+        Score=0,
+        ThickStart=df['Start'],
+        ThickEnd=df['End'],
+        ItemRGB=0.0,
+        BlockCount=1,
+        BlockSizes=(df['End']-df['Start']).astype(str) + ',',
+        BlockStarts='0,'
+    ))
     df_bed = pd.concat([df_bed, df_geneBed]).sort_values(['Chromosome', 'Start'])
-    df_bed = df_bed.drop(columns='Gene',)
-    bed = pr.PyRanges(df_bed)
-    bed.to_bed(f"{bedPath}.addedGene.bed")
+    df_bed = df_bed.reindex(
+        columns=[
+            "Chromosome",
+            "Start",
+            "End",
+            "Name",
+            "Score",
+            "Strand",
+            "ThickStart",
+            "ThickEnd",
+            "ItemRGB",
+            "BlockCount",
+            "BlockSizes",
+            "BlockStarts",
+        ]
+    )
+    df_bed['ItemRGB'] = df_bed['ItemRGB'].astype(int)
+    df_bed.to_csv(f"{bedPath}.addedGene.bed", sep='\t', index=None, header=None)
 
 main()

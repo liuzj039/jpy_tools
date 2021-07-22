@@ -56,3 +56,30 @@ class GtfProcess(object):
         gtf = gtf.query("gene_id not in @removeGene_ls")
         logger.info(f"output feature counts: {len(gtf['gene_id'].unique())}")
         gtf.to_csv(outPath, sep="\t", index=False)
+
+    @staticmethod
+    def addPrerna(gtfPath: str, outPath: Optional[str] = None) -> None:
+        gtf = pr.read_gtf(gtfPath, as_df=True)
+        gtf = gtf[
+            [
+                "Chromosome",
+                "Source",
+                "Feature",
+                "Start",
+                "End",
+                "Score",
+                "Strand",
+                "Frame",
+                "gene_id",
+                "transcript_id",
+            ]
+        ].query("Feature in ['transcript', 'exon']")
+        ls_needPre = gtf.query("Feature == 'exon'").groupby("transcript_id")['Feature'].agg('count').pipe(lambda sr:sr[sr > 1].index).to_list()
+        gtf_tr = gtf.query(f"Feature == 'transcript' & transcript_id in {ls_needPre}")
+        gtf_tr['transcript_id'] = gtf_tr['transcript_id'] + '_pre'
+        gtf = pd.concat([gtf, gtf_tr, gtf_tr.assign(Feature = 'exon')]).sort_values(['Chromosome', 'Start'])
+        gtf = pr.PyRanges(gtf)
+        if not outPath:
+            outPath = gtfPath + '.withPre.gtf'
+        gtf.to_gtf(outPath)
+
