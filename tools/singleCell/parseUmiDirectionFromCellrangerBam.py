@@ -91,6 +91,7 @@ def getSameCbReadIt(bamFilePath):
 def getOneUmiDirection(readLs, trans2GeneDt):
     mappedGene = None
     mappedDirection = None
+    readCounts = 0
     for read in readLs:
         if read['map_quality'] != '255': # unique mapping
             continue
@@ -102,6 +103,7 @@ def getOneUmiDirection(readLs, trans2GeneDt):
             if len(geneName.split(';')) > 1:
                 continue
             readMappedGene = read["tags"]["GX"]
+            readCounts += 1
         elif "AN" in read["tags"]:
             readMappedDirection = -1  # antisense
             transcriptName = read["tags"]["AN"]
@@ -109,6 +111,7 @@ def getOneUmiDirection(readLs, trans2GeneDt):
                 continue
             transcriptName = transcriptName.split(',')[0]
             readMappedGene = trans2GeneDt.get(transcriptName, transcriptName)
+            readCounts += 1
         else:
             continue
 
@@ -116,15 +119,15 @@ def getOneUmiDirection(readLs, trans2GeneDt):
             mappedDirection = readMappedDirection
         else:
             if mappedDirection != readMappedDirection:
-                return None, None
+                return None, None, 0
 
         if not mappedGene:
             mappedGene = readMappedGene
         else:
             if mappedGene != readMappedGene:
-                return None, None
+                return None, None, 0
 
-    return mappedDirection, mappedGene
+    return mappedDirection, mappedGene, readCounts
 
 
 def processOneCell(bcNameWithReadsList, trans2GeneDt, i):
@@ -137,9 +140,9 @@ def processOneCell(bcNameWithReadsList, trans2GeneDt, i):
     bcList = [x for x in bcList if "UB" in x["tags"]]
     bcList.sort(key=lambda x: x["tags"]["UB"])
     for umi, readLs in getOneUmiReadIt(bcList):
-        umiDirection, umiMappedGene = getOneUmiDirection(readLs, trans2GeneDt)
+        umiDirection, umiMappedGene, umiReadCounts = getOneUmiDirection(readLs, trans2GeneDt)
         if umiDirection:
-            bcUmiDirectionLs.append(f"{bcName}_{umi}\t{umiMappedGene}\t{umiDirection}")
+            bcUmiDirectionLs.append(f"{bcName}_{umi}\t{umiMappedGene}\t{umiDirection}\t{umiReadCounts}")
 
 
     resultStr = "\n".join(bcUmiDirectionLs)
@@ -218,7 +221,7 @@ def main(cellRangerBamPath, outPath, threads, bedPath, samtoolsPath, barcodePath
 
     logger.info("start to parse bam")
     with open(outPath, "w") as fh:
-        print("barcodeUmi\tGene\tDirection", file=fh)
+        print("barcodeUmi\tGene\tDirection\treadCounts", file=fh)
         for i, bcNameWithReadsList in enumerate(getSameCbReadIt(sortedFilePath)):
             bcInfoStr = processOneCell(bcNameWithReadsList, trans2GeneDt, i)
             if bcInfoStr:
