@@ -75,23 +75,83 @@ from xarray import corr
 class basic(object):
     @staticmethod
     def splitAdata(
-        adata: anndata.AnnData, batchKey: str, copy=True
+        adata: anndata.AnnData,
+        batchKey: str,
+        copy=True,
+        axis: Literal[0, "cell", 1, "feature"] = 0,
     ) -> Iterator[anndata.AnnData]:
-        assert batchKey in adata.obs.columns, f"{batchKey} not detected in adata"
-        indexName = "index" if (not adata.obs.index.name) else adata.obs.index.name
-        adata.obs["_group"] = adata.obs[batchKey]
-        batchObsLs = (
-            adata.obs.filter(["_group"])
-            .reset_index()
-            .groupby("_group")[indexName]
-            .agg(list)
+        if axis in [0, "cell"]:
+            assert batchKey in adata.obs.columns, f"{batchKey} not detected in adata"
+            indexName = "index" if (not adata.obs.index.name) else adata.obs.index.name
+            adata.obs["__group"] = adata.obs[batchKey]
+            batchObsLs = (
+                adata.obs.filter(["__group"])
+                .reset_index()
+                .groupby("__group")[indexName]
+                .agg(list)
+            )
+            del adata.obs["__group"]
+            for batchObs in tqdm(batchObsLs):
+                if copy:
+                    yield adata[batchObs].copy()
+                else:
+                    yield adata[batchObs]
+        elif axis in [1, "feature"]:
+            assert batchKey in adata.var.columns, f"{batchKey} not detected in adata"
+            indexName = "index" if (not adata.var.index.name) else adata.var.index.name
+            adata.var["__group"] = adata.var[batchKey]
+            batchVarLs = (
+                adata.var.filter(["__group"])
+                .reset_index()
+                .groupby("__group")[indexName]
+                .agg(list)
+            )
+            del adata.var["__group"]
+            for batchVar in tqdm(batchVarLs):
+                if copy:
+                    yield adata[:, batchVar].copy()
+                else:
+                    yield adata[:, batchVar]
+        else:
+            assert False, "Unknown `axis` parameter"
+
+    @staticmethod
+    def groupAdata(adata: sc.AnnData, batchKey: str, function, axis=0, **params):
+        def __concatAd(ls_result, axis, ls_indexOrder, ls_batchContents):
+            ad_final = sc.concat(ls_result, axis=axis)
+            ad_final = (
+                ad_final[ls_indexOrder]
+                if axis in [0, "cell"]
+                else ad_final[:, ls_indexOrder]
+            )
+            return ad_final
+
+        def __concatDf(ls_result, axis, ls_indexOrder, ls_batchContents):
+            df_final = pd.concat(ls_result, axis=1)
+            df_final.columns = ls_batchContents
+            return df_final
+
+        ls_indexOrder = adata.obs.index if axis in [0, "cell"] else adata.var.index
+
+        ls_batchContents = (
+            list(adata.obs[batchKey].sort_values().unique())
+            if axis in [0, "cell"]
+            else list(adata.var[batchKey].sort_values().unique())
         )
-        del adata.obs["_group"]
-        for batchObs in batchObsLs:
-            if copy:
-                yield adata[batchObs].copy()
-            else:
-                yield adata[batchObs]
+
+        it_ad = basic.splitAdata(adata, batchKey, copy=False, axis=axis)
+        ls_result = []
+        for _ad in it_ad:
+            ls_result.append(function(_ad, **params))
+
+        if isinstance(ls_result[0], sc.AnnData):
+            return __concatAd(ls_result, axis, ls_indexOrder, ls_batchContents)
+        elif isinstance(ls_result[0], pd.DataFrame) | isinstance(
+            ls_result[0], pd.Series
+        ):
+            return __concatDf(ls_result, axis, ls_indexOrder, ls_batchContents)
+        else:
+            assert False, "Unsupported data type"
 
     @staticmethod
     def getPartialLayersAdata(
@@ -1546,7 +1606,7 @@ class normalize(object):
         -------
         Optional[anndata.AnnData]
             [description]
-        """    
+        """
 
         import scipy.sparse as ss
         import pysctransform
@@ -1584,7 +1644,7 @@ class normalize(object):
             ls_cellAttr.append(batch_key)
         df_cellAttr = adata.obs[ls_cellAttr]
 
-        mtx = adata.X if layer == 'X' else adata.layers[layer]
+        mtx = adata.X if layer == "X" else adata.layers[layer]
         vst_out = pysctransform.vst(
             mtx.T,
             gene_names=adata.var_names.tolist(),
@@ -1599,7 +1659,7 @@ class normalize(object):
             cell_attr=df_cellAttr,
             min_cells=min_cells,
             threads=threads,
-            verbosity=1
+            verbosity=1,
         )
         residuals = pysctransform.get_hvg_residuals(
             vst_out, n_top_genes, res_clip_range
@@ -1610,10 +1670,10 @@ class normalize(object):
         if correct_counts:
             adata.layers["sct_corrected"] = vst_out["corrected_counts"].T
             if log_scale_correct:
-                sc.pp.log1p('sct_corrected')
-                basic.setLayerInfo(adata, sct_corrected='log-normalized')
+                sc.pp.log1p("sct_corrected")
+                basic.setLayerInfo(adata, sct_corrected="log-normalized")
             else:
-                basic.setLayerInfo(adata, sct_corrected='raw')
+                basic.setLayerInfo(adata, sct_corrected="raw")
         if copy:
             return adata
 

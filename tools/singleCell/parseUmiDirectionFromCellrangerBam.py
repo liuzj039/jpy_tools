@@ -39,7 +39,7 @@ def sortBam(cellRangerBamPath, threads, samtoolsPath, barcodePath):
             os.system(f"LC_ALL=C grep -F 'CB:Z' {sortedByCBSamPath} > {sortedOnlyCBSamPath}")
         logger.info("start to transform sam to bam")
         os.system(
-            f"cat {samHeaderPath} {sortedOnlyCBSamPath} | {samtoolsPath} view -F 4 -Sb -@ {threads} -o {sortedOnlyCBBamPath}"
+            f"cat {samHeaderPath} {sortedOnlyCBSamPath} | {samtoolsPath} view -F 4 -Sb -@ {threads} - -o {sortedOnlyCBBamPath}"
         )
         os.system(f"rm {sortedByCBSamPath} {samHeaderPath} {sortedOnlyCBSamPath}")
 
