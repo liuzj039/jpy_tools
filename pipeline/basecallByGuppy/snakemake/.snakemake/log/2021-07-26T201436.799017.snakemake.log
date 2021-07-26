@@ -1,0 +1,26 @@
+Building DAG of jobs...
+Job counts:
+	count	jobs
+	1	all
+	12	basecall
+	13
+
+[Mon Jul 26 20:14:40 2021]
+rule basecall:
+    input: /scem/work/liuzj/projects/mouse/basecalledFastq/step1_splitH5/all.finished
+    output: /scem/work/liuzj/projects/mouse/basecalledFastq/step2_basecall/all7.finished
+    jobid: 9
+    wildcards: sampleSplit=all7
+
+InputFunctionException in line 72 of /scem/work/liuzj/github/Liuzj_allScripts/pipeline/basecallByGuppy/snakemake/snakefile:
+Error:
+  NameError: name 'sample' is not defined
+Wildcards:
+  sampleSplit=all7
+Traceback:
+  File "/scem/work/liuzj/github/Liuzj_allScripts/pipeline/basecallByGuppy/snakemake/snakefile", line 44, in parseDfToParams_basecall_splitH5_need_h5
+  File "/scem/work/liuzj/softwares/anaconda/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 136, in run_jobs
+  File "/scem/work/liuzj/softwares/anaconda/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 145, in run
+  File "/scem/work/liuzj/softwares/anaconda/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 156, in _run
+  File "/scem/work/liuzj/softwares/anaconda/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 176, in printjob
+  File "/scem/work/liuzj/softwares/anaconda/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 162, in printjob

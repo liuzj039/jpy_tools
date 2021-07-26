@@ -128,7 +128,7 @@ class SnakeRule(object):
         name: str,
         threads: int,
         gpu: int = 0,
-        outFile: str = "{sample}.finished",
+        wildCard: str = "sample",
         priority: int = 0,
     ):
         self.name = name
@@ -139,12 +139,14 @@ class SnakeRule(object):
         self.gpu = gpu
         self.priority = f"{' ' * 4}priority:{priority}\n"
 
-        self.code = ""
+        self.code = "\n"
         self.metaDfName = ""
         self.needRuleLs = []
         self.input = " " * 4 + "input:\n"
         self.params = " " * 4 + "params:\n" + " " * 8 + f"gpu = {self.gpu},\n"
-        self.outFile = outFile
+        # self.outFile = outFile
+        self.wildCard = wildCard
+        self.outFile = f"{{{self.wildCard}}}.finished"
         self.outputDir = self.snakeFile.resultDir + f" + 'step{self.step}_{self.name}/'"
         self.output = (
             " " * 4
@@ -165,7 +167,9 @@ class SnakeRule(object):
     def addCode(self, code: str):
         self.code += code.strip("\n") + "\n"
 
-    def addMetaDf(self, metaDfName: str, needAddRuleDirLs: Optional[Sequence[str]] = None):
+    def addMetaDf(
+        self, metaDfName: str, needAddRuleDirLs: Optional[Sequence[str]] = None
+    ):
         """
         add meta dataframe to snakerule. All meta information should store in this dataframe
 
@@ -191,8 +195,7 @@ for column in {needAddRuleDirLs}:
         category: Literal["input", "params"],
         useColLs: Union[str, Sequence[str]],
         fromRule: Optional[SnakeRule] = None,
-        gatherInfoDt: Mapping[str, str] = {},
-        wildCardName: str = "sample",
+        wildCardName: optional[str] = None,
     ):
         """
         add info to input\params\output based on dataframe
@@ -211,25 +214,44 @@ for column in {needAddRuleDirLs}:
             e.g. : {'inputFile': 'sampleLs'}
             by default {}.
         wildCardName : str, optional
-            by default 'sample'
+            by default 'self.wildCard'
         """
         if isinstance(useColLs, str):
             useColLs = [useColLs]
         if not fromRule:
             fromRule = self
+            wildCardName = fromRule.wildCard
         else:
-            self.input += " " * 8 + f"{fromRule.name}Finished = {fromRule.outputDir} + '{fromRule.outFile}',\n"
+            wildCardName = fromRule.wildCard
+            if wildCardName == self.wildCard:
+                self.input += (
+                    " " * 8
+                    + f"{fromRule.name}Finished = {fromRule.outputDir} + '{fromRule.outFile}',\n"
+                )
+            else:
+                self.code += '\n' + self.parseDfToInput(fromRule).strip() + '\n'
+                self.input += (" " * 8 + f"{fromRule.name}Finished = parseDfToInput_{self.name}_{fromRule.name},\n")
+                # self.input += (
+                #     " " * 8
+                #     + f"{fromRule.name}Finished = lambda wildcard: {fromRule.outputDir} + {self.metaDfName}.at[wildcard.{self.wildCard}, '{fromRule.wildCard}'] + '.finished',\n"
+                # )
 
         metaInfoStr = ""
         for col in useColLs:
-            if col in gatherInfoDt:
-                colAttr = self.getAttrFromDfInSnakemake(
-                    fromRule.metaDfName, col, wildCardName, gatherInfoDt[col]
-                )
+            if wildCardName == self.wildCard:
+                colAttr = f"{col} = lambda wildcard: {fromRule.metaDfName}.at[wildcard.{wildCardName}, '{col}']"
             else:
-                colAttr = self.getAttrFromDfInSnakemake(
-                    fromRule.metaDfName, col, wildCardName
-                )
+                self.code += '\n' + self.parseDfToParams(fromRule, col).strip() + '\n'
+                colAttr = f"{col} = parseDfToParams_{self.name}_{fromRule.name}_{col}"
+
+            # if col in gatherInfoDt:
+            #     colAttr = self.getAttrFromDfInSnakemake(
+            #         fromRule.metaDfName, col, wildCardName, gatherInfoDt[col]
+            #     )
+            # else:
+            #     colAttr = self.getAttrFromDfInSnakemake(
+            #         fromRule.metaDfName, col, wildCardName
+            #     )
             metaInfoStr += " " * 8 + colAttr + ",\n"
         if category == "input":
             self.input += metaInfoStr
@@ -254,43 +276,73 @@ for column in {needAddRuleDirLs}:
     def getMain(self):
         return f"{self.main}{self.input}{self.output}{self.params}{self.threads}{self.priority}{self.shell}"
 
-    @staticmethod
-    def getAttrFromDfInSnakemake(
-        dfName: str,
-        col: str,
-        wildCardName: str = "sample",
-        rowNameLsName: Optional[str] = None,
-    ) -> str:
-        """
-        if not providing <rowNameLsName>:
+    def parseDfToInput(self, fromRule:'SnakeRule'):
+        df, selfWildCard, fromWildCard, fromResultDir = self.metaDfName, self.wildCard, fromRule.wildCard, fromRule.outputDir
+        str_fc = f"""
+def parseDfToInput_{self.name}_{fromRule.name}(wildcard):
+    selfWildCardUnique = True
+    if isinstance({df}.at[wildcard.{selfWildCard}, '{fromWildCard}'], list):
+        selfWildCardUnique = False
+    if selfWildCardUnique:
+        return {fromResultDir} + {df}.at[wildcard.{selfWildCard}, '{fromWildCard}'] + '.finished'
+    else:
+        return [{fromResultDir} + x + '.finished' for x in {df}.loc[wildcard.{selfWildCard}, '{fromWildCard}']]
+            """
+        return str_fc
+    
+    def parseDfToParams(self, fromRule:'SnakeRule', useCol:str):
+        df, selfWildCard, fromWildCard, fromDf = self.metaDfName, self.wildCard, fromRule.wildCard, fromRule.metaDfName
+        str_fc = f"""
+def parseDfToParams_{self.name}_{fromRule.name}_{useCol}(wildcard):
+    selfWildCardUnique = True
+    if isinstance({df}.at[wildcard.{selfWildCard}, '{fromWildCard}'], list):
+        selfWildCardUnique = False
+    if selfWildCardUnique:
+        fromSampleName = {df}.at[wildcard.{selfWildCard}, '{fromWildCard}']
+        return {fromDf}.at[fromSampleName, '{useCol}']
+    else:
+        ls_fromSampleName = {df}.loc[wildcard.{selfWildCard}, '{fromWildCard}']
+        return [{fromDf}.at[x, '{useCol}'] for x in ls_fromSampleName]
+            """
+        return str_fc
 
-            getAttrFromDfInSnakemake('cellRangerMetaDf', 'input', 'sample')  ---->
+    # @staticmethod
+    # def getAttrFromDfInSnakemake(
+    #     dfName: str,
+    #     col: str,
+    #     wildCardName: str = "sample",
+    #     rowNameLsName: Optional[str] = None,
+    # ) -> str:
+    #     """
+    #     if not providing <rowNameLsName>:
 
-                input = lambda wildcard: cellRangerMetaDf.at[wildcard.sample, 'input']
+    #         getAttrFromDfInSnakemake('cellRangerMetaDf', 'input', 'sample')  ---->
 
-        if providing:
+    #             input = lambda wildcard: cellRangerMetaDf.at[wildcard.sample, 'input']
 
-            getAttrFromDfInSnakemake('cellRangerMetaDf', 'input', 'sample', 'sampleLs')  ---->
+    #     if providing:
 
-                input = [(lambda x: cellRangerMetaDf.at[x, 'input'])(sample) for sample in sampleLs]
+    #         getAttrFromDfInSnakemake('cellRangerMetaDf', 'input', 'sample', 'sampleLs')  ---->
 
-        Parameters
-        ----------
-        dfName : str
-        col : str
-        wildCardName : str, optional
-            by default 'sample'
-        rowNameLsName : Optional[str], optional
-            by default None
+    #             input = [(lambda x: cellRangerMetaDf.at[x, 'input'])(sample) for sample in sampleLs]
 
-        Returns
-        -------
-        str
-        """
-        if not rowNameLsName:
-            return f"{col} = lambda wildcard: {dfName}.at[wildcard.{wildCardName}, '{col}']"
-        else:
-            return f"{col} = [(lambda x: {dfName}.at[x, '{col}'])({wildCardName}) for {wildCardName} in {rowNameLsName}]"
+    #     Parameters
+    #     ----------
+    #     dfName : str
+    #     col : str
+    #     wildCardName : str, optional
+    #         by default 'sample'
+    #     rowNameLsName : Optional[str], optional
+    #         by default None
+
+    #     Returns
+    #     -------
+    #     str
+    #     """
+    #     if not rowNameLsName:
+    #         return f"{col} = lambda wildcard: {dfName}.at[wildcard.{wildCardName}, '{col}']"
+    #     else:
+    #         return f"{col} = [(lambda x: {dfName}.at[x, '{col}'])({wildCardName}) for {wildCardName} in {rowNameLsName}]"
 
 
 class SnakeAll(object):
@@ -320,16 +372,17 @@ class SnakeAll(object):
             ), f"More than one wildcard found in {snakeRule.name}:{snakeRule.outFile}"
             if not wildcardLs:
                 self.input += (
-                    " " * 8 + f"{snakeRule.name}Finished = {snakeRule.outputDir} + '{snakeRule.outFile}',\n"
+                    " " * 8
+                    + f"{snakeRule.name}Finished = {snakeRule.outputDir} + '{snakeRule.outFile}',\n"
                 )
             else:
+                ruleDfName = snakeRule.metaDfName
                 wildcard = wildcardLs[0]
                 leftPartStr, rightPartStr = snakeRule.outFile.split(f"{{{wildcard}}}")
                 self.input += (
                     " " * 8
-                    + f'{snakeRule.name}Finished = [{snakeRule.outputDir} + "{leftPartStr}" + {wildcard} + "{rightPartStr}" for {wildcard} in {wildcard}Ls],\n'
+                    + f'{snakeRule.name}Finished = [{snakeRule.outputDir} + "{leftPartStr}" + {wildcard} + "{rightPartStr}" for {wildcard} in {ruleDfName}.index],\n'
                 )
-
 
         self.main = "rule all:\n" + self.input
 

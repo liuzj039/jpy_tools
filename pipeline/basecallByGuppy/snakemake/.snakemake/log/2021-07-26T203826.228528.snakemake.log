@@ -1,0 +1,44 @@
+Building DAG of jobs...
+Job counts:
+	count	jobs
+	1	all
+	1	test
+	2
+
+[Mon Jul 26 20:38:26 2021]
+rule test:
+    input: /scem/work/liuzj/projects/mouse/basecalledFastq/step2_basecall/all0.finished, /scem/work/liuzj/projects/mouse/basecalledFastq/step2_basecall/all1.finished, /scem/work/liuzj/projects/mouse/basecalledFastq/step2_basecall/all2.finished, /scem/work/liuzj/projects/mouse/basecalledFastq/step2_basecall/all3.finished, /scem/work/liuzj/projects/mouse/basecalledFastq/step2_basecall/all4.finished, /scem/work/liuzj/projects/mouse/basecalledFastq/step2_basecall/all5.finished, /scem/work/liuzj/projects/mouse/basecalledFastq/step2_basecall/all6.finished, /scem/work/liuzj/projects/mouse/basecalledFastq/step2_basecall/all7.finished, /scem/work/liuzj/projects/mouse/basecalledFastq/step2_basecall/all8.finished, /scem/work/liuzj/projects/mouse/basecalledFastq/step2_basecall/all9.finished, /scem/work/liuzj/projects/mouse/basecalledFastq/step2_basecall/all10.finished, /scem/work/liuzj/projects/mouse/basecalledFastq/step2_basecall/all11.finished
+    output: /scem/work/liuzj/projects/mouse/basecalledFastq/step3_test/all.finished
+    jobid: 1
+    wildcards: sample=all
+
+InputFunctionException in line 120 of /scem/work/liuzj/github/Liuzj_allScripts/pipeline/basecallByGuppy/snakemake/snakefile:
+Error:
+  TypeError: 'sample
+all     all0
+all     all1
+all     all2
+all     all3
+all     all4
+all     all5
+all     all6
+all     all7
+all     all8
+all     all9
+all    all10
+all    all11
+Name: sampleSplit, dtype: object' is an invalid key
+Wildcards:
+  sample=all
+Traceback:
+  File "/scem/work/liuzj/github/Liuzj_allScripts/pipeline/basecallByGuppy/snakemake/snakefile", line 68, in parseDfToParams_test_basecall_nparts
+  File "/scem/work/liuzj/softwares/anaconda/lib/python3.8/site-packages/pandas/core/indexing.py", line 2078, in __getitem__
+  File "/scem/work/liuzj/softwares/anaconda/lib/python3.8/site-packages/pandas/core/indexing.py", line 2025, in __getitem__
+  File "/scem/work/liuzj/softwares/anaconda/lib/python3.8/site-packages/pandas/core/frame.py", line 3014, in _get_value
+  File "pandas/_libs/index.pyx", line 70, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 75, in pandas._libs.index.IndexEngine.get_loc
+  File "/scem/work/liuzj/softwares/anaconda/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 136, in run_jobs
+  File "/scem/work/liuzj/softwares/anaconda/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 145, in run
+  File "/scem/work/liuzj/softwares/anaconda/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 156, in _run
+  File "/scem/work/liuzj/softwares/anaconda/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 176, in printjob
+  File "/scem/work/liuzj/softwares/anaconda/lib/python3.8/site-packages/snakemake/executors/__init__.py", line 162, in printjob

@@ -1,0 +1,96 @@
+import pandas as pd
+#configfile: "/scem/work/liuzj/github/Liuzj_allScripts/pipeline/basecallByGuppy/snakemake/config.yaml"
+pipelineDir = config['pipelineDir']
+resultDir = config["resultDir"].rstrip("/") + "/"
+pipelineDir = config["pipelineDir"].rstrip("/") + "/"
+
+
+import pandas as pd
+dt_h5 = config['input']
+df_splitH5 = pd.DataFrame.from_dict(dt_h5).T
+df_splitH5['dir_output'] = df_splitH5.index + '/'
+for column in ['dir_output']:
+    df_splitH5[column] = resultDir + 'step1_splitH5/' + df_splitH5[column]
+
+
+df_basecall = df_splitH5.copy()
+df_basecall["nparts"] = df_basecall["nparts"].map(lambda x: list(range(x)))
+df_basecall = df_basecall.explode("nparts")
+df_basecall = df_basecall[["nparts", "dir_output"]]
+df_basecall['sample'] = df_basecall.index
+df_basecall.index = df_basecall.index + df_basecall.nparts.astype(str)
+df_basecall.dir_output = df_basecall.dir_output + df_basecall.nparts.astype(str) + '/'
+df_basecall['basecalledDir'] = df_basecall.index + '/'
+df_basecall['guppy'] = config['guppy']
+df_basecall['model'] = config['model']
+for column in ['basecalledDir']:
+    df_basecall[column] = resultDir + 'step2_basecall/' + df_basecall[column]
+
+def parseDfToInput_basecall_splitH5(wildcard):
+    selfWildCardUnique = True
+    if isinstance(df_basecall.at[wildcard.sampleSplit, 'sample'], list):
+        selfWildCardUnique = False
+    if selfWildCardUnique:
+        return resultDir + 'step1_splitH5/' + df_basecall.at[wildcard.sampleSplit, 'sample'] + '.finished'
+    else:
+        return [resultDir + 'step1_splitH5/' + x + '.finished' for x in df_basecall.loc[wildcard.sampleSplit, 'sample']]
+
+def parseDfToParams_basecall_splitH5_need_h5(wildcard):
+    selfWildCardUnique = True
+    if isinstance(df_basecall.at[wildcard.sampleSplit, 'sample'], list):
+        selfWildCardUnique = False
+    if selfWildCardUnique:
+        fromSampleName = df_basecall.at[wildcard.sampleSplit, 'sample']
+        return df_splitH5.at[fromSampleName, 'need_h5']
+    else:
+        ls_fromSampleName = df_basecall.loc[wildcard.sampleSplit, 'sample']
+        return [df_splitH5.at[x, 'need_h5'] for x in ls_fromSampleName]
+
+rule all:
+    input:
+        basecallFinished = [resultDir + 'step2_basecall/' + "" + sampleSplit + ".finished" for sampleSplit in df_basecall.index],
+
+rule splitH5:
+    input:
+        path = lambda wildcard: df_splitH5.at[wildcard.sample, 'path'],
+    output:
+        splitH5Finished = resultDir + 'step1_splitH5/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        nparts = lambda wildcard: df_splitH5.at[wildcard.sample, 'nparts'],
+        dir_output = lambda wildcard: df_splitH5.at[wildcard.sample, 'dir_output'],
+    threads:1
+    priority:0
+    shell:
+        """
+cd {pipelineDir}
+python ./splitFast5ToMultipleDir.py -i {input.path} -o {params.dir_output} -n {params.nparts}
+touch {output.splitH5Finished}
+        """
+
+rule basecall:
+    input:
+        splitH5Finished = parseDfToInput_basecall_splitH5,
+    output:
+        basecallFinished = resultDir + 'step2_basecall/' + '{sampleSplit}.finished',
+    params:
+        gpu = 2,
+        need_h5 = parseDfToParams_basecall_splitH5_need_h5,
+        dir_output = lambda wildcard: df_basecall.at[wildcard.sampleSplit, 'dir_output'],
+        basecalledDir = lambda wildcard: df_basecall.at[wildcard.sampleSplit, 'basecalledDir'],
+        guppy = lambda wildcard: df_basecall.at[wildcard.sampleSplit, 'guppy'],
+        model = lambda wildcard: df_basecall.at[wildcard.sampleSplit, 'model'],
+    threads:18
+    priority:0
+    shell:
+        """
+if [ {params.need_h5} = True ]
+then
+    {params.guppy} -c {params.model} -i {params.dir_output} --qscore_filtering --min_qscore=7 -s {params.basecalledDir} -x "cuda:all:100%" --disable_pings --fast5_out
+else
+    {params.guppy} -c {params.model} -i {params.dir_output} --qscore_filtering --min_qscore=7 -s {params.basecalledDir} -x "cuda:all:100%" --disable_pings
+fi
+touch {output.basecallFinished}
+        """
+
+

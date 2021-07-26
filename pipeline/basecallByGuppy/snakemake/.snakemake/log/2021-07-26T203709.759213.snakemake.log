@@ -1,0 +1,8 @@
+Building DAG of jobs...
+InputFunctionException in line 120 of /scem/work/liuzj/github/Liuzj_allScripts/pipeline/basecallByGuppy/snakemake/snakefile:
+Error:
+  NameError: name 'sampleSplit' is not defined
+Wildcards:
+  sample=all
+Traceback:
+  File "/scem/work/liuzj/github/Liuzj_allScripts/pipeline/basecallByGuppy/snakemake/snakefile", line 55, in parseDfToInput_test_basecall

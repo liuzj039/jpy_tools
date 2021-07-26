@@ -1,0 +1,24 @@
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cluster nodes: 12
+Job counts:
+	count	jobs
+	1	all
+	12	basecall
+	1	splitH5
+	14
+Select jobs to execute...
+
+[Mon Jul 26 19:43:54 2021]
+rule splitH5:
+    input: /scem/work/liuzj/projects/mouse/allFast5/20210723_1345_MN29338_FAQ41752_7386409e/fast5
+    output: /scem/work/liuzj/projects/mouse/basecalledFastq/step1_splitH5/all.finished
+    jobid: 1
+    wildcards: sample=all
+
+
+cd /scem/work/liuzj/github/Liuzj_allScripts/pipeline/basecallByGuppy/scripts/
+python ./splitFast5ToMultipleDir.py -i /scem/work/liuzj/projects/mouse/allFast5/20210723_1345_MN29338_FAQ41752_7386409e/fast5 -o /scem/work/liuzj/projects/mouse/basecalledFastq/step1_splitH5/all/ -n 12
+touch /scem/work/liuzj/projects/mouse/basecalledFastq/step1_splitH5/all.finished
+        
+Submitted job 1 with external jobid 'jsub Id: 202697'.

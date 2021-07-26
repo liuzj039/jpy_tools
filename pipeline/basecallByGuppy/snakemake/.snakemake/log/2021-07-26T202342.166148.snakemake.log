@@ -1,0 +1,4 @@
+TypeError in line 85 of /scem/work/liuzj/github/Liuzj_allScripts/pipeline/basecallByGuppy/snakemake/snakefile:
+can only concatenate str (not "int") to str
+  File "/scem/work/liuzj/github/Liuzj_allScripts/pipeline/basecallByGuppy/snakemake/snakefile", line 85, in <module>
+  File "/scem/work/liuzj/github/Liuzj_allScripts/pipeline/basecallByGuppy/snakemake/snakefile", line 85, in <listcomp>

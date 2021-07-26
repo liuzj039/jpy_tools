@@ -1,0 +1,16 @@
+pipelineDir:
+  /scem/work/liuzj/github/Liuzj_allScripts/pipeline/basecallByGuppy/scripts/
+resultDir:
+  /scem/work/liuzj/projects/mouse/basecalledFastq/
+guppy:
+  ~/softwares/ont-guppy-4.2/bin/guppy_basecaller
+model:
+  ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg
+input:
+  all:
+    path:
+      /scem/work/liuzj/projects/mouse/allFast5/20210723_1345_MN29338_FAQ41752_7386409e/fast5/
+    nparts:
+      12
+    need_h5:
+      False
