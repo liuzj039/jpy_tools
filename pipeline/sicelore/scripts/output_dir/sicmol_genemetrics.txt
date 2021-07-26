@@ -1,0 +1,2 @@
+geneId	nbUmis	nbIsoformSet	nbIsoformNotSet
+Clta	72	53	19
