@@ -29,10 +29,10 @@ if not snakemake mode, PBS_ID is pbsId; else snakemake logpath
     logPath = '/public/home/liuzj/pbslog/'
     if not SNAKEMAKE_MODE:
         try:
-            sh.qdel(pbs_id)
+            sh.Command("/usr/local/torque/bin/qdel")(pbs_id)
             print(f"qdel {pbs_id}")
         except:
-            sh.bkill(pbs_id)
+            sh.Command("/opt/ibm/lsfsuite/lsf/10.1/linux2.6-glibc2.3-x86_64/bin/bkill")pbs_id)
             print(f"bkill {pbs_id}")
     else:
         # pbs_id = pbs_id.split('/')[-1]
