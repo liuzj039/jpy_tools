@@ -1,0 +1,96 @@
+import pandas as pd
+#configfile: "/public/home/liuzj/scripts/pipeline/10xAnalysis/snakemake/config.yaml"
+pipelineDir = config['pipelineDir']
+resultDir = config["resultDir"].rstrip("/") + "/"
+pipelineDir = config["pipelineDir"].rstrip("/") + "/"
+sampleLs = list(config['Samples'].keys())
+cellRangerParamsDt = config["Samples"]
+cellRangerParamsDf = pd.DataFrame(cellRangerParamsDt).T.pipe(
+    lambda df: df.assign(id=df.index, outputDir=df.index)
+)
+cellRangerParamsDf = cellRangerParamsDf.pipe(
+    lambda df: df.assign(
+        bamFile = df.outputDir+ "/" + df.index  + "/outs/possorted_genome_bam.bam",
+        barcodeFile = df.outputDir+ "/" + df.index  + "/outs/filtered_feature_bc_matrix/barcodes.tsv.gz",
+        tenXResultDir = df.outputDir+ "/" + df.index
+    )
+)
+cellRangerParamsDf["cellRangerIndex"] = config["cellRangerIndex"]
+for column in ['outputDir', 'bamFile', 'barcodeFile', 'tenXResultDir']:
+    cellRangerParamsDf[column] = resultDir + 'step1_cellRanger/' + cellRangerParamsDf[column]
+
+parseUmiDrParamsDf = pd.DataFrame(index=sampleLs)
+parseUmiDrParamsDf = parseUmiDrParamsDf.assign(output = lambda df:df.index + '_umiDr.tsv', bed = config['genomeBed'])
+for column in ['output']:
+    parseUmiDrParamsDf[column] = resultDir + 'step2_parseUmiDr/' + parseUmiDrParamsDf[column]
+
+velocytoParamsDf = pd.DataFrame(index=sampleLs)
+velocytoParamsDf = velocytoParamsDf.assign(gtf = config['cellRangerIndex'].rstrip('/') + '/genes/genes.gtf')
+
+rule all:
+    input:
+        parseUmiDrFinished = [resultDir + 'step2_parseUmiDr/' + "" + sample + ".finished" for sample in sampleLs],
+        velocytoFinished = [resultDir + 'step3_velocyto/' + "" + sample + ".finished" for sample in sampleLs],
+
+rule cellRanger:
+    input:
+        fastq = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'fastq'],
+    output:
+        cellRangerFinished = resultDir + 'step1_cellRanger/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        includeIntron = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'includeIntron'],
+        expectCell = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'expectCell'],
+        r2Length = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'r2Length'],
+        id = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'id'],
+        outputDir = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'outputDir'],
+        cellRangerIndex = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'cellRangerIndex'],
+    threads:48
+    shell:
+        """
+mkdir -p {params.outputDir}
+cd {params.outputDir}
+if [ {params.includeIntron} = True ]
+then
+    cellranger6 count --id {params.id} --include-introns --transcriptome {params.cellRangerIndex} --fastqs {input.fastq} --expect-cells {params.expectCell} --localcores {threads} --r2-length {params.r2Length}
+else
+    cellranger6 count --id {params.id} --transcriptome {params.cellRangerIndex} --fastqs {input.fastq} --expect-cells {params.expectCell} --localcores {threads} --r2-length {params.r2Length}
+fi
+touch {output.cellRangerFinished}
+        """
+
+rule parseUmiDr:
+    input:
+        cellRangerFinished = resultDir + 'step1_cellRanger/' + '{sample}.finished',
+    output:
+        parseUmiDrFinished = resultDir + 'step2_parseUmiDr/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        bamFile = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'bamFile'],
+        barcodeFile = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'barcodeFile'],
+        output = lambda wildcard: parseUmiDrParamsDf.at[wildcard.sample, 'output'],
+        bed = lambda wildcard: parseUmiDrParamsDf.at[wildcard.sample, 'bed'],
+    threads:12
+    shell:
+        """
+python ~/scripts/tools/singleCell/parseUmiDirectionFromCellrangerBam.py     -i {params.bamFile} -o {params.output} -t {threads} --bed {params.bed} --barcode {params.barcodeFile}
+touch {output.parseUmiDrFinished}
+        """
+
+rule velocyto:
+    input:
+        cellRangerFinished = resultDir + 'step1_cellRanger/' + '{sample}.finished',
+    output:
+        velocytoFinished = resultDir + 'step3_velocyto/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        tenXResultDir = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'tenXResultDir'],
+        gtf = lambda wildcard: velocytoParamsDf.at[wildcard.sample, 'gtf'],
+    threads:12
+    shell:
+        """
+velocyto run10x -@ {threads} --samtools-memory 2048 {params.tenXResultDir} {params.gtf}
+touch {output.velocytoFinished}
+        """
+
+

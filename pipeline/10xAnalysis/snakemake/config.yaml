@@ -1,0 +1,29 @@
+cellRangerPath:
+  '/public/home/liuzj/softwares/environment/cellranger6'
+cellRangerIndex:
+  '/public/home/liuzj/data/singleCellRef/mm10_UCSC_ensGene'
+resultDir:
+  '/public/home/liuzj/projects/singleCell/singleCellMouseNeuron/01_data/publicData/'
+pipelineDir:
+  '/public/home/liuzj/projects/singleCell/singleCellMouseNeuron/01_data/publicData/'
+genomeBed:
+  '/public/home/liuzj/data/mm10_UCSC/mm10.ensGene.noScaffold.gtf.changeTrsId.bed'
+Samples:
+  artis_A3:
+    fastq:
+      /public/home/liuzj/projects/singleCell/singleCellMouseNeuron/01_data/publicData/SRR9895509_medialPrefrontalCortex/artis_A3
+    includeIntron:
+      True
+    expectCell:
+      5000
+    r2Length:
+      91
+  artis_A4:
+    fastq:
+      /public/home/liuzj/projects/singleCell/singleCellMouseNeuron/01_data/publicData/allen_biorxiv/Raw_data_scRNA_10X_v3_A
+    includeIntron:
+      True
+    expectCell:
+      5000
+    r2Length:
+      91

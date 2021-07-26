@@ -1,0 +1,49 @@
+configfile: "/public/home/liuzj/scripts/pipeline/10xAnalysis/snakemake/config.yaml"
+pipelineDir = config['pipelineDir']
+
+Samples = config['Samples']
+sampleLs = list(Samples.keys())
+
+def text(x):
+    print(x)
+    print(type(x))
+
+    return Samples[getattr(x, 'sample')]['fastq']
+    # return Samples[x.sample]["fastq"]
+def texttext(x):
+    return Samples[x]['fastq']
+
+rule all:
+    input:
+         '/public/home/liuzj/softwares/aa.blank'
+
+rule runCellRanger:
+    input:
+        fastqLoc = text
+    output:
+        finished = f"{config['resultDir']}step1_runCellRanger/{{sample}}_finished.blank"
+    params:
+        f"{config['resultDir']}step1_runCellRanger/",
+        cellRangerIndex = config['cellRangerIndex'],
+        id = '{sample}',
+        includeIntron = lambda x: Samples[x.sample]["includeIntron"],
+        expectCell = lambda x: Samples[x.sample]["expectCell"],
+        r2Length = lambda x: Samples[x.sample]["r2Length"],
+        gpu = "0"
+
+    threads:24
+    shell:
+        """
+cd {pipelineDir}
+cellranger6 count --id {params.id} --include-introns --transcriptome {params.cellRangerIndex} --fastqs {input.fastqLoc} --expect-cells {params.expectCell} --localcores {threads}
+        """
+
+rule testHA:
+    input:
+        aa = [(lambda x:Samples[x]['fastq'])(sample) for sample in sampleLs]
+    output:
+        '/public/home/liuzj/softwares/aa.blank'
+    shell:
+        """
+    cat {input.aa} > {output}
+        """
