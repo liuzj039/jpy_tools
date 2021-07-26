@@ -55,11 +55,11 @@ if not snakemake mode, PBS_ID is pbsId; else snakemake logpath
         for oneJob in snakemakeContents:
             oneJobId = oneJob.split('jsub Id: ')[1].split("'")[0]
             try:
-                sh.qdel(oneJobId)
+                sh.Command("/usr/local/torque/bin/qdel")(oneJobId)
                 print(f"qdel {oneJobId}")
             except:
                 try:
-                    sh.bkill(oneJobId)
+                    sh.Command("/opt/ibm/lsfsuite/lsf/10.1/linux2.6-glibc2.3-x86_64/bin/bkill")(oneJobId)
                     print(f"bkill {oneJobId}")
                 except:
                     pass
