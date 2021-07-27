@@ -46,9 +46,38 @@ def parseDfToParams_basecall_splitH5_need_h5(wildcard):
         ls_fromSampleName = df_basecall.loc[wildcard.sampleSplit, 'sample']
         return [df_splitH5.at[x, 'need_h5'] for x in ls_fromSampleName]
 
+
+df_mergeFq = pd.DataFrame(index=['all'])
+df_mergeFq = df_mergeFq.assign(
+    sampleSplit = [list(df_basecall.index)],
+    dir_out = '/'
+)
+for column in ['dir_out']:
+    df_mergeFq[column] = resultDir + 'step3_mergeFq/' + df_mergeFq[column]
+
+def parseDfToInput_mergeFq_basecall(wildcard):
+    selfWildCardUnique = True
+    if isinstance(df_mergeFq.at[wildcard.sample, 'sampleSplit'], list):
+        selfWildCardUnique = False
+    if selfWildCardUnique:
+        return resultDir + 'step2_basecall/' + df_mergeFq.at[wildcard.sample, 'sampleSplit'] + '.finished'
+    else:
+        return [resultDir + 'step2_basecall/' + x + '.finished' for x in df_mergeFq.loc[wildcard.sample, 'sampleSplit']]
+
+def parseDfToParams_mergeFq_basecall_basecalledDir(wildcard):
+    selfWildCardUnique = True
+    if isinstance(df_mergeFq.at[wildcard.sample, 'sampleSplit'], list):
+        selfWildCardUnique = False
+    if selfWildCardUnique:
+        fromSampleName = df_mergeFq.at[wildcard.sample, 'sampleSplit']
+        return df_basecall.at[fromSampleName, 'basecalledDir']
+    else:
+        ls_fromSampleName = df_mergeFq.loc[wildcard.sample, 'sampleSplit']
+        return [df_basecall.at[x, 'basecalledDir'] for x in ls_fromSampleName]
+
 rule all:
     input:
-        basecallFinished = [resultDir + 'step2_basecall/' + "" + sampleSplit + ".finished" for sampleSplit in df_basecall.index],
+        mergeFqFinished = [resultDir + 'step3_mergeFq/' + "" + sample + ".finished" for sample in df_mergeFq.index],
 
 rule splitH5:
     input:
@@ -91,6 +120,24 @@ else
     {params.guppy} -c {params.model} -i {params.dir_output} --qscore_filtering --min_qscore=7 -s {params.basecalledDir} -x "cuda:all:100%" --disable_pings
 fi
 touch {output.basecallFinished}
+        """
+
+rule mergeFq:
+    input:
+        basecallFinished = parseDfToInput_mergeFq_basecall,
+    output:
+        mergeFqFinished = resultDir + 'step3_mergeFq/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        basecalledDir = parseDfToParams_mergeFq_basecall_basecalledDir,
+        dir_out = lambda wildcard: df_mergeFq.at[wildcard.sample, 'dir_out'],
+    threads:18
+    priority:0
+    shell:
+        """
+cd {pipelineDir}
+python mergeFastq.py {params.basecalledDir} -o {params.dir_out} -t {threads}
+touch {output.mergeFqFinished}
         """
 
 
