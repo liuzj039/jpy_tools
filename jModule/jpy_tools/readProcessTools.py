@@ -70,7 +70,7 @@ def writeFastq(read, fh):
     fh.write(readContent)
 
 
-def writeFasta(read, fh):
+def writeFasta(read, fh, length=127):
     """
     @description: 用于将pyfastx的read输出为fasta
     @param:
@@ -79,7 +79,8 @@ def writeFasta(read, fh):
     @return: None
     """
     import re
-    read.seq = re.sub("(.{127})", "\\1\n", read.seq, 0, re.DOTALL)
+    if length > 0:
+        read.seq = re.sub("(.{127})", "\\1\n", read.seq, 0, re.DOTALL)
     readContent = f">{read.name}\n{read.seq}\n"
     fh.write(readContent)
 
