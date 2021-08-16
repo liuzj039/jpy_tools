@@ -115,7 +115,11 @@ def r2py(x, name=None):
 
     if not name:
         name = ""
-    objType = list(x.rclass)[0]
+    
+    try:
+        objType = list(x.rclass)[0]
+    except:
+        objType = 'unknown type'
 
     print(f"transfer `{objType}` to python: {name} start", end="")
     try:
