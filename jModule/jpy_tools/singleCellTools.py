@@ -1669,11 +1669,10 @@ class normalize(object):
         adata.var["highly_variable"] = adata.var.index.isin(residuals.columns)
         if correct_counts:
             adata.layers["sct_corrected"] = vst_out["corrected_counts"].T
+            basic.setLayerInfo(adata, sct_corrected="raw")
             if log_scale_correct:
-                sc.pp.log1p("sct_corrected")
+                sc.pp.log1p(adata, layer="sct_corrected")
                 basic.setLayerInfo(adata, sct_corrected="log-normalized")
-            else:
-                basic.setLayerInfo(adata, sct_corrected="raw")
         if copy:
             return adata
 
