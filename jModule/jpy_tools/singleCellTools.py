@@ -1612,6 +1612,7 @@ class normalize(object):
         import pysctransform
         import scanpy as sc
         from scanpy.preprocessing import filter_genes
+        import rpy2.robjects as ro
 
         layer = "X" if not layer else layer
 
@@ -1664,6 +1665,9 @@ class normalize(object):
         residuals = pysctransform.get_hvg_residuals(
             vst_out, n_top_genes, res_clip_range
         )
+
+        ro.numpy2ri.deactivate()
+        ro.pandas2ri.deactivate()
 
         adata.layers["sct_residuals"] = vst_out["residuals"].T
         adata.var["highly_variable"] = adata.var.index.isin(residuals.columns)
@@ -2048,7 +2052,8 @@ class geneEnrichInfo(object):
     @staticmethod
     def getMarkerByFcCellexCellidDiffxpy(
         adata: anndata.AnnData,
-        layer: str,
+        normalize_layer: str,
+        raw_layer: str,
         groupby: str,
         groups: List[str] = None,
         forceAllRun: bool = False,
@@ -2064,8 +2069,10 @@ class geneEnrichInfo(object):
         Parameters
         ----------
         adata : anndata.AnnData
-        layer : str
+        normalize_layer : str
             must be log-transformed
+        raw_layer : str
+            must be integer
         groupby : str
             column name in adata.obs
         groups : List[str], optional
@@ -2093,11 +2100,11 @@ class geneEnrichInfo(object):
             groups = list(adata.obs[groupby].unique())
 
         ad_sub = adata[adata.obs.eval(f"{groupby} in @groups")].copy()
-        ad_sub.layers[f"{layer}_raw"] = (
-            np.around(np.exp(ad_sub.layers[layer].A) - 1)
-            if ss.issparse(ad_sub.layers[layer])
-            else np.around(np.exp(ad_sub.layers[layer]) - 1)
-        )
+        # ad_sub.layers[f"{layer}_raw"] = (
+        #     np.around(np.exp(ad_sub.layers[layer].A) - 1)
+        #     if ss.issparse(ad_sub.layers[layer])
+        #     else np.around(np.exp(ad_sub.layers[layer]) - 1)
+        # )
 
         ## fc method
         if forceAllRun | (f"{groupby}_fcMarker" not in ad_sub.uns):
@@ -2105,7 +2112,7 @@ class geneEnrichInfo(object):
                 ad_sub,
                 groupby,
                 f"{groupby}_fcMarker",
-                layer=layer,
+                layer=normalize_layer,
                 **dt_ByFcParams,
             )
             adata.uns[f"{groupby}_fcMarker"] = ad_sub.uns[f"{groupby}_fcMarker"]
@@ -2124,7 +2131,7 @@ class geneEnrichInfo(object):
 
         ## cellex method
         if forceAllRun | (f"{groupby}_cellexES" not in ad_sub.varm):
-            geneEnrichInfo.calculateEnrichScoreByCellex(ad_sub, f"{layer}_raw", groupby)
+            geneEnrichInfo.calculateEnrichScoreByCellex(ad_sub, f"{raw_layer}", groupby)
             adata.varm[f"{groupby}_cellexES"] = ad_sub.varm[f"{groupby}_cellexES"]
         dt_marker_cellex = (
             ad_sub.varm[f"{groupby}_cellexES"]
@@ -2138,7 +2145,7 @@ class geneEnrichInfo(object):
         ## cellid method
         if forceAllRun | (f"{groupby}_cellid_marker" not in adata.uns):
             geneEnrichInfo.getEnrichedGeneByCellId(
-                ad_sub, layer, groupby, markerCounts_CellId
+                ad_sub, normalize_layer, groupby, markerCounts_CellId
             )
             adata.uns[f"{groupby}_cellid_marker"] = ad_sub.uns[
                 f"{groupby}_cellid_marker"
@@ -2154,9 +2161,10 @@ class geneEnrichInfo(object):
         if forceAllRun | (f"{groupby}_diffxpy_marker" not in adata.uns):
             diffxpy.vsRest(
                 ad_sub,
-                layer,
+                raw_layer,
                 groupby,
                 keyAdded=f"{groupby}_diffxpy_marker",
+                inputIsLog=False,
                 **dt_DiffxpyParams,
             )
             adata.uns[f"{groupby}_diffxpy_marker"] = ad_sub.uns[
@@ -3563,7 +3571,8 @@ class detectDoublet(object):
         import rpy2
         import rpy2.robjects as ro
         from rpy2.robjects.packages import importr
-        from jpy_tools.rTools import py2r, r2py
+        from .rTools import py2r, r2py, r_set_seed
+        r_set_seed(39)
 
         scDblFinder = importr("scDblFinder")
 
@@ -3722,7 +3731,7 @@ class diffxpy(object):
         ----------
         adata : anndata.AnnData
         layer : Optional[str]
-            if is not log-transformed, the `inpuIsLog` must be assigned by `False`
+            must be raw count data. if is not log-transformed, the `inputIsLog` must be assigned by `False`
         testLabel : str
             column name in adata.obs. used as grouping Infomation
         groups : Optional[List[str]], optional
