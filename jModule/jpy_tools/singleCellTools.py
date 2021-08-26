@@ -74,6 +74,15 @@ from xarray import corr
 
 class basic(object):
     @staticmethod
+    def getOverlap(ad_a:anndata.AnnData, ad_b:anndata.AnnData, copy=False):
+        ls_geneOverlap = list(ad_a.var.index & ad_b.var.index)
+        if copy:
+            return ad_a[:, ls_geneOverlap].copy(), ad_b[:, ls_geneOverlap].copy()
+        else:
+            return ad_a[:, ls_geneOverlap], ad_b[:, ls_geneOverlap]
+
+
+    @staticmethod
     def splitAdata(
         adata: anndata.AnnData,
         batchKey: str,
@@ -2385,14 +2394,14 @@ class annotation(object):
         from scipy.stats import mstats
 
         if (not refLayer) | (refLayer == "X"):
-            df_refGene = basic.mergeadata(refAd, refLabel, "mean").to_df()
+            df_refGene = basic.mergeadata(refAd, refLabel, [], "mean").to_df()
         else:
             df_refGene = basic.mergeadata(refAd, refLabel, [refLayer], "mean").to_df(
                 refLayer
             )
 
-        if not groups:
-            groups = list(df_refGene["Cell_Type"].unique())
+        if groups:
+            df_refGene = df_refGene.reindex(index=groups)
 
         df_refGene = df_refGene.reindex(index=groups)
 
