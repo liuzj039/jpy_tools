@@ -4143,9 +4143,21 @@ class useScvi(object):
                     labels_key=refLabel,
                     batch_key=ls_removeCateKey[0]
                 )
+                scvi.data.setup_anndata(
+                    queryAd,
+                    layer=None,
+                    labels_key=refLabel,
+                    batch_key=ls_removeCateKey[0]
+                )
             else:
                 scvi.data.setup_anndata(
                     refAd,
+                    layer=None,
+                    labels_key=refLabel,
+                    categorical_covariate_keys=ls_removeCateKey
+                )
+                scvi.data.setup_anndata(
+                    queryAd,
                     layer=None,
                     labels_key=refLabel,
                     categorical_covariate_keys=ls_removeCateKey
