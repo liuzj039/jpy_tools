@@ -4071,6 +4071,7 @@ class useScvi(object):
         keyAdded: Optional[str] = None,
         max_epochs: int = 1000,
         threads: int = 24,
+        mode: Literal['merge', 'online'] = 'online'
     ) -> Optional[anndata.AnnData]:
         """
         annotate queryAd based on refAd annotation result.
@@ -4131,45 +4132,57 @@ class useScvi(object):
         refAd = refAd[:, ad_merge.var.index].copy()
         queryAd = queryAd[:, ad_merge.var.index].copy()
 
-        # train model
-        if len(ls_removeCateKey) == 1:
-            scvi.data.setup_anndata(
-                refAd,
-                layer=None,
-                labels_key=refLabel,
-                batch_key=ls_removeCateKey[0]
+        if mode == 'online':
+            # train model
+            if len(ls_removeCateKey) == 1:
+                scvi.data.setup_anndata(
+                    refAd,
+                    layer=None,
+                    labels_key=refLabel,
+                    batch_key=ls_removeCateKey[0]
+                )
+            else:
+                scvi.data.setup_anndata(
+                    refAd,
+                    layer=None,
+                    labels_key=refLabel,
+                    categorical_covariate_keys=ls_removeCateKey
+                )
+            lvae = scvi.model.SCANVI(refAd, "unknown", **dt_params2Model)
+            lvae.train(max_epochs=max_epochs)
+
+            # plot result on training dataset
+            refAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae.predict(refAd)
+            refAd.obsm["X_scANVI"] = lvae.get_latent_representation(refAd)
+            sc.pp.neighbors(refAd, use_rep="X_scANVI")
+            sc.tl.umap(refAd)
+            sc.pl.umap(refAd, color=refLabel, legend_loc="on data")
+            df_color = basic.getadataColor(refAd, refLabel)
+            refAd = basic.setadataColor(refAd, f"labelTransfer_scanvi_{refLabel}", df_color)
+            sc.pl.umap(
+                refAd, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data"
             )
-        else:
+
+            # online learning
+            lvae_online = scvi.model.SCANVI.load_query_data(
+                queryAd,
+                lvae,
+                freeze_dropout=True,
+            )
+            lvae_online._unlabeled_indices = np.arange(queryAd.n_obs)
+            lvae_online._labeled_indices = []
+            lvae_online.train(max_epochs=max_epochs, plan_kwargs=dict(weight_decay=0.0))
+
+        elif mode == 'merge':
             scvi.data.setup_anndata(
-                refAd,
+                ad_merge,
                 layer=None,
                 labels_key=refLabel,
                 categorical_covariate_keys=ls_removeCateKey
             )
-        lvae = scvi.model.SCANVI(refAd, "unknown", **dt_params2Model)
-        lvae.train(max_epochs=max_epochs)
-
-        # plot result on training dataset
-        refAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae.predict(refAd)
-        refAd.obsm["X_scANVI"] = lvae.get_latent_representation(refAd)
-        sc.pp.neighbors(refAd, use_rep="X_scANVI")
-        sc.tl.umap(refAd)
-        sc.pl.umap(refAd, color=refLabel, legend_loc="on data")
-        df_color = basic.getadataColor(refAd, refLabel)
-        refAd = basic.setadataColor(refAd, f"labelTransfer_scanvi_{refLabel}", df_color)
-        sc.pl.umap(
-            refAd, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data"
-        )
-
-        # online learning
-        lvae_online = scvi.model.SCANVI.load_query_data(
-            queryAd,
-            lvae,
-            freeze_dropout=True,
-        )
-        lvae_online._unlabeled_indices = np.arange(queryAd.n_obs)
-        lvae_online._labeled_indices = []
-        lvae_online.train(max_epochs=max_epochs, plan_kwargs=dict(weight_decay=0.0))
+            lvae = scvi.model.SCANVI(refAd, "unknown", **dt_params2Model)
+            lvae.train(max_epochs=max_epochs)
+            lvae_online = lvae
 
         # plot result on both dataset
         ad_merge.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(ad_merge)
@@ -4194,7 +4207,7 @@ class useScvi(object):
         )
         if needLoc:
             return ad_merge
-
+        
 
 class deprecated(object):
     @staticmethod
