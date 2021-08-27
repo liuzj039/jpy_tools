@@ -4099,6 +4099,8 @@ class useScvi(object):
             by default 1000
         threads : int, optional
             by default 24
+        mode: Literal['merge', 'online']
+            by default 'online'
 
         Returns
         -------
@@ -4180,7 +4182,7 @@ class useScvi(object):
                 labels_key=refLabel,
                 categorical_covariate_keys=ls_removeCateKey
             )
-            lvae = scvi.model.SCANVI(refAd, "unknown", **dt_params2Model)
+            lvae = scvi.model.SCANVI(ad_merge, "unknown", **dt_params2Model)
             lvae.train(max_epochs=max_epochs)
             lvae_online = lvae
 
