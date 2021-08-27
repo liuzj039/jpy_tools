@@ -90,9 +90,10 @@ class FastaContent:
     fasta容器
     """
 
-    def __init__(self, path, useIndex=False):
+    def __init__(self, path, useIndex=False, fullName=False):
         self.path = path
         self.useIndex = useIndex
+        self.fullName = fullName
         if self.useIndex:
             self.indexPath = f'{self.path}_lmdb/'
             if os.path.exists(self.indexPath):
@@ -161,12 +162,18 @@ class FastaContent:
                 if lineContent.startswith(">"):
                     i += 1
                     if i == 1:
-                        readName = lineContent[1:].split(" ")[0]
+                        if not self.fullName:
+                            readName = lineContent[1:].split(" ")[0]
+                        else:
+                            readName = lineContent[1:]
                         readSeq = ""
                     else:
                         read = Fasta(name=readName, seq=readSeq)
                         yield read
-                        readName = lineContent[1:].split(" ")[0]
+                        if not self.fullName:
+                            readName = lineContent[1:].split(" ")[0]
+                        else:
+                            readName = lineContent[1:]
                         readSeq = ""
                 else:
                     readSeq += lineContent

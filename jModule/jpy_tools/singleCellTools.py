@@ -76,6 +76,7 @@ class basic(object):
     @staticmethod
     def getOverlap(ad_a:anndata.AnnData, ad_b:anndata.AnnData, copy=False):
         ls_geneOverlap = list(ad_a.var.index & ad_b.var.index)
+        logger.info(f"Used Gene Counts: {len(ls_geneOverlap)}")
         if copy:
             return ad_a[:, ls_geneOverlap].copy(), ad_b[:, ls_geneOverlap].copy()
         else:
@@ -4083,7 +4084,7 @@ class useScvi(object):
         queryLayer : str
             raw-count
         needLoc: bool, optional
-            if True, and `copy` is False, intregated anndata will be returned
+            if True, and `copy` is False, integrated anndata will be returned
         dt_params2Model: dict, optional
             used for scANVI model
 
@@ -4103,6 +4104,7 @@ class useScvi(object):
         queryAdOrg = queryAd
         refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel])
         queryAd = basic.getPartialLayersAdata(queryAd, queryLayer)
+        refAd, queryAd = basic.getOverlap(refAd, queryAd)
 
         queryAd.obs[refLabel] = "unknown"
         ad_merge = sc.concat([refAd, queryAd], label="batch", keys=["ref", "query"])
