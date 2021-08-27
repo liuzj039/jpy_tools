@@ -4080,20 +4080,30 @@ class useScvi(object):
         refAd : anndata.AnnData
         refLabel : str
         refLayer : str
-            raw-count
+            raw count
         queryAd : anndata.AnnData
         queryLayer : str
-            raw-count
-        needLoc: bool, optional
-            if True, and `copy` is False, integrated anndata will be returned
-        dt_params2Model: dict, optional
-            used for scANVI model
+            raw count
+        needLoc : bool, optional
+            if True, and `copy` is False, integrated anndata will be returned. by default False
+        ls_removeCateKey : Optional[List[str]], optional
+            These categories will be removed, by default []
+        dt_params2Model : dict, optional
+            by default {"n_latent": 30, "n_layers": 2, "dispersion": "gene"}
+        cutoff : float, optional
+            by default 0.9
+        keyAdded : Optional[str], optional
+            by default None
+        max_epochs : int, optional
+            by default 1000
+        threads : int, optional
+            by default 24
 
         Returns
         -------
         Optional[anndata.AnnData]
             based on needloc
-        """
+        """    
         import pandas as pd
         import numpy as np
         import scanpy as sc
@@ -4104,7 +4114,7 @@ class useScvi(object):
 
         queryAdOrg = queryAd
         refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel, *ls_removeCateKey])
-        queryAd = basic.getPartialLayersAdata(queryAd, queryLayer)
+        queryAd = basic.getPartialLayersAdata(queryAd, queryLayer, ls_removeCateKey)
         refAd, queryAd = basic.getOverlap(refAd, queryAd)
 
         queryAd.obs[refLabel] = "unknown"
@@ -4122,12 +4132,20 @@ class useScvi(object):
         queryAd = queryAd[:, ad_merge.var.index].copy()
 
         # train model
-        scvi.data.setup_anndata(
-            refAd,
-            layer=None,
-            labels_key=refLabel,
-            categorical_covariate_keys=ls_removeCateKey
-        )
+        if len(ls_removeCateKey) == 1:
+            scvi.data.setup_anndata(
+                refAd,
+                layer=None,
+                labels_key=refLabel,
+                batch_key=ls_removeCateKey[0]
+            )
+        else:
+            scvi.data.setup_anndata(
+                refAd,
+                layer=None,
+                labels_key=refLabel,
+                categorical_covariate_keys=ls_removeCateKey
+            )
         lvae = scvi.model.SCANVI(refAd, "unknown", **dt_params2Model)
         lvae.train(max_epochs=max_epochs)
 
