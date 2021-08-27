@@ -4065,6 +4065,7 @@ class useScvi(object):
         queryAd: anndata.AnnData,
         queryLayer: str,
         needLoc: bool = False,
+        ls_removeCateKey: Optional[List[str]] = [],
         dt_params2Model={"n_latent": 30, "n_layers": 2, "dispersion": "gene"},
         cutoff: float = 0.9,
         keyAdded: Optional[str] = None,
@@ -4102,7 +4103,7 @@ class useScvi(object):
         scvi.settings.num_threads = threads
 
         queryAdOrg = queryAd
-        refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel])
+        refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel, *ls_removeCateKey])
         queryAd = basic.getPartialLayersAdata(queryAd, queryLayer)
         refAd, queryAd = basic.getOverlap(refAd, queryAd)
 
@@ -4125,6 +4126,7 @@ class useScvi(object):
             refAd,
             layer=None,
             labels_key=refLabel,
+            categorical_covariate_keys=ls_removeCateKey
         )
         lvae = scvi.model.SCANVI(refAd, "unknown", **dt_params2Model)
         lvae.train(max_epochs=max_epochs)
