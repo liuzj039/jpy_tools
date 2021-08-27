@@ -4108,13 +4108,13 @@ class useScvi(object):
         refAd, queryAd = basic.getOverlap(refAd, queryAd)
 
         queryAd.obs[refLabel] = "unknown"
-        ad_merge = sc.concat([refAd, queryAd], label="batch", keys=["ref", "query"])
+        ad_merge = sc.concat([refAd, queryAd], label="_batch", keys=["ref", "query"])
         ad_merge.X = ad_merge.X.astype(int)
         sc.pp.highly_variable_genes(
             ad_merge,
             flavor="seurat_v3",
             n_top_genes=3000,
-            batch_key="batch",
+            batch_key="_batch",
             subset=True,
         )
 
@@ -4162,7 +4162,7 @@ class useScvi(object):
         ad_merge = basic.setadataColor(
             ad_merge, f"labelTransfer_scanvi_{refLabel}", df_color
         )
-        sc.pl.umap(ad_merge, color="batch")
+        sc.pl.umap(ad_merge, color="_batch")
         sc.pl.umap(
             ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data"
         )
