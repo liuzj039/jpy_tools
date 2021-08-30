@@ -2487,9 +2487,7 @@ class annotation(object):
         cellId = importr("CelliD")
         R = ro.r
         queryAd_org = queryAd.copy() if copy else queryAd
-        ls_overlapGene = refAd.var.index & queryAd.var.index
-        refAd = refAd[:, ls_overlapGene]
-        queryAd = queryAd[:, ls_overlapGene]
+        refAd, queryAd = basic.getOverlap(refAd, queryAd)
 
         VectorR_Refmarker = geneEnrichInfo.getEnrichedGeneByCellId(
             refAd,
@@ -2699,6 +2697,7 @@ class annotation(object):
         queryAdOrg = queryAd.copy() if copy else queryAd
         refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel])
         queryAd = basic.getPartialLayersAdata(queryAd, queryLayer)
+        refAd, queryAd = basic.getOverlap(refAd, queryAd)
         queryAd.obs["empty"] = 0  # seurat need
 
         ls_overlapGene = refAd.var.index & queryAd.var.index
@@ -2709,12 +2708,12 @@ class annotation(object):
         refAd.obs.index = refAd.obs.index + "-batch-ref"
         ad_concat = sc.concat(
             [queryAd, refAd],
-            label="batch",
+            label="__batch",
             keys=["query", "ref"],
             index_unique="-batch-",
         )
         if not features:
-            features = basic.scIB_hvg_batch(ad_concat, "batch")
+            features = basic.scIB_hvg_batch(ad_concat, "__batch")
 
         ar_features = np.array(features)
         arR_features = py2r(ar_features)
