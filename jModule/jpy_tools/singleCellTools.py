@@ -2761,7 +2761,7 @@ class annotation(object):
         dt_name2Org = {
             y: x
             for x, y in zip(
-                sorted(list(refAd.obs["components"].unique())),
+                sorted(list(refAd.obs[refLabel].unique())),
                 sorted(list(df_predScore.columns)),
             )
         }
@@ -2817,6 +2817,7 @@ class annotation(object):
         dt_color = basic.getadataColor(refAd, refLabel)
         dt_color["unknown"] = "#111111"
         dt_color["None"] = "#D3D3D3"
+        dt_color["nan"] = "#D3D3D3"
         ad_integrated = basic.setadataColor(ad_integrated, refLabel, dt_color)
         sc.pl.umap(ad_integrated, color="batch")
         sc.pl.umap(ad_integrated, color=refLabel, legend_loc="on data")
@@ -4196,6 +4197,9 @@ class useScvi(object):
             lvae = scvi.model.SCANVI(ad_merge, "unknown", **dt_params2Model)
             lvae.train(max_epochs=max_epochs)
             lvae_online = lvae
+        
+        else:
+            assert False, 'Unknown `mode`'
 
         # plot result on both dataset
         ad_merge.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(ad_merge)
@@ -4207,6 +4211,7 @@ class useScvi(object):
             ad_merge, f"labelTransfer_scanvi_{refLabel}", df_color
         )
         sc.pl.umap(ad_merge, color="_batch")
+        sc.pl.umap(ad_merge, color=refLabel)
         sc.pl.umap(
             ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data"
         )
