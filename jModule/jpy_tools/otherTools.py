@@ -303,13 +303,13 @@ def copyToIpf(inPath, ipfPath) -> str:
 def toPkl(obj, name, server):
     import pickle
     import os
-    import sh
 
     dt_dirPkl = {
         "ipf": "/public/home/liuzj/tmp/python_pkl/",
         "scem": "/scem/work/liuzj/tmp/python_pkl/",
     }
     dt_ip = {"ipf": "172.18.6.205", "scem": "172.18.5.205"}
+    dt_scpConfig = {"ipf": '', "scem": '-P 2323'}
 
     dt_currentServer = {x: os.path.exists(y) for x, y in dt_dirPkl.items()}
     ls_currentServer = [x for x, y in dt_currentServer.items() if y]
@@ -324,7 +324,8 @@ def toPkl(obj, name, server):
     if server != currentServer:
         dir_pkl = dt_dirPkl[server]
         ip_target = dt_ip[server]
-        sh.scp(f"{dir_currentPkl}/{name}", f"{ip_target}:{dir_pkl}/{name}")
+        config_scp = dt_scpConfig[server]
+        os.system(f"scp {config_scp} {dir_currentPkl}/{name} {ip_target}:{dir_pkl}/{name}")
 
 
 def loadPkl(name):
