@@ -969,15 +969,15 @@ class basic(object):
 class plotting(object):
     @staticmethod
     def plotCellScatter(
-        adata, plotFeature: Sequence[str] = ["n_counts", "n_genes", "percent_ct"]
+        adata, plotFeature: Sequence[str] = ["n_counts", "n_genes", "percent_ct"], func_ct = lambda x: ((x.var_names.str.startswith("ATCG")) | (x.var_names.str.startswith("ATMG"))
+        )
     ):
         adata.obs = adata.obs.assign(
             n_genes=(adata.X > 0).sum(1), n_counts=adata.X.sum(1)
         )
         # adata.var = adata.var.assign(n_cells=(adata.X > 0).sum(0))
-        ctGene = (adata.var_names.str.startswith("ATCG")) | (
-            adata.var_names.str.startswith("ATMG")
-        )
+        ctGene = func_ct(adata)
+
         adata.obs["percent_ct"] = np.sum(adata[:, ctGene].X, axis=1) / np.sum(
             adata.X, axis=1
         )
@@ -3521,7 +3521,7 @@ class detectDoublet(object):
         1
         """
         )
-        logger.info("start to calculate doublets")
+        logger.info("start to calculate doublet score")
         ro.r(
             f"""
         seuratObj <- doubletFinder_v3(seuratObj, PCs = 1:10, pN = 0.25, pK = 0.09, nExp = nExp_poi, reuse.pANN = FALSE, sct = TRUE)
@@ -3556,8 +3556,10 @@ class detectDoublet(object):
         adata: anndata.AnnData,
         layer: str = "X",
         copy: bool = False,
-        doubletRatio: float = 0.1,
+        batch_key: Optional[str] = None,
+        doubletRatio: Optional[float] = None,
         skipCheck: bool = False,
+        dropDoublet: bool = True,
     ) -> Optional[anndata.AnnData]:
         """
         use ScDblFinder detect doublets.
@@ -3583,6 +3585,11 @@ class detectDoublet(object):
         from rpy2.robjects.packages import importr
         from .rTools import py2r, r2py, r_set_seed
         r_set_seed(39)
+        R = ro.r
+        if not batch_key:
+            batch_key = R('NULL')
+        if not doubletRatio:
+            doubletRatio = R('NULL')
 
         scDblFinder = importr("scDblFinder")
 
@@ -3596,8 +3603,10 @@ class detectDoublet(object):
         tempAdr = py2r(tempAd)
         del tempAd
 
-        logger.info("start to calculate doublets")
-        tempAdr = scDblFinder.scDblFinder(tempAdr, dbr=doubletRatio)
+        logger.info("start to calculate doublet score")
+
+        tempAdr = scDblFinder.scDblFinder(tempAdr, samples=batch_key, dbr=doubletRatio)
+
 
         logger.info("start to intergrate result with adata")
         scDblFinderResultDf = r2py(tempAdr.slots["colData"])
@@ -3606,6 +3615,12 @@ class detectDoublet(object):
             scDblFinderResultDf.filter(regex=r"^scDblFinder[\w\W]*").copy(deep=True)
         )
         adata.obs.columns = adata.obs.columns.astype(str)
+
+        if dropDoublet:
+            logger.info(f"before filter: {len(adata)}")
+            adata._inplace_subset_obs(adata.obs['scDblFinder.class'] == 'singlet')
+            logger.info(f"after filter: {len(adata)}")
+
         if copy:
             return adata
 
@@ -4088,7 +4103,7 @@ class useScvi(object):
         needLoc : bool, optional
             if True, and `copy` is False, integrated anndata will be returned. by default False
         ls_removeCateKey : Optional[List[str]], optional
-            These categories will be removed, by default []
+            These categories will be removed, the first one must be 'batch', by default []
         dt_params2Model : dict, optional
             by default {"n_latent": 30, "n_layers": 2, "dispersion": "gene"}
         cutoff : float, optional
@@ -4119,6 +4134,8 @@ class useScvi(object):
         refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel, *ls_removeCateKey])
         queryAd = basic.getPartialLayersAdata(queryAd, queryLayer, ls_removeCateKey)
         refAd, queryAd = basic.getOverlap(refAd, queryAd)
+        if not ls_removeCateKey:
+            ls_removeCateKey = ['_batch']
 
         queryAd.obs[refLabel] = "unknown"
         ad_merge = sc.concat([refAd, queryAd], label="_batch", keys=["ref", "query"])
@@ -4136,33 +4153,26 @@ class useScvi(object):
 
         if mode == 'online':
             # train model
-            if len(ls_removeCateKey) == 1:
-                scvi.data.setup_anndata(
-                    refAd,
-                    layer=None,
-                    labels_key=refLabel,
-                    batch_key=ls_removeCateKey[0]
-                )
-                scvi.data.setup_anndata(
-                    queryAd,
-                    layer=None,
-                    labels_key=refLabel,
-                    batch_key=ls_removeCateKey[0]
-                )
-            else:
-                scvi.data.setup_anndata(
-                    refAd,
-                    layer=None,
-                    labels_key=refLabel,
-                    categorical_covariate_keys=ls_removeCateKey
-                )
-                scvi.data.setup_anndata(
-                    queryAd,
-                    layer=None,
-                    labels_key=refLabel,
-                    categorical_covariate_keys=ls_removeCateKey
-                )
-            lvae = scvi.model.SCANVI(refAd, "unknown", **dt_params2Model)
+
+            scvi.data.setup_anndata(
+                refAd,
+                layer=None,
+                labels_key=refLabel,
+                batch_key=ls_removeCateKey[0],
+                categorical_covariate_keys=ls_removeCateKey[1:]
+            )
+            scvi.data.setup_anndata(
+                queryAd,
+                layer=None,
+                labels_key=refLabel,
+                batch_key=ls_removeCateKey[0],
+                categorical_covariate_keys=ls_removeCateKey[1:]
+            )
+
+            scvi_model = scvi.model.SCVI(refAd, **dt_params2Model)
+            scvi_model.train(max_epochs=max_epochs)
+
+            lvae = scvi.model.SCANVI.from_scvi_model(scvi_model, "unknown")
             lvae.train(max_epochs=max_epochs)
 
             # plot result on training dataset
@@ -4181,7 +4191,6 @@ class useScvi(object):
             lvae_online = scvi.model.SCANVI.load_query_data(
                 queryAd,
                 lvae,
-                freeze_dropout=True,
             )
             lvae_online._unlabeled_indices = np.arange(queryAd.n_obs)
             lvae_online._labeled_indices = []
@@ -4192,12 +4201,29 @@ class useScvi(object):
                 ad_merge,
                 layer=None,
                 labels_key=refLabel,
+                batch_key=ls_removeCateKey[0],
+                categorical_covariate_keys=ls_removeCateKey[1:]
+            )
+
+            scvi.data.setup_anndata(
+                ad_merge,
+                layer=None,
+                labels_key=refLabel,
                 categorical_covariate_keys=ls_removeCateKey
             )
-            lvae = scvi.model.SCANVI(ad_merge, "unknown", **dt_params2Model)
+            scvi_model = scvi.model.SCVI(ad_merge, **dt_params2Model)
+            scvi_model.train(max_epochs=max_epochs)
+
+            lvae = scvi.model.SCANVI.from_scvi_model(scvi_model, "unknown")
             lvae.train(max_epochs=max_epochs)
+
+            ad_merge.obsm["X_scANVI"] = lvae.get_latent_representation(ad_merge)
+            sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
+            sc.tl.umap(ad_merge)
+            sc.pl.umap(ad_merge, color=refLabel, legend_loc="on data")
+
             lvae_online = lvae
-        
+
         else:
             assert False, 'Unknown `mode`'
 
