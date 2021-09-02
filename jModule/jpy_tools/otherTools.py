@@ -285,12 +285,63 @@ def sankeyPlotByPyechart(
 
     return sankey
 
+
 def copyFromIpf(ipfPath) -> str:
     import sh
+
     tmpPath = "/scem/work/liuzj/tmp/1"
     sh.scp(f"172.18.6.205:{ipfPath}", tmpPath)
     return tmpPath
 
+
 def copyToIpf(inPath, ipfPath) -> str:
     import sh
+
     sh.scp(inPath, f"172.18.6.205:{ipfPath}")
+
+
+def toPkl(obj, name, server):
+    import pickle
+    import os
+    import sh
+
+    dt_dirPkl = {
+        "ipf": "/public/home/liuzj/tmp/python_pkl/",
+        "scem": "/scem/work/liuzj/tmp/python_pkl/",
+    }
+    dt_ip = {"ipf": "172.18.6.205", "scem": "172.18.5.205"}
+
+    dt_currentServer = {x: os.path.exists(y) for x, y in dt_dirPkl.items()}
+    ls_currentServer = [x for x, y in dt_currentServer.items() if y]
+    assert len(ls_currentServer) == 1, "Unknown current server"
+    currentServer = ls_currentServer[0]
+
+    dir_currentPkl = dt_dirPkl[currentServer]
+
+    with open(f"{dir_currentPkl}/{name}", "wb") as fh:
+        pickle.dump(obj, fh)
+
+    if server != currentServer:
+        dir_pkl = dt_dirPkl[server]
+        ip_target = dt_ip[server]
+        sh.scp(f"{dir_currentPkl}/{name}", f"{ip_target}:{dir_pkl}/{name}")
+
+
+def loadPkl(name):
+    import pickle
+
+    dt_dirPkl = {
+        "ipf": "/public/home/liuzj/tmp/python_pkl/",
+        "scem": "/scem/work/liuzj/tmp/python_pkl/",
+    }
+
+    dt_currentServer = {x: os.path.exists(y) for x, y in dt_dirPkl.items()}
+    ls_currentServer = [x for x, y in dt_currentServer.items() if y]
+    assert len(ls_currentServer) == 1, "Unknown current server"
+    currentServer = ls_currentServer[0]
+    dir_currentPkl = dt_dirPkl[currentServer]
+
+    with open(f"{dir_currentPkl}/{name}", "rb") as fh:
+        obj = pickle.load(fh)
+
+    return obj
