@@ -74,14 +74,13 @@ from xarray import corr
 
 class basic(object):
     @staticmethod
-    def getOverlap(ad_a:anndata.AnnData, ad_b:anndata.AnnData, copy=False):
+    def getOverlap(ad_a: anndata.AnnData, ad_b: anndata.AnnData, copy=False):
         ls_geneOverlap = list(ad_a.var.index & ad_b.var.index)
         logger.info(f"Used Gene Counts: {len(ls_geneOverlap)}")
         if copy:
             return ad_a[:, ls_geneOverlap].copy(), ad_b[:, ls_geneOverlap].copy()
         else:
             return ad_a[:, ls_geneOverlap], ad_b[:, ls_geneOverlap]
-
 
     @staticmethod
     def splitAdata(
@@ -968,9 +967,43 @@ class basic(object):
 
 class plotting(object):
     @staticmethod
-    def plotCellScatter(
-        adata, plotFeature: Sequence[str] = ["n_counts", "n_genes", "percent_ct"], func_ct = lambda x: ((x.var_names.str.startswith("ATCG")) | (x.var_names.str.startswith("ATMG"))
+    def obsmToObs(
+        ad: sc.AnnData,
+        key_obsm: str,
+        embedding: Optional[List[str]] = None,
+        prefix: str = "",
+    ) -> sc.AnnData:
+        import scipy.sparse as ss
+
+        if not embedding:
+            embedding = list(ad.obsm.keys())
+        ad_tmp = sc.AnnData(
+            ss.csc_matrix(ad.shape), obs=ad.obs.copy(), var=ad.var.copy()
         )
+        for key in embedding:
+            ad_tmp.obsm[key] = ad.obsm[key].copy()
+
+        ad_tmp.obs = ad.obsm[key_obsm].combine_first(ad_tmp.obs).copy()
+        ad_tmp.obs = ad_tmp.obs.rename(
+            columns={x: f"{prefix}{x}" for x in ad.obsm[key_obsm].columns}
+        )
+        return ad_tmp
+
+    def getPartialByPos(
+        ad: sc.AnnData, rightUpper: List[float], leftBottom: List[float]
+    ):
+        return ad[
+            (np.array([4, 11]) < ad.obsm["X_umap"]).all(1)
+            & (ad.obsm["X_umap"] < np.array([5, 12])).all(1)
+        ]
+
+    @staticmethod
+    def plotCellScatter(
+        adata,
+        plotFeature: Sequence[str] = ["n_counts", "n_genes", "percent_ct"],
+        func_ct=lambda x: (
+            (x.var_names.str.startswith("ATCG")) | (x.var_names.str.startswith("ATMG"))
+        ),
     ):
         adata.obs = adata.obs.assign(
             n_genes=(adata.X > 0).sum(1), n_counts=adata.X.sum(1)
@@ -3584,12 +3617,13 @@ class detectDoublet(object):
         import rpy2.robjects as ro
         from rpy2.robjects.packages import importr
         from .rTools import py2r, r2py, r_set_seed
+
         r_set_seed(39)
         R = ro.r
         if not batch_key:
-            batch_key = R('NULL')
+            batch_key = R("NULL")
         if not doubletRatio:
-            doubletRatio = R('NULL')
+            doubletRatio = R("NULL")
 
         scDblFinder = importr("scDblFinder")
 
@@ -3607,7 +3641,6 @@ class detectDoublet(object):
 
         tempAdr = scDblFinder.scDblFinder(tempAdr, samples=batch_key, dbr=doubletRatio)
 
-
         logger.info("start to intergrate result with adata")
         scDblFinderResultDf = r2py(tempAdr.slots["colData"])
 
@@ -3618,7 +3651,7 @@ class detectDoublet(object):
 
         if dropDoublet:
             logger.info(f"before filter: {len(adata)}")
-            adata._inplace_subset_obs(adata.obs['scDblFinder.class'] == 'singlet')
+            adata._inplace_subset_obs(adata.obs["scDblFinder.class"] == "singlet")
             logger.info(f"after filter: {len(adata)}")
 
         if copy:
@@ -4086,7 +4119,7 @@ class useScvi(object):
         keyAdded: Optional[str] = None,
         max_epochs: int = 1000,
         threads: int = 24,
-        mode: Literal['merge', 'online'] = 'online'
+        mode: Literal["merge", "online"] = "online",
     ) -> Optional[anndata.AnnData]:
         """
         annotate queryAd based on refAd annotation result.
@@ -4121,7 +4154,7 @@ class useScvi(object):
         -------
         Optional[anndata.AnnData]
             based on needloc
-        """    
+        """
         import pandas as pd
         import numpy as np
         import scanpy as sc
@@ -4131,11 +4164,13 @@ class useScvi(object):
         scvi.settings.num_threads = threads
 
         queryAdOrg = queryAd
-        refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel, *ls_removeCateKey])
+        refAd = basic.getPartialLayersAdata(
+            refAd, refLayer, [refLabel, *ls_removeCateKey]
+        )
         queryAd = basic.getPartialLayersAdata(queryAd, queryLayer, ls_removeCateKey)
         refAd, queryAd = basic.getOverlap(refAd, queryAd)
         if not ls_removeCateKey:
-            ls_removeCateKey = ['_batch']
+            ls_removeCateKey = ["_batch"]
 
         queryAd.obs[refLabel] = "unknown"
         ad_merge = sc.concat([refAd, queryAd], label="_batch", keys=["ref", "query"])
@@ -4151,7 +4186,7 @@ class useScvi(object):
         refAd = refAd[:, ad_merge.var.index].copy()
         queryAd = queryAd[:, ad_merge.var.index].copy()
 
-        if mode == 'online':
+        if mode == "online":
             # train model
 
             scvi.data.setup_anndata(
@@ -4159,14 +4194,14 @@ class useScvi(object):
                 layer=None,
                 labels_key=refLabel,
                 batch_key=ls_removeCateKey[0],
-                categorical_covariate_keys=ls_removeCateKey[1:]
+                categorical_covariate_keys=ls_removeCateKey[1:],
             )
             scvi.data.setup_anndata(
                 queryAd,
                 layer=None,
                 labels_key=refLabel,
                 batch_key=ls_removeCateKey[0],
-                categorical_covariate_keys=ls_removeCateKey[1:]
+                categorical_covariate_keys=ls_removeCateKey[1:],
             )
 
             scvi_model = scvi.model.SCVI(refAd, **dt_params2Model)
@@ -4182,7 +4217,9 @@ class useScvi(object):
             sc.tl.umap(refAd)
             sc.pl.umap(refAd, color=refLabel, legend_loc="on data")
             df_color = basic.getadataColor(refAd, refLabel)
-            refAd = basic.setadataColor(refAd, f"labelTransfer_scanvi_{refLabel}", df_color)
+            refAd = basic.setadataColor(
+                refAd, f"labelTransfer_scanvi_{refLabel}", df_color
+            )
             sc.pl.umap(
                 refAd, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data"
             )
@@ -4196,20 +4233,20 @@ class useScvi(object):
             lvae_online._labeled_indices = []
             lvae_online.train(max_epochs=max_epochs, plan_kwargs=dict(weight_decay=0.0))
 
-        elif mode == 'merge':
+        elif mode == "merge":
             scvi.data.setup_anndata(
                 ad_merge,
                 layer=None,
                 labels_key=refLabel,
                 batch_key=ls_removeCateKey[0],
-                categorical_covariate_keys=ls_removeCateKey[1:]
+                categorical_covariate_keys=ls_removeCateKey[1:],
             )
 
             scvi.data.setup_anndata(
                 ad_merge,
                 layer=None,
                 labels_key=refLabel,
-                categorical_covariate_keys=ls_removeCateKey
+                categorical_covariate_keys=ls_removeCateKey,
             )
             scvi_model = scvi.model.SCVI(ad_merge, **dt_params2Model)
             scvi_model.train(max_epochs=max_epochs)
@@ -4225,7 +4262,7 @@ class useScvi(object):
             lvae_online = lvae
 
         else:
-            assert False, 'Unknown `mode`'
+            assert False, "Unknown `mode`"
 
         # plot result on both dataset
         ad_merge.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(ad_merge)
@@ -4251,7 +4288,7 @@ class useScvi(object):
         )
         if needLoc:
             return ad_merge
-        
+
 
 class deprecated(object):
     @staticmethod

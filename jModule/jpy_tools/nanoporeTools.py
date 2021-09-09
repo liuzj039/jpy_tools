@@ -59,10 +59,10 @@ def bedtoolsGetIntersect(
     bed = pr.read_bed(path_bed, as_df=True)
 
     if onlyGene:
-        bed = bed.loc[bed["Name"].map(lambda x: x.split("||")[0] == x.split("||")[1])]
-        bed["Name"] = bed["Name"].str.split("\|\|").str[0]
+        bed = bed.loc[bed["Name"].map(lambda x: x.split("|")[0] == x.split("|")[-1])]
+        bed["Name"] = bed["Name"].str.split("\|").str[0]
     else:
-        bed = bed.loc[bed["Name"].map(lambda x: x.split("||")[0] != x.split("||")[1])]
+        bed = bed.loc[bed["Name"].map(lambda x: x.split("|")[0] != x.split("|")[-1])]
 
     bed.to_csv(fhBed_gene.name, sep="\t", header=None, index=None)
 

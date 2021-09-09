@@ -2,6 +2,7 @@ import sh
 import pyranges as pr
 import pandas as pd
 import tempfile
+from loguru import logger
 import click
 
 @click.command()
@@ -12,8 +13,11 @@ def main(inPath, gtfToGpPath, gpToBedPath):
     """
     transform gtf to bed12
     """
+    logger.info("read gtf file")
     inPr = pr.read_gtf(inPath)
-    inPr.transcript_id = inPr.transcript_id  + '||' + inPr.gene_id
+    if 'gene_biotype' not in inPr.columns:
+        inPr.gene_biotype = ''
+    inPr.transcript_id = inPr.transcript_id  + '|' + inPr.gene_biotype + '|' + inPr.gene_id
     with tempfile.TemporaryDirectory('/') as tempDir:
         inName = inPath.split('/')[-1]
         changeTrsGtfPath = f"{tempDir}{inName}.changeTrsId.gtf"
@@ -24,18 +28,22 @@ def main(inPath, gtfToGpPath, gpToBedPath):
         sh.Command(gtfToGpPath)(changeTrsGtfPath, gpPath)
         sh.Command(gpToBedPath)(gpPath, bedPath)
     
+    logger.info("read temporary transformed bed12 file")
     df_bed = pr.read_bed(bedPath, as_df=True)
-    df_bed = df_bed.assign(Gene = lambda df:df['Name'].str.split("\|\|").str[1])
+
+    logger.info("add gene information to bed12")
+    df_bed = df_bed.assign(Gene = lambda df:df['Name'].str.split("\|").str[-1], GeneBiotype = lambda df:df['Name'].str.split("\|").str[-2])
     df_geneBed = df_bed.groupby("Gene").agg(
         {
             "Chromosome": lambda x: x.iat[0],
             "Start": "min",
             "End": "max",
             "Strand": lambda x: x.iat[0],
+            "GeneBiotype": lambda x: x.iat[0],
         }
     )
     df_geneBed = df_geneBed.reset_index().pipe(lambda df:df.assign(
-        Name=df['Gene'] + '||' + df['Gene'],
+        Name=df['Gene'] + '|' + df['GeneBiotype'] + '|' + df['Gene'],
         Score=0,
         ThickStart=df['Start'],
         ThickEnd=df['End'],

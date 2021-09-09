@@ -140,9 +140,11 @@ def r2py(x, name=None):
 
 
 @contextmanager
-def r_inline_plot(width=512, height=512, dpi=100):
+def r_inline_plot(width=None, height=None, res=None):
+    dt_params = dict(width=width, height=height, res=res)
+    dt_params = {x:y for x, y in dt_params.items() if y}
     with grdevices.render_to_bytesio(
-        grdevices.png, width=width, height=height, res=dpi
+        grdevices.png, **dt_params
     ) as b:
         yield
     data = b.getvalue()

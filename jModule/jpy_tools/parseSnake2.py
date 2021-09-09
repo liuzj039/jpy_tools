@@ -139,7 +139,7 @@ class SnakeRule(object):
         self.gpu = gpu
         self.priority = f"{' ' * 4}priority:{priority}\n"
 
-        self.code = "\n"
+        self.code = f"\n## get parameter of rule `{self.name}` ##\n"
         self.metaDfName = ""
         self.needRuleLs = []
         self.input = " " * 4 + "input:\n"
