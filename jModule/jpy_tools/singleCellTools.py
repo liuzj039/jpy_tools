@@ -1004,6 +1004,7 @@ class plotting(object):
         func_ct=lambda x: (
             (x.var_names.str.startswith("ATCG")) | (x.var_names.str.startswith("ATMG"))
         ),
+        batch=None,
     ):
         adata.obs = adata.obs.assign(
             n_genes=(adata.X > 0).sum(1), n_counts=adata.X.sum(1)
@@ -1014,7 +1015,7 @@ class plotting(object):
         adata.obs["percent_ct"] = np.sum(adata[:, ctGene].X, axis=1) / np.sum(
             adata.X, axis=1
         )
-        sc.pl.violin(adata, plotFeature, multi_panel=True, jitter=0.4)
+        sc.pl.violin(adata, plotFeature, multi_panel=True, jitter=0.4, groupby=batch)
 
     @staticmethod
     def plotLabelPercentageInCluster(
@@ -3620,8 +3621,12 @@ class detectDoublet(object):
 
         r_set_seed(39)
         R = ro.r
+
+        ls_obsInfo = []
         if not batch_key:
             batch_key = R("NULL")
+        else:
+            ls_obsInfo.append(batch_key)
         if not doubletRatio:
             doubletRatio = R("NULL")
 
@@ -3630,7 +3635,7 @@ class detectDoublet(object):
         if not skipCheck:
             basic.testAllCountIsInt(adata, layer)
 
-        tempAd = basic.getPartialLayersAdata(adata, layer)
+        tempAd = basic.getPartialLayersAdata(adata, layer, obsInfoLs=ls_obsInfo)
         tempAd.layers["counts"] = tempAd.X
 
         logger.info("start to transfer adata to R")
@@ -3644,14 +3649,20 @@ class detectDoublet(object):
         logger.info("start to intergrate result with adata")
         scDblFinderResultDf = r2py(tempAdr.slots["colData"])
 
-        adata.obs = adata.obs.join(
-            scDblFinderResultDf.filter(regex=r"^scDblFinder[\w\W]*").copy(deep=True)
+        adata.obsm["scDblFinder"] = (
+            scDblFinderResultDf.reindex(adata.obs.index)
+            .filter(regex=r"^scDblFinder[\w\W]*")
+            .copy(deep=True)
         )
-        adata.obs.columns = adata.obs.columns.astype(str)
+        adata.obsm["scDblFinder"].columns = adata.obsm["scDblFinder"].columns.astype(
+            str
+        )
 
         if dropDoublet:
             logger.info(f"before filter: {len(adata)}")
-            adata._inplace_subset_obs(adata.obs["scDblFinder.class"] == "singlet")
+            adata._inplace_subset_obs(
+                adata.obsm["scDblFinder"]["scDblFinder.class"] == "singlet"
+            )
             logger.info(f"after filter: {len(adata)}")
 
         if copy:
@@ -3724,6 +3735,7 @@ class diffxpy(object):
         batchLabel: Optional[str] = None,
         quickScale: bool = False,
         sizeFactor: Optional[str] = None,
+        constrainModel: bool = False,
     ) -> pd.DataFrame:
         """
         Use wald test between two sample.
@@ -3749,15 +3761,24 @@ class diffxpy(object):
         import diffxpy.api as de
 
         assert len(adata.obs[keyTest].unique()) == 2, "More Than Two Samples found"
+
         if batchLabel:
-            test = de.test.wald(
-                data=adata,
-                formula_loc=f"~ 1 + {keyTest} + {batchLabel}_{keyTest}",
-                factor_loc_totest=keyTest,
-                constraints_loc={f"{batchLabel}_{keyTest}": keyTest},
-                quick_scale=quickScale,
-                size_factors=sizeFactor,
-            )
+            if constrainModel:
+                test = de.test.wald(
+                    data=adata,
+                    formula_loc=f"~ 1 + {keyTest} + {batchLabel}_{keyTest}",
+                    factor_loc_totest=keyTest,
+                    quick_scale=quickScale,
+                    size_factors=sizeFactor,
+                )
+            else:
+                test = de.test.wald(
+                    data=adata,
+                    formula_loc=f"~ 1 + {keyTest} + {batchLabel}:{keyTest}",
+                    factor_loc_totest=keyTest,
+                    quick_scale=quickScale,
+                    size_factors=sizeFactor,
+                )
         else:
             test = de.test.wald(
                 data=adata,
@@ -3777,9 +3798,10 @@ class diffxpy(object):
         batchLabel: Optional[str] = None,
         minCellCounts: int = 5,
         sizeFactor: Optional[str] = None,
-        inputIsLog: bool = True,
+        inputIsLog: bool = False,
         keyAdded: str = None,
         quickScale: bool = True,
+        constrainModel: bool = False,
         copy: bool = False,
     ) -> Optional[Dict[str, pd.DataFrame]]:
         """
@@ -3845,7 +3867,12 @@ class diffxpy(object):
                 keyAdded="temp",
             )
             test = diffxpy.testTwoSample(
-                ad_test, "temp", batchLabel, quickScale, sizeFactor
+                ad_test,
+                "temp",
+                batchLabel,
+                quickScale,
+                sizeFactor,
+                constrainModel=constrainModel,
             )
             adataOrg.uns[keyAdded][singleGroup] = test
             logger.info(f"{singleGroup} done")
@@ -3860,9 +3887,10 @@ class diffxpy(object):
         batchLabel: Optional[str] = None,
         minCellCounts: int = 5,
         sizeFactor: Optional[str] = None,
-        inputIsLog: bool = True,
+        inputIsLog: bool = False,
         keyAdded: str = None,
         quickScale: bool = True,
+        constrainModel: bool = False,
         copy: bool = False,
     ) -> Optional[Dict[str, pd.DataFrame]]:
         """
@@ -3936,7 +3964,12 @@ class diffxpy(object):
                 keyAdded="temp",
             )
             test = diffxpy.testTwoSample(
-                ad_test, "temp", batchLabel, quickScale, sizeFactor
+                ad_test,
+                "temp",
+                batchLabel,
+                quickScale,
+                sizeFactor,
+                constrainModel=constrainModel,
             )
             adataOrg.uns[keyAdded][f"test_{testGroup}_bg_{backgroundGroup}"] = test
             logger.info(f"{testGroup} vs {backgroundGroup} done")
@@ -4143,7 +4176,7 @@ class useScvi(object):
             by default 0.9
         keyAdded : Optional[str], optional
             by default None
-        max_epochs : int, optional
+        max_epochs : int, optional 
             by default 1000
         threads : int, optional
             by default 24
@@ -4240,13 +4273,6 @@ class useScvi(object):
                 labels_key=refLabel,
                 batch_key=ls_removeCateKey[0],
                 categorical_covariate_keys=ls_removeCateKey[1:],
-            )
-
-            scvi.data.setup_anndata(
-                ad_merge,
-                layer=None,
-                labels_key=refLabel,
-                categorical_covariate_keys=ls_removeCateKey,
             )
             scvi_model = scvi.model.SCVI(ad_merge, **dt_params2Model)
             scvi_model.train(max_epochs=max_epochs)

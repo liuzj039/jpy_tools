@@ -10,6 +10,8 @@ import scanpy as sc
 from ont_fast5_api.fast5_interface import get_fast5_file
 from collections import namedtuple
 from loguru import logger
+from tqdm import tqdm
+from more_itertools import chunked
 import pickle
 
 
@@ -148,11 +150,10 @@ class FastaContent:
         lmdbEnv = lmdb.open(self.indexPath, map_size=1099511627776, max_readers=1024)
         lmdbTxn = lmdbEnv.begin(write=True)
         readNameLs = []
-        for i, fastaRead in enumerate(self.__readFasta()):
+        for i, fastaRead in tqdm(enumerate(self.__readFasta()), desc="Reads processing"):
             readNameLs.append(fastaRead.name)
             __writeFastaReadToLmdb(lmdbTxn, fastaRead)
-            if i % 1e5 == 0:
-                logger.info(f"{i} reads processed")
+
         readNameMergedPk = pickle.dumps(readNameLs)
         lmdbTxn.put(key="thisFileIndex".encode(), value=readNameMergedPk)
         lmdbTxn.commit()
@@ -284,11 +285,9 @@ class FastqContent:
         lmdbEnv = lmdb.open(self.indexPath, map_size=1099511627776)
         lmdbTxn = lmdbEnv.begin(write=True)
         readNameLs = []
-        for i, fastqRead in enumerate(self.__readFastq()):
+        for i, fastqRead in tqdm(enumerate(self.__readFastq()) ,desc='Reads processing'):
             readNameLs.append(fastqRead.name)
             __writeFastqReadToLmdb(lmdbTxn, fastqRead)
-            if i % 1e5 == 0:
-                logger.info(f"{i} reads processed")
         readNameMergedPk = pickle.dumps(readNameLs)
         lmdbTxn.put(key="thisFileIndex".encode(), value=readNameMergedPk)
         lmdbTxn.commit()
@@ -347,3 +346,21 @@ class FastqContent:
 
     def close(self):
         self.lmdbEnv.close()
+
+## pysam used ##
+def readSerialization(bam, n_batch):
+    dt_header = bam.header.to_dict()
+    it_reads = chunked(bam, n_batch)
+    for ls_read in it_reads:
+        yield dt_header, [x.to_string() for x in ls_read]
+
+def readDeserialization(dt_header, ls_read):
+    return_single = False
+    if isinstance(ls_read, str):
+        return_single = True
+        ls_read = [ls_read]
+    header = pysam.AlignmentHeader.from_dict(dt_header)
+    ls_read = [pysam.AlignedSegment.fromstring(x, header) for x in ls_read]
+    if return_single:
+        ls_read = ls_read[0]
+    return ls_read
