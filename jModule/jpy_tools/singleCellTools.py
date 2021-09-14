@@ -4147,7 +4147,7 @@ class useScvi(object):
         queryLayer: str,
         needLoc: bool = False,
         ls_removeCateKey: Optional[List[str]] = [],
-        dt_params2Model={"n_latent": 30, "n_layers": 2, "dispersion": "gene"},
+        dt_params2Model={},
         cutoff: float = 0.9,
         keyAdded: Optional[str] = None,
         max_epochs: int = 1000,
@@ -4171,7 +4171,7 @@ class useScvi(object):
         ls_removeCateKey : Optional[List[str]], optional
             These categories will be removed, the first one must be 'batch', by default []
         dt_params2Model : dict, optional
-            by default {"n_latent": 30, "n_layers": 2, "dispersion": "gene"}
+            by default {}
         cutoff : float, optional
             by default 0.9
         keyAdded : Optional[str], optional
@@ -4221,7 +4221,6 @@ class useScvi(object):
 
         if mode == "online":
             # train model
-
             scvi.data.setup_anndata(
                 refAd,
                 layer=None,
