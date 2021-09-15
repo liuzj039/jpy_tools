@@ -3708,14 +3708,18 @@ class diffxpy(object):
         batchLabel: Optional[str] = None,
         minCellCounts: int = 5,
         keyAdded: str = "temp",
+        subset = True,
     ):
         if not otherComp:
             otherComp = list(adata.obs[testLabel].unique())
             otherComp = [x for x in otherComp if x != testComp]
         if isinstance(otherComp, str):
             otherComp = [otherComp]
-        adata = adata[adata.obs[testLabel].isin([testComp, *otherComp])].copy()
-        sc.pp.filter_genes(adata, min_cells=minCellCounts)
+        if subset:
+            adata = adata[adata.obs[testLabel].isin([testComp, *otherComp])]
+            sc.pp.filter_genes(adata, min_cells=minCellCounts)
+        else:
+            adata.obs['keep'] = adata.obs[testLabel].isin([testComp, *otherComp])
         adata.obs = adata.obs.assign(
             **{keyAdded: np.select([adata.obs[testLabel] == testComp], ["1"], "0")}
         )
@@ -3802,6 +3806,7 @@ class diffxpy(object):
         keyAdded: str = None,
         quickScale: bool = True,
         constrainModel: bool = False,
+        threads: int = 1,
         copy: bool = False,
     ) -> Optional[Dict[str, pd.DataFrame]]:
         """
@@ -3837,7 +3842,10 @@ class diffxpy(object):
             return pd.DataFrame if copy
         """
         import scipy.sparse as ss
-
+        from concurrent.futures import ProcessPoolExecutor
+        from multiprocessing.managers import SharedMemoryManager
+        from multiprocessing.shared_memory import SharedMemory
+        
         layer = "X" if not layer else layer
         if not groups:
             groups = list(adata.obs[testLabel].unique())
@@ -3850,32 +3858,62 @@ class diffxpy(object):
             ls_useCol.append(batchLabel)
         adataOrg = adata.copy() if copy else adata
         adata = basic.getPartialLayersAdata(adataOrg, layer, ls_useCol)
-        adata.X = adata.X.A if ss.issparse(adata.X) else adata.X
+        # adata.X = adata.X.A if ss.issparse(adata.X) else adata.X
         if inputIsLog:
-            adata.X = np.exp(adata.X) - 1
+            adata.X = ss.linalg.expm(adata.X) - 1 if ss.issparse(adata.X) else np.exp(adata.X) - 1
         adata = adata[adata.obs[testLabel].isin(groups)].copy()
 
         logger.info("start performing test")
         adataOrg.uns[keyAdded] = {"__cat": "vsRest"}
-        for singleGroup in groups:
-            ad_test = diffxpy.parseAdToDiffxpyFormat(
-                adata,
-                testLabel,
-                singleGroup,
-                batchLabel=batchLabel,
-                minCellCounts=minCellCounts,
-                keyAdded="temp",
-            )
-            test = diffxpy.testTwoSample(
-                ad_test,
-                "temp",
-                batchLabel,
-                quickScale,
-                sizeFactor,
-                constrainModel=constrainModel,
-            )
-            adataOrg.uns[keyAdded][singleGroup] = test
-            logger.info(f"{singleGroup} done")
+
+        if threads > 1:
+            dt_diffxpyResult = {}
+            mtx = adata.X.A if ss.issparse(adata.X) else adata.X
+            adata.X = ss.csr_matrix(adata.shape)
+            with SharedMemoryManager() as smm:
+                shm = smm.SharedMemory(mtx.nbytes)
+                shape = mtx.shape
+                dtype = mtx.dtype
+                mtxInShm = np.ndarray(shape=shape, dtype=dtype, buffer=shm.buf)
+                np.copyto(mtxInShm, mtx)
+                with ProcessPoolExecutor(threads) as mtp:
+                    for singleGroup in groups:
+                        dt_diffxpyResult[singleGroup] = mtp.submit(
+                            diffxpy._getDiffxpy,
+                            adata,
+                            testLabel,
+                            singleGroup,
+                            batchLabel=batchLabel,
+                            minCellCounts=minCellCounts,
+                            quickScale=quickScale,
+                            sizeFactor=sizeFactor,
+                            constrainModel=constrainModel,
+                            ls_shm = [shm.name, shape, dtype]
+                        )
+            logger.info(f"get marker done")
+            dt_diffxpyResult = {x: y.result() for x, y in dt_diffxpyResult.items()}
+            adataOrg.uns[keyAdded].update(dt_diffxpyResult)
+        else:
+            adata.X = adata.X.A if ss.issparse(adata.X) else adata.X
+            for singleGroup in groups:
+                ad_test = diffxpy.parseAdToDiffxpyFormat(
+                    adata,
+                    testLabel,
+                    singleGroup,
+                    batchLabel=batchLabel,
+                    minCellCounts=minCellCounts,
+                    keyAdded="temp",
+                )
+                test = diffxpy.testTwoSample(
+                    ad_test,
+                    "temp",
+                    batchLabel,
+                    quickScale,
+                    sizeFactor,
+                    constrainModel=constrainModel,
+                )
+                adataOrg.uns[keyAdded][singleGroup] = test
+                logger.info(f"{singleGroup} done")
         if copy:
             return adataOrg.uns[keyAdded]
 
@@ -4100,6 +4138,49 @@ class diffxpy(object):
         }[cate]
         return fc_parse(dt_marker, qvalue, log2fc, mean, detectedCounts)
 
+    @staticmethod
+    def _getDiffxpy(
+        adata,
+        testLabel,
+        testComp,
+        batchLabel,
+        minCellCounts,
+        quickScale,
+        sizeFactor,
+        constrainModel,
+        ls_shm
+    ):  
+        import scipy.sparse as ss
+        from multiprocessing.shared_memory import SharedMemory
+        ad_parsed = diffxpy.parseAdToDiffxpyFormat(
+            adata,
+            testLabel,
+            testComp,
+            batchLabel=batchLabel,
+            minCellCounts=minCellCounts,
+            keyAdded="temp",
+            subset=False
+        )
+
+        if not ls_shm:
+            adata.X = adata.X.A if ss.issparse(adata.X) else adata.X
+        else:
+            (shmName, shape, dtype) = ls_shm
+            shm = SharedMemory(shmName)
+            mtxInShm = np.ndarray(shape=shape, dtype=dtype, buffer=shm.buf)
+            ls_keepVar = mtxInShm[adata.obs['keep']].sum(0) > minCellCounts
+            ad_parsed.X = mtxInShm
+            ad_parsed = adata[adata.obs['keep'], ls_keepVar]
+
+        df_diffxpyResult = diffxpy.testTwoSample(
+            ad_parsed,
+            "temp",
+            batchLabel,
+            quickScale,
+            sizeFactor,
+            constrainModel=constrainModel,
+        )
+        return df_diffxpyResult
 
 class useScvi(object):
     @staticmethod
@@ -4176,7 +4257,7 @@ class useScvi(object):
             by default 0.9
         keyAdded : Optional[str], optional
             by default None
-        max_epochs : int, optional 
+        max_epochs : int, optional
             by default 1000
         threads : int, optional
             by default 24
