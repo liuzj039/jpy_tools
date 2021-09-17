@@ -1,44 +1,3 @@
-##########################################################################################
-#                                     Author: Liu ZJ                                     #
-#                          Last Updated: May 26, 2021 08:05 PM                           #
-#                                Source Language: python                                 #
-#               Repository: https://github.com/liuzj039/myPythonTools.git                #
-##########################################################################################
-
-##########################################################################################
-#                                     Author: Liu ZJ                                     #
-#                          Creation Date: May 26, 2021 03:29 PM                          #
-#                          Last Updated: May 26, 2021 03:55 PM                           #
-#                                Source Language: python                                 #
-#               Repository: https://github.com/liuzj039/myPythonTools.git                #
-#                                                                                        #
-#                                --- Code Description ---                                #
-#                                      add plotting                                      #
-##########################################################################################
-
-##########################################################################################
-#                                     Author: Liu ZJ                                     #
-#                         Creation Date: April 14, 2021 04:08 PM                         #
-#                         Last Updated: April 14, 2021 04:08 PM                          #
-#                                Source Language: python                                 #
-#               Repository: https://github.com/liuzj039/myPythonTools.git                #
-#                                                                                        #
-#                                --- Code Description ---                                #
-#                                    classify functions                                  #
-##########################################################################################
-
-##########################################################################################
-#                                     Author: Liu ZJ                                     #
-#                         Creation Date: March 23, 2021 11:09 AM                         #
-#                         Last Updated: March 23, 2021 11:10 AM                          #
-#                                Source Language: python                                 #
-#               Repository: https://github.com/liuzj039/myPythonTools.git                #
-#                                                                                        #
-#                                --- Code Description ---                                #
-#                             Tools For Single Cell Analysis                             #
-##########################################################################################
-
-
 from logging import log
 import pandas as pd
 import numpy as np
@@ -1099,6 +1058,15 @@ class plotting(object):
         return sankey
 
     @staticmethod
+    def plotGeneInDifferentBatch(ad, ls_gene, batchKey, layer, cmap='Reds', ncols=2, **dt_arg):
+        from math import ceil
+        ls_batch = ad.obs[batchKey].unique()
+        nraws = ceil(len(ls_batch) / ncols)
+
+        
+        
+
+    @staticmethod
     def plotSC3sConsensusMatrix(
         adata: anndata.AnnData,
         matrixLabel: str,
@@ -1169,27 +1137,8 @@ class plotting(object):
 
         return g
 
-    @staticmethod
-    def maskGeneExpNotInSpecialCluster(
-        adata: anndata.AnnData,
-        obsKey: str,
-        clusterNameLs: Sequence[str],
-        layer: Optional[str] = None,
-        embedding: str = "X_umap",
-    ) -> anndata.AnnData:
-        """
-        all expression value of cell which not belongs to <clusterNameLs> is equal to 0
-        """
-        import scipy.sparse as ss
 
-        tempAd = basic.getPartialLayersAdata(adata, layer, [obsKey]).copy()
-        tempAd.obsm[embedding] = adata.obsm[embedding]
 
-        inClusterBoolLs = tempAd.obs[obsKey].isin(clusterNameLs)
-
-        tempAd.layers[layer] = tempAd.X.A if ss.issparse(tempAd.X) else tempAd.X
-        tempAd.layers[layer][~inClusterBoolLs, :] = 0
-        return tempAd
 
 
 class multiModle(object):
@@ -5067,3 +5016,25 @@ class deprecated(object):
 
         if not inplace:
             return adata
+
+    @staticmethod
+    def maskGeneExpNotInSpecialCluster(
+        adata: anndata.AnnData,
+        obsKey: str,
+        clusterNameLs: Sequence[str],
+        layer: Optional[str] = None,
+        embedding: str = "X_umap",
+    ) -> anndata.AnnData:
+        """
+        all expression value of cell which not belongs to <clusterNameLs> is equal to 0
+        """
+        import scipy.sparse as ss
+
+        tempAd = basic.getPartialLayersAdata(adata, layer, [obsKey]).copy()
+        tempAd.obsm[embedding] = adata.obsm[embedding]
+
+        inClusterBoolLs = tempAd.obs[obsKey].isin(clusterNameLs)
+
+        tempAd.layers[layer] = tempAd.X.A if ss.issparse(tempAd.X) else tempAd.X
+        tempAd.layers[layer][~inClusterBoolLs, :] = 0
+        return tempAd
