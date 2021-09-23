@@ -300,7 +300,7 @@ def copyToIpf(inPath, ipfPath) -> str:
     sh.scp(inPath, f"172.18.6.205:{ipfPath}")
 
 
-def toPkl(obj, name, server):
+def toPkl(obj, name, server, writeFc=None, arg_path=None, **dt_arg):
     import pickle
     import os
 
@@ -318,17 +318,20 @@ def toPkl(obj, name, server):
 
     dir_currentPkl = dt_dirPkl[currentServer]
 
-    with open(f"{dir_currentPkl}/{name}", "wb") as fh:
-        pickle.dump(obj, fh)
+    if not writeFc:
+        with open(f"{dir_currentPkl}/{name}", "wb") as fh:
+            pickle.dump(obj, fh)
+    else:
+        dt_arg.update({arg_path:f"{dir_currentPkl}/{name}"})
+        writeFc(obj, **dt_arg)
 
     if server != currentServer:
         dir_pkl = dt_dirPkl[server]
         ip_target = dt_ip[server]
         config_scp = dt_scpConfig[server]
-        os.system(f"scp {config_scp} {dir_currentPkl}/{name} {ip_target}:{dir_pkl}/{name}")
+        print(os.system(f"scp -r {config_scp} {dir_currentPkl}/{name} {ip_target}:{dir_pkl}/"))
 
-
-def loadPkl(name):
+def loadPkl(name, readFc=None, arg_path=None, **dt_arg):
     import pickle
 
     dt_dirPkl = {
@@ -341,8 +344,12 @@ def loadPkl(name):
     assert len(ls_currentServer) == 1, "Unknown current server"
     currentServer = ls_currentServer[0]
     dir_currentPkl = dt_dirPkl[currentServer]
-
-    with open(f"{dir_currentPkl}/{name}", "rb") as fh:
-        obj = pickle.load(fh)
+    
+    if not readFc:
+        with open(f"{dir_currentPkl}/{name}", "rb") as fh:
+            obj = pickle.load(fh)
+    else:
+        dt_arg.update({arg_path:f"{dir_currentPkl}/{name}"})
+        obj = readFc(**dt_arg)
 
     return obj

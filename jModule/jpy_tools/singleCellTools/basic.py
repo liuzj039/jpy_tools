@@ -47,6 +47,7 @@ def splitAdata(
     batchKey: str,
     copy=True,
     axis: Literal[0, "cell", 1, "feature"] = 0,
+    needName = False
 ) -> Iterator[anndata.AnnData]:
     if axis in [0, "cell"]:
         assert batchKey in adata.obs.columns, f"{batchKey} not detected in adata"
@@ -58,12 +59,19 @@ def splitAdata(
             .groupby("__group")[indexName]
             .agg(list)
         )
-        del adata.obs["__group"]
         for batchObs in tqdm(batchObsLs):
-            if copy:
-                yield adata[batchObs].copy()
+            if needName:
+                if copy:
+                    yield adata[batchObs].obs.iloc[0].loc["__group"], adata[batchObs].copy()
+                else:
+                    yield adata[batchObs].obs.iloc[0].loc["__group"], adata[batchObs]
             else:
-                yield adata[batchObs]
+                if copy:
+                    yield adata[batchObs].copy()
+                else:
+                    yield adata[batchObs]
+        del adata.obs["__group"]
+
     elif axis in [1, "feature"]:
         assert batchKey in adata.var.columns, f"{batchKey} not detected in adata"
         indexName = "index" if (not adata.var.index.name) else adata.var.index.name
@@ -76,10 +84,17 @@ def splitAdata(
         )
         del adata.var["__group"]
         for batchVar in tqdm(batchVarLs):
-            if copy:
-                yield adata[:, batchVar].copy()
+            if needName:
+                if copy:
+                    yield adata[batchVar].var.iloc[0].loc["__group"], adata[batchVar].copy()
+                else:
+                    yield adata[batchVar].var.iloc[0].loc["__group"], adata[batchVar]
             else:
-                yield adata[:, batchVar]
+                if copy:
+                    yield adata[:, batchVar].copy()
+                else:
+                    yield adata[:, batchVar]
+        del adata.var["__group"]
     else:
         assert False, "Unknown `axis` parameter"
 
