@@ -331,19 +331,21 @@ def toPkl(obj, name, server, writeFc=None, arg_path=None, **dt_arg):
         config_scp = dt_scpConfig[server]
         print(os.system(f"scp -r {config_scp} {dir_currentPkl}/{name} {ip_target}:{dir_pkl}/"))
 
-def loadPkl(name, readFc=None, arg_path=None, **dt_arg):
+def loadPkl(name:str, readFc=None, arg_path=None, **dt_arg):
     import pickle
+    if name.startswith('/'):
+        dir_currentPkl = ''
+    else:
+        dt_dirPkl = {
+            "ipf": "/public/home/liuzj/tmp/python_pkl/",
+            "scem": "/scem/work/liuzj/tmp/python_pkl/",
+        }
 
-    dt_dirPkl = {
-        "ipf": "/public/home/liuzj/tmp/python_pkl/",
-        "scem": "/scem/work/liuzj/tmp/python_pkl/",
-    }
-
-    dt_currentServer = {x: os.path.exists(y) for x, y in dt_dirPkl.items()}
-    ls_currentServer = [x for x, y in dt_currentServer.items() if y]
-    assert len(ls_currentServer) == 1, "Unknown current server"
-    currentServer = ls_currentServer[0]
-    dir_currentPkl = dt_dirPkl[currentServer]
+        dt_currentServer = {x: os.path.exists(y) for x, y in dt_dirPkl.items()}
+        ls_currentServer = [x for x, y in dt_currentServer.items() if y]
+        assert len(ls_currentServer) == 1, "Unknown current server"
+        currentServer = ls_currentServer[0]
+        dir_currentPkl = dt_dirPkl[currentServer]
     
     if not readFc:
         with open(f"{dir_currentPkl}/{name}", "rb") as fh:

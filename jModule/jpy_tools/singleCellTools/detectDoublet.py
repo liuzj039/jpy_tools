@@ -143,7 +143,7 @@ def byScDblFinder(
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
-    from .rTools import py2r, r2py, r_set_seed
+    from ..rTools import py2r, r2py, r_set_seed
 
     r_set_seed(39)
     R = ro.r
