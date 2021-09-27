@@ -80,6 +80,10 @@ rule all:
     input:
         mergeFqFinished = [resultDir + 'step3_mergeFq/' + "" + sample + ".finished" for sample in df_mergeFq.index],
 
+# parameter's dataframe of splitH5: 
+# |     | need_h5   |   nparts | path                                                                                    | dir_output   |
+# |:----|:----------|---------:|:----------------------------------------------------------------------------------------|:-------------|
+# | all | False     |       12 | /scem/work/liuzj/projects/mouse/allFast5/20210723_1345_MN29338_FAQ41752_7386409e/fast5/ | all/         |
 rule splitH5:
     input:
         path = lambda wildcard: df_splitH5.at[wildcard.sample, 'path'],
@@ -98,6 +102,21 @@ python ./splitFast5ToMultipleDir.py -i {input.path} -o {params.dir_output} -n {p
 touch {output.splitH5Finished}
         """
 
+# parameter's dataframe of basecall: 
+# |       |   nparts | dir_output   | sample   | basecalledDir   | guppy                                          | model                                                    |
+# |:------|---------:|:-------------|:---------|:----------------|:-----------------------------------------------|:---------------------------------------------------------|
+# | all0  |        0 | all/0/       | all      | all0/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all1  |        1 | all/1/       | all      | all1/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all2  |        2 | all/2/       | all      | all2/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all3  |        3 | all/3/       | all      | all3/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all4  |        4 | all/4/       | all      | all4/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all5  |        5 | all/5/       | all      | all5/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all6  |        6 | all/6/       | all      | all6/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all7  |        7 | all/7/       | all      | all7/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all8  |        8 | all/8/       | all      | all8/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all9  |        9 | all/9/       | all      | all9/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all10 |       10 | all/10/      | all      | all10/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all11 |       11 | all/11/      | all      | all11/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
 rule basecall:
     input:
         splitH5Finished = parseDfToInput_basecall_splitH5,
@@ -123,6 +142,10 @@ fi
 touch {output.basecallFinished}
         """
 
+# parameter's dataframe of mergeFq: 
+# | sample   | sampleSplit                                                                                        | dir_out   |
+# |:---------|:---------------------------------------------------------------------------------------------------|:----------|
+# | all      | ['all0', 'all1', 'all2', 'all3', 'all4', 'all5', 'all6', 'all7', 'all8', 'all9', 'all10', 'all11'] | all/      |
 rule mergeFq:
     input:
         basecallFinished = parseDfToInput_mergeFq_basecall,

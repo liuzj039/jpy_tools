@@ -156,6 +156,7 @@ class SnakeRule(object):
         )
         self.threads = f"{' ' * 4}threads:{threads}\n"
         self.shell = ""
+        self._df_content = ""
         self.main = f"rule {self.name}:\n"
 
     def __str__(self):
@@ -168,7 +169,10 @@ class SnakeRule(object):
         self.code += code.strip("\n") + "\n"
 
     def addMetaDf(
-        self, metaDfName: str, needAddRuleDirLs: Optional[Sequence[str]] = None
+        self,
+        metaDfName: str,
+        needAddRuleDirLs: Optional[Sequence[str]] = None,
+        metaDf:Optional[pd.DataFrame]=None,
     ):
         """
         add meta dataframe to snakerule. All meta information should store in this dataframe
@@ -188,6 +192,17 @@ for column in {needAddRuleDirLs}:
 """.lstrip(
                 "\n"
             )
+
+        if not metaDf is None:
+            self._df = metaDf
+            self._df_content = (
+                f"# parameter's dataframe of {self.name}: \n" + self._df.to_markdown()
+            )
+            self._df_content = "\n# ".join(self._df_content.split("\n")) + "\n"
+        else:
+            logger.warning(
+                f"please set `metaDf` if you want to record dataframe content in snakefile"
+            )
         # exec(self.code + f"\nprint(list({self.metaDfName}.columns))")
 
     def addMain(
@@ -195,7 +210,7 @@ for column in {needAddRuleDirLs}:
         category: Literal["input", "params"],
         useColLs: Union[str, Sequence[str]],
         fromRule: Optional[SnakeRule] = None,
-        wildCardName: optional[str] = None,
+        wildCardName: Optional[str] = None,
     ):
         """
         add info to input\params\output based on dataframe
@@ -229,8 +244,11 @@ for column in {needAddRuleDirLs}:
                     + f"{fromRule.name}Finished = {fromRule.outputDir} + '{fromRule.outFile}',\n"
                 )
             else:
-                self.code += '\n' + self.parseDfToInput(fromRule).strip() + '\n'
-                self.input += (" " * 8 + f"{fromRule.name}Finished = parseDfToInput_{self.name}_{fromRule.name},\n")
+                self.code += "\n" + self.parseDfToInput(fromRule).strip() + "\n"
+                self.input += (
+                    " " * 8
+                    + f"{fromRule.name}Finished = parseDfToInput_{self.name}_{fromRule.name},\n"
+                )
                 # self.input += (
                 #     " " * 8
                 #     + f"{fromRule.name}Finished = lambda wildcard: {fromRule.outputDir} + {self.metaDfName}.at[wildcard.{self.wildCard}, '{fromRule.wildCard}'] + '.finished',\n"
@@ -241,7 +259,7 @@ for column in {needAddRuleDirLs}:
             if wildCardName == self.wildCard:
                 colAttr = f"{col} = lambda wildcard: {fromRule.metaDfName}.at[wildcard.{wildCardName}, '{col}']"
             else:
-                self.code += '\n' + self.parseDfToParams(fromRule, col).strip() + '\n'
+                self.code += "\n" + self.parseDfToParams(fromRule, col).strip() + "\n"
                 colAttr = f"{col} = parseDfToParams_{self.name}_{fromRule.name}_{col}"
 
             # if col in gatherInfoDt:
@@ -274,10 +292,15 @@ for column in {needAddRuleDirLs}:
         )
 
     def getMain(self):
-        return f"{self.main}{self.input}{self.output}{self.params}{self.threads}{self.priority}{self.shell}"
+        return f"{self._df_content}{self.main}{self.input}{self.output}{self.params}{self.threads}{self.priority}{self.shell}"
 
-    def parseDfToInput(self, fromRule:'SnakeRule'):
-        df, selfWildCard, fromWildCard, fromResultDir = self.metaDfName, self.wildCard, fromRule.wildCard, fromRule.outputDir
+    def parseDfToInput(self, fromRule: "SnakeRule"):
+        df, selfWildCard, fromWildCard, fromResultDir = (
+            self.metaDfName,
+            self.wildCard,
+            fromRule.wildCard,
+            fromRule.outputDir,
+        )
         str_fc = f"""
 def parseDfToInput_{self.name}_{fromRule.name}(wildcard):
     selfWildCardUnique = True
@@ -289,9 +312,14 @@ def parseDfToInput_{self.name}_{fromRule.name}(wildcard):
         return [{fromResultDir} + x + '.finished' for x in {df}.loc[wildcard.{selfWildCard}, '{fromWildCard}']]
             """
         return str_fc
-    
-    def parseDfToParams(self, fromRule:'SnakeRule', useCol:str):
-        df, selfWildCard, fromWildCard, fromDf = self.metaDfName, self.wildCard, fromRule.wildCard, fromRule.metaDfName
+
+    def parseDfToParams(self, fromRule: "SnakeRule", useCol: str):
+        df, selfWildCard, fromWildCard, fromDf = (
+            self.metaDfName,
+            self.wildCard,
+            fromRule.wildCard,
+            fromRule.metaDfName,
+        )
         str_fc = f"""
 def parseDfToParams_{self.name}_{fromRule.name}_{useCol}(wildcard):
     selfWildCardUnique = True
