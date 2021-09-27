@@ -136,6 +136,7 @@ rule mergeFq:
     priority:0
     shell:
         """
+mkdir -p {params.dir_out}
 cd {pipelineDir}
 python mergeFastq.py {params.basecalledDir} -o {params.dir_out} -t {threads}
 touch {output.mergeFqFinished}
