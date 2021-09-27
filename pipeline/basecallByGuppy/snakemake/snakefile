@@ -1,10 +1,11 @@
 import pandas as pd
-#configfile: "/scem/work/liuzj/github/Liuzj_allScripts/pipeline/basecallByGuppy/snakemake/config.yaml"
+#configfile: "/public/home/liuzj/scripts/pipeline/basecallByGuppy/snakemake/config.yaml"
 pipelineDir = config['pipelineDir']
 resultDir = config["resultDir"].rstrip("/") + "/"
 pipelineDir = config["pipelineDir"].rstrip("/") + "/"
 
 
+## get parameter of rule `splitH5` ##
 import pandas as pd
 dt_h5 = config['input']
 df_splitH5 = pd.DataFrame.from_dict(dt_h5).T
@@ -13,6 +14,7 @@ for column in ['dir_output']:
     df_splitH5[column] = resultDir + 'step1_splitH5/' + df_splitH5[column]
 
 
+## get parameter of rule `basecall` ##
 df_basecall = df_splitH5.copy()
 df_basecall["nparts"] = df_basecall["nparts"].map(lambda x: list(range(x)))
 df_basecall = df_basecall.explode("nparts")
@@ -47,11 +49,10 @@ def parseDfToParams_basecall_splitH5_need_h5(wildcard):
         return [df_splitH5.at[x, 'need_h5'] for x in ls_fromSampleName]
 
 
-df_mergeFq = pd.DataFrame(index=['all'])
-df_mergeFq = df_mergeFq.assign(
-    sampleSplit = [list(df_basecall.index)],
-    dir_out = '/'
-)
+## get parameter of rule `mergeFq` ##
+df_mergeFq = df_basecall.reset_index().groupby("sample")["index"].agg(list).pipe(
+    pd.DataFrame
+).rename(columns={"index": "sampleSplit"}).assign(dir_out=lambda df: df.index + "/")
 for column in ['dir_out']:
     df_mergeFq[column] = resultDir + 'step3_mergeFq/' + df_mergeFq[column]
 
