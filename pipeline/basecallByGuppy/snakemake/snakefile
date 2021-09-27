@@ -20,7 +20,7 @@ df_basecall["nparts"] = df_basecall["nparts"].map(lambda x: list(range(x)))
 df_basecall = df_basecall.explode("nparts")
 df_basecall = df_basecall[["nparts", "dir_output"]]
 df_basecall['sample'] = df_basecall.index
-df_basecall.index = df_basecall.index + df_basecall.nparts.astype(str)
+df_basecall.index = df_basecall.index + "_" + df_basecall.nparts.astype(str)
 df_basecall.dir_output = df_basecall.dir_output + df_basecall.nparts.astype(str) + '/'
 df_basecall['basecalledDir'] = df_basecall.index + '/'
 df_basecall['guppy'] = config['guppy']
@@ -103,20 +103,20 @@ touch {output.splitH5Finished}
         """
 
 # parameter's dataframe of basecall: 
-# |       |   nparts | dir_output   | sample   | basecalledDir   | guppy                                          | model                                                    |
-# |:------|---------:|:-------------|:---------|:----------------|:-----------------------------------------------|:---------------------------------------------------------|
-# | all0  |        0 | all/0/       | all      | all0/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all1  |        1 | all/1/       | all      | all1/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all2  |        2 | all/2/       | all      | all2/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all3  |        3 | all/3/       | all      | all3/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all4  |        4 | all/4/       | all      | all4/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all5  |        5 | all/5/       | all      | all5/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all6  |        6 | all/6/       | all      | all6/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all7  |        7 | all/7/       | all      | all7/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all8  |        8 | all/8/       | all      | all8/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all9  |        9 | all/9/       | all      | all9/           | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all10 |       10 | all/10/      | all      | all10/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all11 |       11 | all/11/      | all      | all11/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# |        |   nparts | dir_output   | sample   | basecalledDir   | guppy                                          | model                                                    |
+# |:-------|---------:|:-------------|:---------|:----------------|:-----------------------------------------------|:---------------------------------------------------------|
+# | all_0  |        0 | all/0/       | all      | all_0/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all_1  |        1 | all/1/       | all      | all_1/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all_2  |        2 | all/2/       | all      | all_2/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all_3  |        3 | all/3/       | all      | all_3/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all_4  |        4 | all/4/       | all      | all_4/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all_5  |        5 | all/5/       | all      | all_5/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all_6  |        6 | all/6/       | all      | all_6/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all_7  |        7 | all/7/       | all      | all_7/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all_8  |        8 | all/8/       | all      | all_8/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all_9  |        9 | all/9/       | all      | all_9/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all_10 |       10 | all/10/      | all      | all_10/         | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# | all_11 |       11 | all/11/      | all      | all_11/         | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
 rule basecall:
     input:
         splitH5Finished = parseDfToInput_basecall_splitH5,
@@ -143,9 +143,9 @@ touch {output.basecallFinished}
         """
 
 # parameter's dataframe of mergeFq: 
-# | sample   | sampleSplit                                                                                        | dir_out   |
-# |:---------|:---------------------------------------------------------------------------------------------------|:----------|
-# | all      | ['all0', 'all1', 'all2', 'all3', 'all4', 'all5', 'all6', 'all7', 'all8', 'all9', 'all10', 'all11'] | all/      |
+# | sample   | sampleSplit                                                                                                    | dir_out   |
+# |:---------|:---------------------------------------------------------------------------------------------------------------|:----------|
+# | all      | ['all_0', 'all_1', 'all_2', 'all_3', 'all_4', 'all_5', 'all_6', 'all_7', 'all_8', 'all_9', 'all_10', 'all_11'] | all/      |
 rule mergeFq:
     input:
         basecallFinished = parseDfToInput_mergeFq_basecall,
