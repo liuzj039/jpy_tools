@@ -122,7 +122,7 @@ def groupAdata(adata: sc.AnnData, batchKey: str, function, axis=0, **params):
         else list(adata.var[batchKey].sort_values().unique())
     )
 
-    it_ad = basic.splitAdata(adata, batchKey, copy=False, axis=axis)
+    it_ad = splitAdata(adata, batchKey, copy=False, axis=axis)
     ls_result = []
     for _ad in it_ad:
         ls_result.append(function(_ad, **params))
@@ -226,7 +226,7 @@ def testAllCountIsInt(adata: anndata.AnnData, layer: Optional[str]) -> None:
 
 def getadataColor(adata, label):
     if f"{label}_colors" not in adata.uns:
-        basic.setadataColor(adata, label)
+        setadataColor(adata, label)
     return {
         x: y
         for x, y in zip(adata.obs[label].cat.categories, adata.uns[f"{label}_colors"])
@@ -285,7 +285,7 @@ def mergeadata(adata, groupby, mergeLayer=[], method="sum"):
             .groupby(groupby)
             .agg(method)
         )
-    return basic.creatAnndataFromDf(groupbyXDf, **adataLayerDfDt)
+    return creatAnndataFromDf(groupbyXDf, **adataLayerDfDt)
 
 
 def clusterBySC3(
@@ -783,7 +783,7 @@ def hvgBatch(
 
     adata_org = adata
     adata = adata.copy()
-    batchAdLs = list(basic.splitAdata(adata, batchKey))
+    batchAdLs = list(splitAdata(adata, batchKey))
     [
         sc.pp.highly_variable_genes(
             x,
