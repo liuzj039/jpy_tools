@@ -14,5 +14,6 @@ from . import (
     parseCellranger,
     geneEnrichInfo,
     others,
-    parseSnuupy
+    parseSnuupy,
+    recipe
 )

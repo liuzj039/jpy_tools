@@ -33,6 +33,56 @@ import collections
 from xarray import corr
 from . import basic, diffxpy
 
+
+def getUcellScore(
+    ad: sc.AnnData,
+    dt_deGene: Mapping[str, List[str]],
+    layer: Optional[str],
+    label,
+    cutoff=0.2,
+):
+    """
+    use ucell calculate average expression info
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+    dt_deGene : Mapping[str, List[str]]
+        key is label, value is marker genes
+    layer : Optional[str]
+        must NOT be scaled data
+    label : 
+        label for result.
+    cutoff : float, optional
+        by default 0.2
+    """
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
+    from ..rTools import py2r, r2py
+
+    R = ro.r
+    ucell = importr("UCell")
+    rBase = importr("base")
+    
+    layer = None if layer == "X" else layer
+    dtR_deGene = {x: R.c(*y) for x, y in dt_deGene.items()}
+    dtR_deGene = R.list(**dtR_deGene)
+
+    ss_forUcell = ad.layers[layer] if layer else ad.X
+    ssR_forUcell = py2r(ss_forUcell.T)
+    ssR_forUcell = R("`dimnames<-`")(
+        ssR_forUcell,
+        R.list(R.c(*ad.var.index), R.c(*ad.obs.index)),
+    )
+
+    r_scores = ucell.ScoreSignatures_UCell(ssR_forUcell, features=dtR_deGene)
+
+    ad.obsm[f"ucell_score_{label}"] = r2py(rBase.as_data_frame(r_scores))
+    ad.obs[f"ucell_celltype_{label}"] = ad.obsm[f"ucell_score_{label}"].pipe(
+        lambda df: np.where(df.max(1) > cutoff, df.idxmax(1), "Unknown")
+    )
+
+
 def getOverlapInfo(
     adata: anndata.AnnData,
     key: str,
@@ -239,14 +289,9 @@ def getEnrichedScore(adata, label, geneLs, threads=12, times=100):
         used for getEnrichedScore
         """
         shuffleAd = adata.copy()
-        shuffleAd.obs[label] = (
-            adata.obs[label].sample(frac=1, random_state=i).values
-        )
+        shuffleAd.obs[label] = adata.obs[label].sample(frac=1, random_state=i).values
         shuffleClusterDf = (
-            mergeadataExpress(shuffleAd, label)
-            .to_df()
-            .reset_index()
-            .assign(label=i)
+            mergeadataExpress(shuffleAd, label).to_df().reset_index().assign(label=i)
         )
 
         return shuffleClusterDf
@@ -268,9 +313,7 @@ def getEnrichedScore(adata, label, geneLs, threads=12, times=100):
     )
     allShuffleClusterExpressLs.append(originalClusterDf)
     allShuffleClusterExpressDf = (
-        pd.concat(allShuffleClusterExpressLs)
-        .set_index("label")
-        .reindex(geneLs, axis=1)
+        pd.concat(allShuffleClusterExpressLs).set_index("label").reindex(geneLs, axis=1)
     )
     logger.info(f"start calculate z score")
     allShuffleClusterZscoreDf = (
@@ -394,9 +437,7 @@ def getEnrichedGeneByCellId(
             )
         )
         adata.varm["mca"] = r2py(
-            rBase.as_data_frame(
-                R.attr(R.reducedDim(adataR, "MCA"), "genesCoordinates")
-            )
+            rBase.as_data_frame(R.attr(R.reducedDim(adataR, "MCA"), "genesCoordinates"))
         ).reindex(adata.var.index, fill_value=0)
         adata.uns[f"{clusterName}_cellid_marker"] = df_marker
 
@@ -471,9 +512,7 @@ def getMarkerByFcCellexCellidDiffxpy(
             f"{groupby}_fcMarker_filtered"
         ]
     dt_markerByFc = (
-        sc.get.rank_genes_groups_df(
-            ad_sub, None, key=f"{groupby}_fcMarker_filtered"
-        )
+        sc.get.rank_genes_groups_df(ad_sub, None, key=f"{groupby}_fcMarker_filtered")
         .groupby("group")["names"]
         .agg(list)
         .to_dict()
@@ -486,9 +525,7 @@ def getMarkerByFcCellexCellidDiffxpy(
         adata.varm[f"{groupby}_cellexES"] = ad_sub.varm[f"{groupby}_cellexES"]
     dt_marker_cellex = (
         ad_sub.varm[f"{groupby}_cellexES"]
-        .apply(
-            lambda x: list(x[x > cutoff_cellex].sort_values(ascending=False).index)
-        )
+        .apply(lambda x: list(x[x > cutoff_cellex].sort_values(ascending=False).index))
         .to_dict()
     )
     adata.uns[f"marker_multiMethod_{groupby}"]["cellexMarker"] = dt_marker_cellex
@@ -498,9 +535,7 @@ def getMarkerByFcCellexCellidDiffxpy(
         geneEnrichInfo.getEnrichedGeneByCellId(
             ad_sub, normalize_layer, groupby, markerCounts_CellId
         )
-        adata.uns[f"{groupby}_cellid_marker"] = ad_sub.uns[
-            f"{groupby}_cellid_marker"
-        ]
+        adata.uns[f"{groupby}_cellid_marker"] = ad_sub.uns[f"{groupby}_cellid_marker"]
     dt_markerCellId = {
         x: list(y)
         for x, y in ad_sub.uns[f"{groupby}_cellid_marker"].to_dict("series").items()
@@ -518,9 +553,7 @@ def getMarkerByFcCellexCellidDiffxpy(
             inputIsLog=False,
             **dt_DiffxpyParams,
         )
-        adata.uns[f"{groupby}_diffxpy_marker"] = ad_sub.uns[
-            f"{groupby}_diffxpy_marker"
-        ]
+        adata.uns[f"{groupby}_diffxpy_marker"] = ad_sub.uns[f"{groupby}_diffxpy_marker"]
 
     df_diffxpyMarker = diffxpy.getMarker(
         adata, key=f"{groupby}_diffxpy_marker", **dt_DiffxpyGetMarkerParams
@@ -555,19 +588,13 @@ def getMarkerByFcCellexCellidDiffxpy(
                     adata.uns[f"marker_multiMethod_{groupby}"]["fcMarker"][cluster]
                 ),
                 cellexMarker=df["marker"].isin(
-                    adata.uns[f"marker_multiMethod_{groupby}"]["cellexMarker"][
-                        cluster
-                    ]
+                    adata.uns[f"marker_multiMethod_{groupby}"]["cellexMarker"][cluster]
                 ),
                 cellidMarker=df["marker"].isin(
-                    adata.uns[f"marker_multiMethod_{groupby}"]["cellidMarker"][
-                        cluster
-                    ]
+                    adata.uns[f"marker_multiMethod_{groupby}"]["cellidMarker"][cluster]
                 ),
                 diffxpyMarker=df["marker"].isin(
-                    adata.uns[f"marker_multiMethod_{groupby}"]["diffxpyMarker"][
-                        cluster
-                    ]
+                    adata.uns[f"marker_multiMethod_{groupby}"]["diffxpyMarker"][cluster]
                 ),
             ).assign(
                 detectedMethodCounts=lambda df: df[

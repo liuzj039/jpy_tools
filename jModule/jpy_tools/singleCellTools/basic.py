@@ -30,7 +30,6 @@ from typing import (
     Callable,
 )
 import collections
-from xarray import corr
 
 
 def getOverlap(ad_a: anndata.AnnData, ad_b: anndata.AnnData, copy=False):
