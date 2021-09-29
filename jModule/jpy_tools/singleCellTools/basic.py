@@ -858,6 +858,9 @@ def saveAllGeneEmbedding(
     layer: Optional[str] = None,
     useRaw: Optional[bool] = None,
     batch: Optional[str] = None,
+    nrows: Optional[int] = None,
+    ncols: Optional[int] = None,
+    figsize: Optional[str] = None,
 ):
     # def __saveSingleGene(gene):
     #     nonlocal adata
@@ -890,20 +893,25 @@ def saveAllGeneEmbedding(
             plt.close()
     else:
         ls_batch = adata.obs[batch].unique()
+        ls_batch = [ls_batch, *[[x] for x in ls_batch]]
         for i, gene in tqdm(enumerate(allGeneLs), "Processed Gene", geneCounts):
-            for batchName in ls_batch:
-                ax = sc.pl.umap(adata, show=False)
+            fig, axs = plt.subplots(nrows, ncols, figsize=figsize)
+            axs = axs.reshape(-1)
+            for batchName, ax in zip(ls_batch, axs):
+                _ad = adata[adata.obs.eval("batch in @batchName")]
                 sc.pl.umap(
-                    adata[adata.obs[batch] == batchName],
-                    layer=layer,
+                    _ad,
                     color=gene,
                     cmap="Reds",
-                    ax=ax,
+                    layer=layer,
                     size=120000 / len(adata),
+                    ax=ax,
                     show=False,
-                )
-                plt.savefig(f"{outputDirPath}{gene}_{batchName}.pdf", format="pdf")
-                plt.close()
+                    vmax=adata[:, gene].to_df(layer).quantile(0.999),
+                    vmin=0
+                )                
+            plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
+            plt.close()
 
     logger.info("All finished")
 

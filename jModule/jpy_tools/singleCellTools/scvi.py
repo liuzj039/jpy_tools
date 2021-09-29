@@ -30,6 +30,7 @@ import collections
 from xarray import corr
 from . import basic
 
+
 def getDEG(
     adata,
     df_deInfo,
@@ -80,6 +81,7 @@ def labelTransferByScanvi(
     max_epochs: int = 1000,
     threads: int = 24,
     mode: Literal["merge", "online"] = "online",
+    early_stopping: bool = True,
 ) -> Optional[anndata.AnnData]:
     """
     annotate queryAd based on refAd annotation result.
@@ -124,9 +126,7 @@ def labelTransferByScanvi(
     scvi.settings.num_threads = threads
 
     queryAdOrg = queryAd
-    refAd = basic.getPartialLayersAdata(
-        refAd, refLayer, [refLabel, *ls_removeCateKey]
-    )
+    refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel, *ls_removeCateKey])
     queryAd = basic.getPartialLayersAdata(queryAd, queryLayer, ls_removeCateKey)
     refAd, queryAd = basic.getOverlap(refAd, queryAd)
     if not ls_removeCateKey:
@@ -164,7 +164,7 @@ def labelTransferByScanvi(
         )
 
         scvi_model = scvi.model.SCVI(refAd, **dt_params2Model)
-        scvi_model.train(max_epochs=max_epochs)
+        scvi_model.train(max_epochs=max_epochs, early_stopping=early_stopping)
 
         lvae = scvi.model.SCANVI.from_scvi_model(scvi_model, "unknown")
         lvae.train(max_epochs=max_epochs)
@@ -176,9 +176,7 @@ def labelTransferByScanvi(
         sc.tl.umap(refAd)
         sc.pl.umap(refAd, color=refLabel, legend_loc="on data")
         df_color = basic.getadataColor(refAd, refLabel)
-        refAd = basic.setadataColor(
-            refAd, f"labelTransfer_scanvi_{refLabel}", df_color
-        )
+        refAd = basic.setadataColor(refAd, f"labelTransfer_scanvi_{refLabel}", df_color)
         sc.pl.umap(
             refAd, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data"
         )
@@ -200,7 +198,7 @@ def labelTransferByScanvi(
             batch_key=ls_removeCateKey[0],
             categorical_covariate_keys=ls_removeCateKey[1:],
         )
-        scvi_model = scvi.model.SCVI(ad_merge, **dt_params2Model)
+        scvi_model = scvi.model.SCVI(ad_merge, early_stopping=early_stopping, **dt_params2Model)
         scvi_model.train(max_epochs=max_epochs)
 
         lvae = scvi.model.SCANVI.from_scvi_model(scvi_model, "unknown")
@@ -227,9 +225,7 @@ def labelTransferByScanvi(
     )
     sc.pl.umap(ad_merge, color="_batch")
     sc.pl.umap(ad_merge, color=refLabel)
-    sc.pl.umap(
-        ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data"
-    )
+    sc.pl.umap(ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data")
 
     # get predicted labels
     if not keyAdded:
