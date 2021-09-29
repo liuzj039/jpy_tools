@@ -198,8 +198,8 @@ def labelTransferByScanvi(
             batch_key=ls_removeCateKey[0],
             categorical_covariate_keys=ls_removeCateKey[1:],
         )
-        scvi_model = scvi.model.SCVI(ad_merge, early_stopping=early_stopping, **dt_params2Model)
-        scvi_model.train(max_epochs=max_epochs)
+        scvi_model = scvi.model.SCVI(ad_merge, **dt_params2Model)
+        scvi_model.train(max_epochs=max_epochs, early_stopping=early_stopping)
 
         lvae = scvi.model.SCANVI.from_scvi_model(scvi_model, "unknown")
         lvae.train(max_epochs=max_epochs)
