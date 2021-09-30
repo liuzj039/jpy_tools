@@ -76,11 +76,12 @@ def labelTransferByScanvi(
     needLoc: bool = False,
     ls_removeCateKey: Optional[List[str]] = [],
     dt_params2Model={},
-    cutoff: float = 0.9,
+    cutoff: float = 0.95,
     keyAdded: Optional[str] = None,
     max_epochs: int = 1000,
     threads: int = 24,
     mode: Literal["merge", "online"] = "online",
+    n_top_genes = 3000,
     early_stopping: bool = True,
 ) -> Optional[anndata.AnnData]:
     """
@@ -138,7 +139,7 @@ def labelTransferByScanvi(
     sc.pp.highly_variable_genes(
         ad_merge,
         flavor="seurat_v3",
-        n_top_genes=3000,
+        n_top_genes=n_top_genes,
         batch_key="_batch",
         subset=True,
     )

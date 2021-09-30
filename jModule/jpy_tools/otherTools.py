@@ -30,6 +30,20 @@ from typing import (
 )
 
 
+def setSeed(seed=0):
+    import os
+    import numpy as np
+    import random
+    import rpy2.robjects as ro
+
+    R = ro.r
+
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    R("set.seed")(seed)
+
+
 class Capturing(list):
     "Capture std output"
 
@@ -309,7 +323,7 @@ def toPkl(obj, name, server, writeFc=None, arg_path=None, **dt_arg):
         "scem": "/scem/work/liuzj/tmp/python_pkl/",
     }
     dt_ip = {"ipf": "172.18.6.205", "scem": "172.18.5.205"}
-    dt_scpConfig = {"ipf": '', "scem": '-P 2323'}
+    dt_scpConfig = {"ipf": "", "scem": "-P 2323"}
 
     dt_currentServer = {x: os.path.exists(y) for x, y in dt_dirPkl.items()}
     ls_currentServer = [x for x, y in dt_currentServer.items() if y]
@@ -322,19 +336,25 @@ def toPkl(obj, name, server, writeFc=None, arg_path=None, **dt_arg):
         with open(f"{dir_currentPkl}/{name}", "wb") as fh:
             pickle.dump(obj, fh)
     else:
-        dt_arg.update({arg_path:f"{dir_currentPkl}/{name}"})
+        dt_arg.update({arg_path: f"{dir_currentPkl}/{name}"})
         writeFc(obj, **dt_arg)
 
     if server != currentServer:
         dir_pkl = dt_dirPkl[server]
         ip_target = dt_ip[server]
         config_scp = dt_scpConfig[server]
-        print(os.system(f"scp -r {config_scp} {dir_currentPkl}/{name} {ip_target}:{dir_pkl}/"))
+        print(
+            os.system(
+                f"scp -r {config_scp} {dir_currentPkl}/{name} {ip_target}:{dir_pkl}/"
+            )
+        )
 
-def loadPkl(name:str, readFc=None, arg_path=None, **dt_arg):
+
+def loadPkl(name: str, readFc=None, arg_path=None, **dt_arg):
     import pickle
-    if name.startswith('/'):
-        dir_currentPkl = ''
+
+    if name.startswith("/"):
+        dir_currentPkl = ""
     else:
         dt_dirPkl = {
             "ipf": "/public/home/liuzj/tmp/python_pkl/",
@@ -346,12 +366,12 @@ def loadPkl(name:str, readFc=None, arg_path=None, **dt_arg):
         assert len(ls_currentServer) == 1, "Unknown current server"
         currentServer = ls_currentServer[0]
         dir_currentPkl = dt_dirPkl[currentServer]
-    
+
     if not readFc:
         with open(f"{dir_currentPkl}/{name}", "rb") as fh:
             obj = pickle.load(fh)
     else:
-        dt_arg.update({arg_path:f"{dir_currentPkl}/{name}"})
+        dt_arg.update({arg_path: f"{dir_currentPkl}/{name}"})
         obj = readFc(**dt_arg)
 
     return obj

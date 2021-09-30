@@ -32,6 +32,7 @@ from typing import (
 import collections
 from xarray import corr
 from . import basic
+from ..otherTools import setSeed
 
 def normalizeMultiAd(multiAd, removeAmbiguous=True):
     """
@@ -89,7 +90,7 @@ def normalizeByScran(
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
-    from .rTools import py2r, r2py, r_inline_plot
+    from ..rTools import py2r, r2py, r_inline_plot
     from scipy.sparse import csr_matrix, isspmatrix
 
     R = ro.r
@@ -308,7 +309,7 @@ def normalizeBySCT(
     import scanpy as sc
     from scanpy.preprocessing import filter_genes
     import rpy2.robjects as ro
-
+    setSeed()
     layer = "X" if not layer else layer
 
     # check if observations are unnormalized using first 10

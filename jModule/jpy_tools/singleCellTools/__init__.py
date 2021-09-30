@@ -1,6 +1,7 @@
 """
 single cell analysis tools wrapper
 """
+from ..otherTools import setSeed
 from . import (
     basic,
     annotation,
@@ -17,3 +18,5 @@ from . import (
     parseSnuupy,
     recipe
 )
+
+setSeed()
