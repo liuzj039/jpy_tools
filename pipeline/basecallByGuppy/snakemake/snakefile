@@ -149,11 +149,13 @@ touch {output.basecallFinished}
 rule mergeFq:
     input:
         basecallFinished = parseDfToInput_mergeFq_basecall,
+        splitH5Finished = resultDir + 'step1_splitH5/' + '{sample}.finished',
     output:
         mergeFqFinished = resultDir + 'step3_mergeFq/' + '{sample}.finished',
     params:
         gpu = 0,
         basecalledDir = parseDfToParams_mergeFq_basecall_basecalledDir,
+        need_h5 = lambda wildcard: df_splitH5.at[wildcard.sample, 'need_h5'],
         dir_out = lambda wildcard: df_mergeFq.at[wildcard.sample, 'dir_out'],
     threads:18
     priority:0
@@ -161,7 +163,12 @@ rule mergeFq:
         """
 mkdir -p {params.dir_out}
 cd {pipelineDir}
-python mergeFastq.py {params.basecalledDir} -o {params.dir_out} -t {threads}
+if [ {params.need_h5} = True ]
+then
+    python mergeFastq.py {params.basecalledDir} -o {params.dir_out} -t {threads} --f5
+else
+    python mergeFastq.py {params.basecalledDir} -o {params.dir_out} -t {threads}
+fi
 touch {output.mergeFqFinished}
         """
 
