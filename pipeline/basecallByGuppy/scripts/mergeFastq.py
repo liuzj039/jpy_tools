@@ -29,11 +29,11 @@ def main(ls_input, dir_output, threads, fast5):
         with open(f"{dir_output}/temp_summary_no_header.txt", "a") as fh:
             for path_summary in ls_summary:
                 sh.tail(path_summary, n="+2", _out=fh)
-        sh.sort("-k1", "-k2", f"{dir_output}/temp_summary_no_header.txt")
+        sh.sort("-k1", "-k2", f"{dir_output}/temp_summary_no_header.txt", _out=f"{dir_output}/temp_summary_no_header.sorted.txt")
         sh.head(ls_summary[0], n=1, _out=f"{dir_output}/temp_summary_header.txt")
         sh.cat(
             f"{dir_output}/temp_summary_header.txt",
-            f"{dir_output}/temp_summary_no_header.txt",
+            f"{dir_output}/temp_summary_no_header.sorted.txt",
             _out=f"{dir_output}/sequencing_summary.txt",
         )
 
