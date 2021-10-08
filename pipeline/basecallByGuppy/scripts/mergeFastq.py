@@ -26,6 +26,8 @@ def main(ls_input, dir_output, threads, fast5):
         assert len(ls_h5) == len(set(ls_h5)), "fast5\' name is not unique "
         for path_h5 in tqdm(ls_h5):
             sh.cp(path_h5, dir_outputH5)
+            
+        sh.touch(f"{dir_output}/temp_summary_no_header.txt")
         sh.rm(f"{dir_output}/temp_summary_no_header.txt")
         with open(f"{dir_output}/temp_summary_no_header.txt", 'a') as fh:
             for path_summary in ls_summary:
