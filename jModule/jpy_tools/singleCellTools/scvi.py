@@ -2,6 +2,7 @@ from logging import log
 import pandas as pd
 import numpy as np
 import scanpy as sc
+import scvi
 import matplotlib.pyplot as plt
 import seaborn as sns
 import anndata
@@ -29,6 +30,73 @@ from typing import (
 import collections
 from xarray import corr
 from . import basic
+
+
+def identifyDEGByScvi(
+    ad: sc.AnnData,
+    path_model: Optional[str],
+    layer: Optional[str],
+    groupby: str,
+    batchKey: Optional[str],
+    correctBatch: bool = True,
+    minCells: int = 10,
+    threads: int = 36,
+    keyAdded: Optional[str] = "marker_byScvi",
+) -> Tuple[scvi.model.SCVI, pd.DataFrame]:
+    """[summary]
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+    path_model : Optional[str]
+        stored path of trained scvi.model.SCVI
+    layer : Optional[str]
+        must be raw
+    groupby : str
+        cluster key
+    batchKey : Optional[str]
+        batch key
+    correctBatch : bool, optional
+        by default True
+    minCells : int, optional
+        by default 10
+    threads : int, optional
+        by default 36
+    keyAdded : Optional[str], optional
+        if None, adata will not be updated, by default "marker_byScvi"
+
+    Returns
+    -------
+    Tuple[scvi.model.SCVI, pd.DataFrame]
+    """
+    scvi.settings.seed = 39
+    scvi.settings.num_threads = threads
+
+    layer = None if layer == 'X' else layer
+    ad.X = ad.layers[layer].copy()
+    ad_forDE = sc.pp.filter_genes(ad, min_cells=minCells, copy=True)
+    scvi.data.setup_anndata(
+        ad_forDE,
+        layer=None,
+        batch_key=batchKey,
+    )
+
+    if not path_model:
+        scvi_model = scvi.model.SCVI(ad_forDE)
+        scvi_model.train(early_stopping=True)
+    else:
+        scvi_model = scvi.model.SCVI.load(path_model, ad_forDE)
+    
+    df_deInfo = scvi_model.differential_expression(ad_forDE, groupby=groupby, batch_correction=correctBatch)
+    if not keyAdded:
+        pass
+    else:
+        keyAdded = keyAdded + "_" + groupby
+        ad.obs[keyAdded] = df_deInfo
+
+    return scvi_model, df_deInfo
+
+
 
 
 def getDEG(
@@ -81,7 +149,7 @@ def labelTransferByScanvi(
     max_epochs: int = 1000,
     threads: int = 24,
     mode: Literal["merge", "online"] = "online",
-    n_top_genes = 3000,
+    n_top_genes=3000,
     early_stopping: bool = True,
 ) -> Optional[anndata.AnnData]:
     """
@@ -118,11 +186,6 @@ def labelTransferByScanvi(
     Optional[anndata.AnnData]
         based on needloc
     """
-    import pandas as pd
-    import numpy as np
-    import scanpy as sc
-    import scvi
-
     scvi.settings.seed = 39
     scvi.settings.num_threads = threads
 

@@ -167,7 +167,9 @@ def plotClusterSankey(
 
 def plotGeneInDifferentBatch(ad, ls_gene, batchKey, layer, figsize, ls_name=[], cmap='Reds', ncols=2, **dt_arg):
     from math import ceil
-    ls_batch = ad.obs[batchKey].unique()
+    ls_batch = list(ad.obs[batchKey].unique())
+    ls_batch = [ls_batch, *[[x] for x in ls_batch]]
+
     nrows = ceil(len(ls_batch) / ncols)
 
     if not ls_name:
@@ -178,7 +180,8 @@ def plotGeneInDifferentBatch(ad, ls_gene, batchKey, layer, figsize, ls_name=[], 
         axs = axs.reshape(-1)
 
         for batch, ax in zip(ls_batch, axs):
-            _ad = ad[ad.obs[batchKey] == batch]
+            _ad = ad[ad.obs[batchKey].isin(batch)]
+            batch = batch[0] if len(batch) == 1 else 'all'
             sc.pl.umap(
                 _ad,
                 color=gene,
@@ -188,6 +191,8 @@ def plotGeneInDifferentBatch(ad, ls_gene, batchKey, layer, figsize, ls_name=[], 
                 cmap=cmap,
                 ax=ax,
                 show=False,
+                vmax=ad[:, gene].to_df(layer).quantile(0.999),
+                vmin=0,
                 **dt_arg
             )
         plt.tight_layout()

@@ -1,2 +1,2 @@
 from .sendMessage import sendMessage
-from .otherTools import copyFromIpf, copyToIpf
+from .otherTools import loadPkl, toPkl

@@ -31,6 +31,7 @@ from typing import (
 )
 from . import basic
 from . import normalize
+from . import normalize
 
 
 def sct(ad):
@@ -57,7 +58,11 @@ def sct(ad):
 
 
 def multiBatch(
-    ad, batch:Optional[str], method: Optional[Literal["harmony", "scanorama", "scvi"]] = None
+    ad,
+    batch: Optional[str],
+    method: Optional[Literal["harmony", "scanorama", "scvi"]] = None,
+    nomalization: Optional[Literal["total", "SCT"]] = "total",
+    n_top_genes = 5000
 ):
     """
     sct + pca + harmony|scanorama|scvi + neighbors + umap
@@ -73,20 +78,32 @@ def multiBatch(
     basic.testAllCountIsInt(ad, None)
     if not batch:
         batch = "_batch"
-        ad.obs[batch] = 'same'
+        ad.obs[batch] = "same"
     ad.layers["raw"] = ad.X.copy()
     ad.layers["normalize_log"] = ad.layers["raw"].copy()
     sc.pp.normalize_total(ad, 1e4, layer="normalize_log")
     sc.pp.log1p(ad, layer="normalize_log")
-    sc.pp.highly_variable_genes(ad, "raw", n_top_genes=5000, flavor="seurat_v3")
+    sc.pp.highly_variable_genes(ad, "raw", n_top_genes=n_top_genes, flavor="seurat_v3")
     ad.X = ad.layers["normalize_log"].copy()
-    if method == "harmony":
-        sc.pp.scale(ad, max_value=10)
-    elif method == "scanorama":
-        basic.scIB_scale_batch(ad, batch)
+    if nomalization == "total":
+        if method == "harmony":
+            sc.pp.scale(ad, max_value=10)
+        elif method == "scanorama":
+            basic.scIB_scale_batch(ad, batch)
+    elif nomalization == "SCT":
+        ls_adataAfterSCT = []
+        for _ad in basic.splitAdata(ad, batch):
+            normalize.normalizeBySCT(
+                _ad, layer="raw", n_top_genes=n_top_genes, n_genes=n_top_genes, log_scale_correct=True
+            )
+            ls_adataAfterSCT.append(_ad)
+        ad = sc.concat(ls_adataAfterSCT)
+        ad.X = ad.layers["sct_residuals"].copy()
+        sc.pp.highly_variable_genes(ad, "raw", n_top_genes=n_top_genes, flavor="seurat_v3")
+
     sc.tl.pca(ad)
     if method == "harmony":
-        sce.pp.harmony_integrate(ad, batch, adjusted_basis="X_harmony")
+        sce.pp.harmony_integrate(ad, batch, adjusted_basis="X_harmony", max_iter_harmony=50)
         ad.obsm["X_integrated"] = ad.obsm["X_harmony"].copy()
     elif method == "scanorama":
         sce.pp.scanorama_integrate(ad, batch, adjusted_basis="X_scanorama")
@@ -111,3 +128,4 @@ def multiBatch(
     ad.obsm[f"X_umap_{method}"] = ad.obsm["X_umap"].copy()
     ad.X = ad.layers["normalize_log"].copy()
     sc.pl.embedding(ad, f"X_umap_{method}", color=batch)
+    return ad

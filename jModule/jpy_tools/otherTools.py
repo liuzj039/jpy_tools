@@ -314,9 +314,36 @@ def copyToIpf(inPath, ipfPath) -> str:
     sh.scp(inPath, f"172.18.6.205:{ipfPath}")
 
 
-def toPkl(obj, name, server, writeFc=None, arg_path=None, **dt_arg):
+def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, **dt_arg):
+    """
+
+    Parameters
+    ----------
+    obj
+    name :
+        data file name
+    server :
+        ipf|scem
+    config :
+        will overwrite writeFc, arg_path and dt_arg
+        support:
+            scvi_model
+    writeFc :
+        write function
+    arg_path : [type], optional
+        argument of save path
+    """
     import pickle
     import os
+
+    dt_config = {
+        "scvi_model": {
+            "writeFc": lambda x, **dt: x.save(**dt),
+            "arg_path": "dir_path",
+            "dt_arg": {"overwrite": True},
+            "readFc": "lambda **dt:scvi.model.SCVI.load(**dt), arg_path='dir_path', adata=ad_forScvi",
+        }
+    }
 
     dt_dirPkl = {
         "ipf": "/public/home/liuzj/tmp/python_pkl/",
@@ -331,6 +358,12 @@ def toPkl(obj, name, server, writeFc=None, arg_path=None, **dt_arg):
     currentServer = ls_currentServer[0]
 
     dir_currentPkl = dt_dirPkl[currentServer]
+    if config:
+        config = dt_config[config]
+        writeFc = config["writeFc"]
+        arg_path = config["arg_path"]
+        dt_arg = config["dt_arg"]
+        logger.info(f"please run `{config['readFc']}` to get object")
 
     if not writeFc:
         with open(f"{dir_currentPkl}/{name}", "wb") as fh:
@@ -351,6 +384,20 @@ def toPkl(obj, name, server, writeFc=None, arg_path=None, **dt_arg):
 
 
 def loadPkl(name: str, readFc=None, arg_path=None, **dt_arg):
+    """
+
+    Parameters
+    ----------
+    obj
+    name :
+        data file name
+    server :
+        ipf|scem
+    readFc :
+        read function
+    arg_path : [type], optional
+        argument of save path
+    """
     import pickle
 
     if name.startswith("/"):
