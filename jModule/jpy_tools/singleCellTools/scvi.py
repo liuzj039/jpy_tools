@@ -34,7 +34,7 @@ from . import basic
 
 def identifyDEGByScvi(
     ad: sc.AnnData,
-    path_model: Optional[str],
+    path_model: Optional[Union[str, scvi.model.SCVI]],
     layer: Optional[str],
     groupby: str,
     batchKey: Optional[str],
@@ -49,7 +49,7 @@ def identifyDEGByScvi(
     ----------
     ad : sc.AnnData
     path_model : Optional[str]
-        stored path of trained scvi.model.SCVI
+        stored path of trained scvi.model.SCVI or scvi.model.SCVI
     layer : Optional[str]
         must be raw
     groupby : str
@@ -85,7 +85,12 @@ def identifyDEGByScvi(
         scvi_model = scvi.model.SCVI(ad_forDE)
         scvi_model.train(early_stopping=True)
     else:
-        scvi_model = scvi.model.SCVI.load(path_model, ad_forDE)
+        if isinstance(path_model, str):
+            scvi_model = scvi.model.SCVI.load(path_model, ad_forDE)
+        elif isinstance(path_model, scvi.SCVI.model):
+            scvi_model = path_model
+        else:
+            assert False, f"Unknown data type: {type(path_model)}"
     
     df_deInfo = scvi_model.differential_expression(ad_forDE, groupby=groupby, batch_correction=correctBatch)
     if not keyAdded:
