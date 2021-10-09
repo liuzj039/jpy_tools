@@ -97,7 +97,7 @@ def identifyDEGByScvi(
         pass
     else:
         keyAdded = keyAdded + "_" + groupby
-        ad.obs[keyAdded] = df_deInfo
+        ad.uns[keyAdded] = df_deInfo
 
     return scvi_model, df_deInfo
 
