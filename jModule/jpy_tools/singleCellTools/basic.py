@@ -69,7 +69,7 @@ def splitAdata(
                     yield adata[batchObs].copy()
                 else:
                     yield adata[batchObs]
-        del adata.obs["__group"]
+
 
     elif axis in [1, "feature"]:
         assert batchKey in adata.var.columns, f"{batchKey} not detected in adata"
@@ -93,7 +93,7 @@ def splitAdata(
                     yield adata[:, batchVar].copy()
                 else:
                     yield adata[:, batchVar]
-        del adata.var["__group"]
+
     else:
         assert False, "Unknown `axis` parameter"
 
@@ -818,6 +818,7 @@ def saveMarkerGeneToPdf(
     import os
     import shutil
     from PyPDF2 import PdfFileMerger
+    sh.mkdir(outputDirPath, p=True)
 
     if allGeneStoreDir:
         allGeneStoreDir = allGeneStoreDir.rstrip("/") + "/"
@@ -833,7 +834,7 @@ def saveMarkerGeneToPdf(
     for groupName, groupMarkerGeneLs in markerDt.items():
         pdfMerger = PdfFileMerger()
         groupMarkerPathLs = []
-        for gene in groupMarkerGeneLs:
+        for gene in tqdm(groupMarkerGeneLs, desc=groupName):
             if allGeneStoreDir:
                 shutil.copyfile(
                     f"{allGeneStoreDir}{gene}.pdf",
@@ -851,56 +852,25 @@ def saveMarkerGeneToPdf(
     logger.info("All finished")
 
 
-def saveAllGeneEmbedding(
-    adata: anndata.AnnData,
-    outputDirPath: str,
-    layer: Optional[str] = None,
-    useRaw: Optional[bool] = None,
-    batch: Optional[str] = None,
-    nrows: Optional[int] = None,
-    ncols: Optional[int] = None,
-    figsize: Optional[str] = None,
-):
-    # def __saveSingleGene(gene):
-    #     nonlocal adata
-    #     nonlocal layer
-    #     nonlocal outputDirPath
-    #     sc.pl.umap(adata, layer=layer, color=gene, cmap="Reds", show=False)
-    #     plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
-
-    # from concurrent.futures import ThreadPoolExecutor
-
-    outputDirPath = outputDirPath.rstrip("/") + "/"
-    if layer:
-        useRaw = False
-    if useRaw is None:
-        if adata.raw:
-            useRaw = True
-        else:
-            useRaw = False
-
-    if useRaw:
-        allGeneLs = adata.raw.var.index
-    else:
-        allGeneLs = adata.var.index
+def _plot_saveAllGeneEmbedding(adata, layer, batch, ls_batch, nrows, ncols, figsize, outputDirPath, cbarPos=0):
+    allGeneLs = adata.var.index.to_list()
     geneCounts = len(allGeneLs)
-
     if not batch:
-        for i, gene in tqdm(enumerate(allGeneLs), "Processed Gene", geneCounts):
+        for i, gene in tqdm(enumerate(allGeneLs), "Processed Gene", geneCounts, position=cbarPos):
             sc.pl.umap(adata, layer=layer, color=gene, cmap="Reds", show=False)
             plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
             plt.close()
     else:
-        ls_batch = adata.obs[batch].unique()
-        ls_batch = [ls_batch, *[[x] for x in ls_batch]]
-        for i, gene in tqdm(enumerate(allGeneLs), "Processed Gene", geneCounts):
+        for i, gene in tqdm(enumerate(allGeneLs), "Processed Gene", geneCounts, position=cbarPos):
             fig, axs = plt.subplots(nrows, ncols, figsize=figsize)
             axs = axs.reshape(-1)
             for batchName, ax in zip(ls_batch, axs):
                 _ad = adata[adata.obs.eval("batch in @batchName")]
+                batchName = batchName[0] if len(batchName) == 1 else 'all'
                 sc.pl.umap(
                     _ad,
                     color=gene,
+                    title=f"{gene}\n({batchName})",
                     cmap="Reds",
                     layer=layer,
                     size=120000 / len(adata),
@@ -911,6 +881,51 @@ def saveAllGeneEmbedding(
                 )                
             plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
             plt.close()
+
+def saveAllGeneEmbedding(
+    adata: anndata.AnnData,
+    outputDirPath: str,
+    layer: Optional[str] = None,
+    ls_gene: Optional[List[str]] = None,
+    batch: Optional[str] = None,
+    nrows: Optional[int] = None,
+    ncols: Optional[int] = None,
+    figsize: Optional[str] = None,
+    threads: int = 1,
+):
+    # def __saveSingleGene(gene):
+    #     nonlocal adata
+    #     nonlocal layer
+    #     nonlocal outputDirPath
+    #     sc.pl.umap(adata, layer=layer, color=gene, cmap="Reds", show=False)
+    #     plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
+
+    # from concurrent.futures import ThreadPoolExecutor
+    outputDirPath = outputDirPath.rstrip("/") + "/"
+    if layer:
+        useRaw = False
+    if useRaw is None:
+        if adata.raw:
+            useRaw = True
+        else:
+            useRaw = False
+
+    adata = adata[:, ls_gene] if ls_gene else adata
+
+    if not batch:
+        ls_batch = None
+    else:
+        ls_batch = adata.obs[batch].unique()
+        ls_batch = [ls_batch, *[[x] for x in ls_batch]]
+    
+    if threads == 1:
+        _plot_saveAllGeneEmbedding(adata, layer, batch, ls_batch, nrows, ncols, figsize, outputDirPath)
+    else:
+        adata.var["__random"] = np.random.choice([str(x) for x in range(threads)], adata.shape[1])
+        adata.var["__random"] = adata.var["__random"].astype('category')
+        with Mtp(threads) as mtp:
+            for i, _ad in enumerate(splitAdata(adata, "__random", axis=1)):
+                mtp.submit(_plot_saveAllGeneEmbedding, _ad, layer, batch, ls_batch, nrows, ncols, figsize, outputDirPath)
 
     logger.info("All finished")
 

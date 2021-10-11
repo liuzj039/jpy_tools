@@ -196,6 +196,8 @@ def plotGeneInDifferentBatch(ad, ls_gene, batchKey, layer, figsize, ls_name=[], 
                 **dt_arg
             )
         plt.tight_layout()
+        plt.show()
+        plt.close()
     
 
 
