@@ -62,7 +62,8 @@ def multiBatch(
     batch: Optional[str],
     method: Optional[Literal["harmony", "scanorama", "scvi"]] = None,
     nomalization: Optional[Literal["total", "SCT"]] = "total",
-    n_top_genes = 5000
+    n_top_genes = 5000,
+    ls_removeCateKey = []
 ):
     """
     sct + pca + harmony|scanorama|scvi + neighbors + umap
@@ -115,7 +116,7 @@ def multiBatch(
             ad, "raw", [batch], ["highly_variable"]
         )
         ad_forScvi = ad_forScvi[:, ad_forScvi.var["highly_variable"]].copy()
-        scvi.data.setup_anndata(ad_forScvi, batch_key=batch)
+        scvi.data.setup_anndata(ad_forScvi, batch_key=batch, ls_removeCateKey=ls_removeCateKey)
 
         scvi.settings.seed = 39
         scvi.settings.num_threads = 56
