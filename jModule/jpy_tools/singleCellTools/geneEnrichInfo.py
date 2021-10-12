@@ -407,7 +407,7 @@ def getEnrichedGeneByCellId(
     """
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
-    from .rTools import py2r, r2py
+    from ..rTools import py2r, r2py
 
     rBase = importr("base")
     cellId = importr("CelliD")

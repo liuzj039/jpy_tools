@@ -53,7 +53,7 @@ def sct(ad):
     ad.X = ad.layers["sct_residuals"].copy()
     sc.tl.pca(ad)
     sc.pp.neighbors(ad, n_pcs=50)
-    sc.tl.umap(ad)
+    sc.tl.umap(ad, min_dist=0.2)
     ad.X = ad.layers["normalize_log"].copy()
 
 
@@ -124,7 +124,7 @@ def multiBatch(
         ad.obsm["X_scvi"] = model.get_latent_representation(ad_forScvi).copy()
         ad.obsm["X_integrated"] = ad.obsm["X_scvi"].copy()
     sc.pp.neighbors(ad, use_rep="X_integrated")
-    sc.tl.umap(ad)
+    sc.tl.umap(ad, min_dist=0.2)
     ad.obsm[f"X_umap_{method}"] = ad.obsm["X_umap"].copy()
     ad.X = ad.layers["normalize_log"].copy()
     sc.pl.embedding(ad, f"X_umap_{method}", color=batch)

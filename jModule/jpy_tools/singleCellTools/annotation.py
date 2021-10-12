@@ -260,7 +260,8 @@ def labelTransferByCellId(
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
-    from .rTools import py2r, r2py, r_inline_plot, rHelp
+    from ..rTools import py2r, r2py, r_inline_plot, rHelp
+    from . import geneEnrichInfo
 
     rBase = importr("base")
     rUtils = importr("utils")
