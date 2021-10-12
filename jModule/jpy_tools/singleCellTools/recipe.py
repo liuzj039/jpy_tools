@@ -116,7 +116,7 @@ def multiBatch(
             ad, "raw", [batch], ["highly_variable"]
         )
         ad_forScvi = ad_forScvi[:, ad_forScvi.var["highly_variable"]].copy()
-        scvi.data.setup_anndata(ad_forScvi, batch_key=batch, ls_removeCateKey=ls_removeCateKey)
+        scvi.data.setup_anndata(ad_forScvi, batch_key=batch, categorical_covariate_keys=ls_removeCateKey)
 
         scvi.settings.seed = 39
         scvi.settings.num_threads = 56
