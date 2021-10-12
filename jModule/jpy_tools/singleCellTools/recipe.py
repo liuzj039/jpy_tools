@@ -113,7 +113,7 @@ def multiBatch(
         import scvi
 
         ad_forScvi = basic.getPartialLayersAdata(
-            ad, "raw", [batch], ["highly_variable"]
+            ad, "raw", [batch, *ls_removeCateKey], ["highly_variable"]
         )
         ad_forScvi = ad_forScvi[:, ad_forScvi.var["highly_variable"]].copy()
         scvi.data.setup_anndata(ad_forScvi, batch_key=batch, categorical_covariate_keys=ls_removeCateKey)
