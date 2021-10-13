@@ -128,13 +128,14 @@ def py2r_disk(obj, check=False, *args, **kwargs):
         sce = importr("SingleCellExperiment")
         tpFile = NamedTemporaryFile(suffix=".h5ad")
         obj.var["temp_featureName"] = obj.var.index
+        obj.obs["temp_barcodeName"] = obj.obs.index
         obj.write_h5ad(tpFile.name)
         objR = zellkonverter.readH5AD(tpFile.name, X_layer, reader="R")
         ro.globalenv["objR"] = objR
         R(
             """
         objR@rowRanges@partitioning@NAMES <- rowData(objR)$temp_featureName
-        objR@colData@rownames <- colData(objR)$row_names
+        objR@colData@rownames <- colData(objR)$temp_barcodeName
         """
         )
         objR = R("objR")
