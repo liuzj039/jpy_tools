@@ -34,7 +34,7 @@ from . import normalize
 from . import normalize
 
 
-def sct(ad):
+def sct(ad, n_top_genes=3000):
     """
     sct + pca + neighbors + umap
 
@@ -49,7 +49,7 @@ def sct(ad):
     ad.layers["normalize_log"] = ad.layers["raw"].copy()
     sc.pp.normalize_total(ad, 1e4, layer="normalize_log")
     sc.pp.log1p(ad, layer="normalize_log")
-    normalize.normalizeBySCT(ad, layer="raw", min_cells=10, log_scale_correct=True)
+    normalize.normalizeBySCT(ad, layer="raw", min_cells=10, log_scale_correct=True, n_top_genes=n_top_genes, n_genes=n_top_genes)
     ad.X = ad.layers["sct_residuals"].copy()
     sc.tl.pca(ad)
     sc.pp.neighbors(ad, n_pcs=50)

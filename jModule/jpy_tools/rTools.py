@@ -190,6 +190,7 @@ def r2py(x, name=None):
     return x
 
 
+
 @contextmanager
 def r_inline_plot(width=None, height=None, res=None):
     dt_params = dict(width=width, height=height, res=res)
