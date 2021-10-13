@@ -94,7 +94,7 @@ def py2r(x, name=None, on_disk=None):
     if on_disk == None:
         on_disk = True if py2r_disk(x, check=True) else False
 
-    print(f"transfer `{objType}` to R: {name} start. on disk mode: {on_disk}", end="")
+    print(f"on disk mode: {on_disk}, transfer `{objType}` to R: {name} start.", end="")
     if on_disk:
         x = py2r_disk(x)
 
@@ -112,7 +112,7 @@ def py2r(x, name=None, on_disk=None):
             x = ro.conversion.py2rpy(x)
 
     print(
-        "\r" + f"transfer `{objType}` to R: {name} End. on disk mode: {on_disk}",
+        "\r" + f"on disk mode: {on_disk}, transfer `{objType}` to R: {name} End.   ",
         flush=True,
     )
     return x
