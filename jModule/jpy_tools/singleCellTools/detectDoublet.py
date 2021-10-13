@@ -129,7 +129,7 @@ def byScDblFinder(
     adata : anndata.AnnData
         anndata
     layer : str, optional
-        use this layer. must is raw counts. Defaults to X
+        use this layer. must be raw counts. Defaults to X
     copy : bool, optional
         copy adata or not. Defaults to False.
     doubletRatio : float, optional
