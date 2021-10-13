@@ -30,6 +30,7 @@ import collections
 from xarray import corr
 from . import basic
 
+
 def cellTypeAnnoByICI(
     refAd: anndata.AnnData,
     refLabel: str,
@@ -94,9 +95,7 @@ def cellTypeAnnoByICI(
     if not queryLayer:
         queryLayer = "X"
 
-    df_queryGene = (
-        queryAd.to_df() if queryLayer == "X" else queryAd.to_df(queryLayer)
-    )
+    df_queryGene = queryAd.to_df() if queryLayer == "X" else queryAd.to_df(queryLayer)
     df_queryGene = np.exp(df_queryGene) - 1
     df_queryGene = df_queryGene.rename_axis(columns="Locus").T
     dfR_queryGene = py2r(df_queryGene)
@@ -114,6 +113,7 @@ def cellTypeAnnoByICI(
     queryAd.obs[f"{keyAdded}"] = np.select(
         [df_iciScore.max(1) > cutoff], [df_iciScore.idxmax(1)], "unknown"
     )
+
 
 def getOverlapBetweenPrividedMarkerAndSpecificGene(
     adata: anndata.AnnData,
@@ -133,9 +133,7 @@ def getOverlapBetweenPrividedMarkerAndSpecificGene(
     delKeyLs = []
     for x, y in markerDt.items():
         if not y:
-            logger.warning(
-                f"Specific genes dont have any overlap with cell type <{x}>"
-            )
+            logger.warning(f"Specific genes dont have any overlap with cell type <{x}>")
             delKeyLs.append(x)
     [markerDt.pop(x) for x in delKeyLs]
 
@@ -188,9 +186,7 @@ def cellTypeAnnoByCorr(
 
     if not queryLayer:
         queryLayer = "X"
-    df_queryGene = (
-        queryAd.to_df() if queryLayer == "X" else queryAd.to_df(queryLayer)
-    )
+    df_queryGene = queryAd.to_df() if queryLayer == "X" else queryAd.to_df(queryLayer)
 
     sr_overlap = df_queryGene.columns & df_refGene.columns
     df_refGene = df_refGene.reindex(columns=sr_overlap)
@@ -217,6 +213,7 @@ def cellTypeAnnoByCorr(
         [df_corr.max(1) > cutoff], [df_corr.idxmax(1)], "unknown"
     )
 
+
 def labelTransferByCellId(
     refAd: anndata.AnnData,
     refLabel: str,
@@ -224,10 +221,9 @@ def labelTransferByCellId(
     queryAd: anndata.AnnData,
     queryLayer: str,
     markerCount: int = 200,
+    n_top_genes: int = 5000,
     cutoff: float = 2.0,
     nmcs: int = 30,
-    refScaled: bool = False,
-    queryScaled: bool = False,
     copy: bool = False,
 ) -> Optional[anndata.AnnData]:
     """
@@ -239,10 +235,10 @@ def labelTransferByCellId(
     refLabel : str
         column's name in refAd.obs
     refLayer : str
-        must be log-transformed
+        must be raw data
     queryAd : anndata.AnnData
     queryLayer : str
-        must be log-transformed
+        must be raw data
     markerCount : int
         Gene number extracted from refAd. These gene will be used to annotate queryAd
     cutoff : float, optional
@@ -268,24 +264,42 @@ def labelTransferByCellId(
     cellId = importr("CelliD")
     R = ro.r
     queryAd_org = queryAd.copy() if copy else queryAd
-    refAd, queryAd = basic.getOverlap(refAd, queryAd)
+    refAd, queryAd = basic.getOverlap(refAd, queryAd, copy=True)
+    refAd.X = refAd.layers[refLayer] if refLayer not in ["X", None] else refAd.X
+    queryAd.X = (
+        queryAd.layers[queryLayer] if queryLayer not in ["X", None] else queryLayer.X
+    )
+    ad_integrated = sc.concat(
+        {"ref": refAd, "query": queryAd}, label="batch_cellid", index_unique="-"
+    )
+    sc.pp.highly_variable_genes(
+        ad_integrated,
+        n_top_genes=n_top_genes,
+        flavor="seurat_v3",
+        batch_key="batch_cellid",
+        subset=True,
+    )
+    ls_useGene = ad_integrated.var.index.to_list()
+
+    sc.pp.normalize_total(refAd, 1e4)
+    sc.pp.normalize_total(queryAd, 1e4)
+    refAd = refAd[:, ls_useGene].copy()
+    queryAd = queryAd[:, ls_useGene].copy()
 
     VectorR_Refmarker = geneEnrichInfo.getEnrichedGeneByCellId(
         refAd,
-        refLayer,
+        "X",
         refLabel,
         markerCount,
         copy=True,
         returnR=True,
         nmcs=nmcs,
-        layerScaled=refScaled,
     )
 
-    _ad = basic.getPartialLayersAdata(queryAd, [queryLayer])
-    if not queryScaled:
-        sc.pp.scale(_ad, layer=queryLayer, max_value=10)
+    _ad = basic.getPartialLayersAdata(queryAd, ["X"])
+    sc.pp.scale(_ad, max_value=10)
     adR_query = py2r(_ad)
-    adR_query = cellId.RunMCA(adR_query, slot=queryLayer, nmcs=nmcs)
+    adR_query = cellId.RunMCA(adR_query, slot="X", nmcs=nmcs)
     df_labelTransfered = r2py(
         rBase.data_frame(
             cellId.RunCellHGT(
@@ -435,6 +449,7 @@ def labelTransferBySeurat(
     npcs: int = 30,
     cutoff: float = 0.5,
     copy: bool = False,
+    n_top_genes: int = 5000,
     needLoc: bool = False,
 ) -> Optional[anndata.AnnData]:
     """
@@ -445,10 +460,10 @@ def labelTransferBySeurat(
     refAd : anndata.AnnData
     refLabel : str
     refLayer : str
-        log-transformed normalized
+        raw
     queryAd : anndata.AnnData
     queryLayer : str
-        log-transformed normalized
+        raw
     features : Optional[None]
         list, used gene to DR
     npcs : int, optional
@@ -467,7 +482,7 @@ def labelTransferBySeurat(
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
-    from .rTools import py2r, r2py, r_inline_plot, rHelp, trl, rGet, rSet
+    from ..rTools import py2r, r2py, r_inline_plot, rHelp, trl, rGet, rSet
 
     rBase = importr("base")
     rUtils = importr("utils")
@@ -478,23 +493,24 @@ def labelTransferBySeurat(
     queryAdOrg = queryAd.copy() if copy else queryAd
     refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel])
     queryAd = basic.getPartialLayersAdata(queryAd, queryLayer)
-    refAd, queryAd = basic.getOverlap(refAd, queryAd)
     queryAd.obs["empty"] = 0  # seurat need
-
-    ls_overlapGene = refAd.var.index & queryAd.var.index
-    queryAd = queryAd[:, ls_overlapGene]
-    refAd = refAd[:, ls_overlapGene]
-
-    queryAd.obs.index = queryAd.obs.index + "-batch-query"
-    refAd.obs.index = refAd.obs.index + "-batch-ref"
+    refAd, queryAd = basic.getOverlap(refAd, queryAd, copy=True)
     ad_concat = sc.concat(
-        [queryAd, refAd],
-        label="__batch",
-        keys=["query", "ref"],
-        index_unique="-batch-",
+        {"ref": refAd, "query": queryAd}, label="__batch", index_unique="-batch-"
     )
+
     if not features:
-        features = basic.scIB_hvg_batch(ad_concat, "__batch")
+        sc.pp.highly_variable_genes(
+            ad_concat,
+            n_top_genes=n_top_genes,
+            flavor="seurat_v3",
+            batch_key="__batch",
+            subset=True,
+        )
+        features = ad_concat.var.index.to_list()
+
+    sc.pp.normalize_total(refAd, 1e4)
+    sc.pp.normalize_total(queryAd, 1e4)
 
     ar_features = np.array(features)
     arR_features = py2r(ar_features)
@@ -506,9 +522,7 @@ def labelTransferBySeurat(
     adR_query = seuratObject.RenameAssays(object=adR_query, originalexp="RNA")
 
     adR_ref = py2r(refAd)
-    adR_ref = seurat.as_Seurat_SingleCellExperiment(
-        adR_ref, counts=R("NULL"), data="X"
-    )
+    adR_ref = seurat.as_Seurat_SingleCellExperiment(adR_ref, counts=R("NULL"), data="X")
     adR_ref = seuratObject.RenameAssays(object=adR_ref, originalexp="RNA")
 
     adR_ref = seurat.ScaleData(trl(adR_ref))
@@ -535,9 +549,7 @@ def labelTransferBySeurat(
             if (x.startswith("prediction.score")) & (x != "prediction.score.max")
         ]
     ]
-    df_predScore = df_predScore.rename(
-        columns=lambda x: x.lstrip("prediction.score.")
-    )
+    df_predScore = df_predScore.rename(columns=lambda x: x.lstrip("prediction.score."))
 
     dt_name2Org = {
         y: x
@@ -550,9 +562,9 @@ def labelTransferBySeurat(
         columns=dt_name2Org, index=lambda x: x.rstrip("-batch-query")
     )
 
-    queryAdOrg.obsm[
-        f"labelTransfer_score_seurat_{refLabel}"
-    ] = df_predScore.reindex(queryAdOrg.obs.index)
+    queryAdOrg.obsm[f"labelTransfer_score_seurat_{refLabel}"] = df_predScore.reindex(
+        queryAdOrg.obs.index
+    )
 
     queryAdOrg.obs[f"labelTransfer_seurat_{refLabel}"] = queryAdOrg.obsm[
         f"labelTransfer_score_seurat_{refLabel}"
@@ -581,9 +593,7 @@ def labelTransferBySeurat(
         anchorset=trl(anchor), normalization_method="LogNormalize"
     )
     adR_integrated = seurat.ScaleData(trl(adR_integrated))
-    adR_integrated = seurat.RunPCA(
-        object=trl(adR_integrated), features=arR_features
-    )
+    adR_integrated = seurat.RunPCA(object=trl(adR_integrated), features=arR_features)
     adR_integrated = seurat.RunUMAP(
         object=trl(adR_integrated), dims=py2r(np.arange(0, npcs) + 1)
     )
