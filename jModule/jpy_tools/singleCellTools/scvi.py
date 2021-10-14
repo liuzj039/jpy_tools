@@ -242,7 +242,7 @@ def labelTransferByScanvi(
         refAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae.predict(refAd)
         refAd.obsm["X_scANVI"] = lvae.get_latent_representation(refAd)
         sc.pp.neighbors(refAd, use_rep="X_scANVI")
-        sc.tl.umap(refAd)
+        sc.tl.umap(refAd, min_dist=0.2)
         sc.pl.umap(refAd, color=refLabel, legend_loc="on data")
         df_color = basic.getadataColor(refAd, refLabel)
         refAd = basic.setadataColor(refAd, f"labelTransfer_scanvi_{refLabel}", df_color)
@@ -275,7 +275,7 @@ def labelTransferByScanvi(
 
         ad_merge.obsm["X_scANVI"] = lvae.get_latent_representation(ad_merge)
         sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
-        sc.tl.umap(ad_merge)
+        sc.tl.umap(ad_merge, min_dist=0.2)
         sc.pl.umap(ad_merge, color=refLabel, legend_loc="on data")
 
         lvae_online = lvae
@@ -287,15 +287,15 @@ def labelTransferByScanvi(
     ad_merge.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(ad_merge)
     ad_merge.obsm["X_scANVI"] = lvae_online.get_latent_representation(ad_merge)
     sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
-    sc.tl.umap(ad_merge)
+    sc.tl.umap(ad_merge, min_dist=0.2)
     dt_color = basic.getadataColor(refAd, refLabel)
     ad_merge = basic.setadataColor(
         ad_merge, f"labelTransfer_scanvi_{refLabel}", dt_color
     )
-    dt_color['unknown'] = '#00000'
+    dt_color['unknown'] = '#000000'
     dt_color = basic.setadataColor(ad_merge, refLabel, dt_color)
     sc.pl.umap(ad_merge, color="_batch")
-    sc.pl.umap(ad_merge, color=refLabel)
+    sc.pl.umap(ad_merge, color=refLabel, groups=[x for x in ad_merge.obs[refLabel].unique() if x != 'unknown'])
     sc.pl.umap(ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data")
 
     # get predicted labels
