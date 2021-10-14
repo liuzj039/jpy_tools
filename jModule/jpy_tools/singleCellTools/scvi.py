@@ -288,10 +288,12 @@ def labelTransferByScanvi(
     ad_merge.obsm["X_scANVI"] = lvae_online.get_latent_representation(ad_merge)
     sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
     sc.tl.umap(ad_merge)
-    df_color = basic.getadataColor(refAd, refLabel)
+    dt_color = basic.getadataColor(refAd, refLabel)
     ad_merge = basic.setadataColor(
-        ad_merge, f"labelTransfer_scanvi_{refLabel}", df_color
+        ad_merge, f"labelTransfer_scanvi_{refLabel}", dt_color
     )
+    dt_color['unknown'] = '#00000'
+    dt_color = basic.setadataColor(ad_merge, refLabel, dt_color)
     sc.pl.umap(ad_merge, color="_batch")
     sc.pl.umap(ad_merge, color=refLabel)
     sc.pl.umap(ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data")

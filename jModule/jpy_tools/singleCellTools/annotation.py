@@ -495,6 +495,10 @@ def labelTransferBySeurat(
     queryAd = basic.getPartialLayersAdata(queryAd, queryLayer)
     queryAd.obs["empty"] = 0  # seurat need
     refAd, queryAd = basic.getOverlap(refAd, queryAd, copy=True)
+    refAd.obs['__batch'] = 'reference'
+    refAd.obs.index = 'reference-' + refAd.obs.index
+    queryAd.obs['__batch'] = 'query'
+    queryAd.obs.index = 'query-' + queryAd.obs.index
     ad_concat = sc.concat(
         {"ref": refAd, "query": queryAd}, label="__batch", index_unique="-batch-"
     )
@@ -542,6 +546,7 @@ def labelTransferBySeurat(
     )
 
     df_predScore = r2py(predictions)
+
     df_predScore = df_predScore[
         [
             x
@@ -549,7 +554,7 @@ def labelTransferBySeurat(
             if (x.startswith("prediction.score")) & (x != "prediction.score.max")
         ]
     ]
-    df_predScore = df_predScore.rename(columns=lambda x: x.lstrip("prediction.score."))
+    df_predScore = df_predScore.rename(columns=lambda x: x.split("prediction.score.")[-1])
 
     dt_name2Org = {
         y: x
@@ -558,8 +563,9 @@ def labelTransferBySeurat(
             sorted(list(df_predScore.columns)),
         )
     }
+
     df_predScore = df_predScore.rename(
-        columns=dt_name2Org, index=lambda x: x.rstrip("-batch-query")
+        columns=dt_name2Org, index=lambda x: x.split("query-", 1)[1]
     )
 
     queryAdOrg.obsm[f"labelTransfer_score_seurat_{refLabel}"] = df_predScore.reindex(
@@ -599,20 +605,22 @@ def labelTransferBySeurat(
     )
 
     ad_integrated = r2py(seurat.as_SingleCellExperiment(trl(adR_integrated)))
-    ad_integrated.obs["batch"] = ad_integrated.obs.index.str.split("-").str[-1]
-    ad_integrated.obs[refLabel] = (
-        ad_integrated.obs[refLabel]
-        .astype(str)
-        .map(lambda x: {"NA_character_": np.nan}.get(x, x))
-    )
+
+    ad_integrated.obs["batch"] = ad_integrated.obs.index.str.split("-").str[0]
+
+    ad_integrated.obs["batch"] = ad_integrated.obs.index.str.split("-").str[0]
+
+    ad_integrated.obs[f"labelTransfer_seurat_{refLabel}"] = pd.concat(
+        [queryAdOrg.obs[f"labelTransfer_seurat_{refLabel}"], refAd.obs[refLabel]]
+    ).to_list()
+
     dt_color = basic.getadataColor(refAd, refLabel)
     dt_color["unknown"] = "#111111"
     dt_color["None"] = "#D3D3D3"
     dt_color["nan"] = "#D3D3D3"
-    ad_integrated = basic.setadataColor(ad_integrated, refLabel, dt_color)
+    ad_integrated = basic.setadataColor(ad_integrated, f"labelTransfer_seurat_{refLabel}", dt_color)
     sc.pl.umap(ad_integrated, color="batch")
-    sc.pl.umap(ad_integrated, color=refLabel, legend_loc="on data")
-
+    sc.pl.umap(ad_integrated, color=f"labelTransfer_seurat_{refLabel}", legend_loc="on data")
     if copy:
         return queryAdOrg
     if needLoc:
