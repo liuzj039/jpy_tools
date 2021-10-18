@@ -33,6 +33,7 @@ import collections
 from xarray import corr
 from . import basic
 
+
 def obsmToObs(
     ad: sc.AnnData,
     key_obsm: str,
@@ -43,9 +44,7 @@ def obsmToObs(
 
     if not embedding:
         embedding = list(ad.obsm.keys())
-    ad_tmp = sc.AnnData(
-        ss.csc_matrix(ad.shape), obs=ad.obs.copy(), var=ad.var.copy()
-    )
+    ad_tmp = sc.AnnData(ss.csc_matrix(ad.shape), obs=ad.obs.copy(), var=ad.var.copy())
     for key in embedding:
         ad_tmp.obsm[key] = ad.obsm[key].copy()
 
@@ -55,9 +54,8 @@ def obsmToObs(
     )
     return ad_tmp
 
-def getPartialByPos(
-    ad: sc.AnnData, rightUpper: List[float], leftBottom: List[float]
-):
+
+def getPartialByPos(ad: sc.AnnData, rightUpper: List[float], leftBottom: List[float]):
     return ad[
         (np.array([4, 11]) < ad.obsm["X_umap"]).all(1)
         & (ad.obsm["X_umap"] < np.array([5, 12])).all(1)
@@ -72,9 +70,7 @@ def plotCellScatter(
     ),
     batch=None,
 ):
-    adata.obs = adata.obs.assign(
-        n_genes=(adata.X > 0).sum(1), n_counts=adata.X.sum(1)
-    )
+    adata.obs = adata.obs.assign(n_genes=(adata.X > 0).sum(1), n_counts=adata.X.sum(1))
     # adata.var = adata.var.assign(n_cells=(adata.X > 0).sum(0))
     ctGene = func_ct(adata)
 
@@ -101,9 +97,7 @@ def plotLabelPercentageInCluster(
         labelColor = basic.getadataColor(adata, label)
 
     groupbyWithLabelCountsDf = (
-        adata.obs.groupby(groupby)[label]
-        .apply(lambda x: x.value_counts())
-        .unstack()
+        adata.obs.groupby(groupby)[label].apply(lambda x: x.value_counts()).unstack()
     )
     groupbyWithLabelCounts_CumsumPercDf = groupbyWithLabelCountsDf.pipe(
         lambda x: x.cumsum(1).div(x.sum(1), 0) * 100
@@ -117,9 +111,7 @@ def plotLabelPercentageInCluster(
             color=labelColor[singleLabel],
         )
         legendHandleLs.append(
-            plt.Rectangle(
-                (0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none"
-            )
+            plt.Rectangle((0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none")
         )
         legendLabelLs.append(singleLabel)
     legendHandleLs, legendLabelLs = legendHandleLs[::-1], legendLabelLs[::-1]
@@ -165,8 +157,11 @@ def plotClusterSankey(
     return sankey
 
 
-def plotGeneInDifferentBatch(ad, ls_gene, batchKey, layer, figsize, ls_name=[], cmap='Reds', ncols=2, **dt_arg):
+def plotGeneInDifferentBatch(
+    ad, ls_gene, batchKey, layer, figsize, ls_name=[], cmap="Reds", ncols=2, **dt_arg
+):
     from math import ceil
+
     ls_batch = list(ad.obs[batchKey].unique())
     ls_batch = [ls_batch, *[[x] for x in ls_batch]]
 
@@ -174,14 +169,16 @@ def plotGeneInDifferentBatch(ad, ls_gene, batchKey, layer, figsize, ls_name=[], 
 
     if not ls_name:
         ls_name = ls_gene
-    assert len(ls_name) == len(ls_gene), "The length of `ls_name` is not equal to `ls_gene`"
+    assert len(ls_name) == len(
+        ls_gene
+    ), "The length of `ls_name` is not equal to `ls_gene`"
     for gene, name in zip(ls_gene, ls_name):
         fig, axs = plt.subplots(nrows, ncols, figsize=figsize)
         axs = axs.reshape(-1)
 
         for batch, ax in zip(ls_batch, axs):
             _ad = ad[ad.obs[batchKey].isin(batch)]
-            batch = batch[0] if len(batch) == 1 else 'all'
+            batch = batch[0] if len(batch) == 1 else "all"
             sc.pl.umap(
                 _ad,
                 color=gene,
@@ -193,12 +190,11 @@ def plotGeneInDifferentBatch(ad, ls_gene, batchKey, layer, figsize, ls_name=[], 
                 show=False,
                 vmax=ad[:, gene].to_df(layer).quantile(0.999),
                 vmin=0,
-                **dt_arg
+                **dt_arg,
             )
         plt.tight_layout()
         plt.show()
         plt.close()
-    
 
 
 def plotSC3sConsensusMatrix(
@@ -270,3 +266,113 @@ def plotSC3sConsensusMatrix(
     sys.setrecursionlimit(20000)
 
     return g
+
+
+def clustermap(
+    ad: sc.AnnData,
+    dt_gene: Mapping[str, List[str]],
+    obsAnno: Union[str, List[str]],
+    layer: str,
+    space_obsAnnoLegend: float = 0.12,
+    figsize=(10, 10),
+    cbarPos=(0.72, 0.15, 0.01, 0.18),
+    sort=True,
+    dt_geneColor: Optional[Mapping[str, str]] = None,
+    **dt_arg,
+):
+    from ..otherTools import addColorLegendToAx
+
+    if isinstance(obsAnno, str):
+        obsAnno = [obsAnno]
+    df_geneModule = pd.DataFrame(
+        [(x, z) for x, y in dt_gene.items() for z in y], columns=["module", "gene"]
+    ).set_index("gene")
+    if sort:
+        df_cellAnno = ad.obs[obsAnno].sort_values(obsAnno)
+        ad = ad[df_cellAnno.index]
+    else:
+        df_cellAnno = ad.obs[obsAnno]
+
+    df_mtx = ad.to_df(layer).loc[:, df_geneModule.index]
+
+    for anno in obsAnno:
+        dt_color = basic.getadataColor(ad, anno)
+        df_cellAnno[anno] = df_cellAnno[anno].map(dt_color)
+
+    if not dt_geneColor:
+        from scanpy.plotting import palettes
+
+        length = len(dt_gene)
+        if length <= 20:
+            palette = palettes.default_20
+        elif length <= 28:
+            palette = palettes.default_28
+        elif length <= len(palettes.default_102):  # 103 colors
+            palette = palettes.default_102
+        else:
+            palette = ["grey" for _ in range(length)]
+        dt_geneColor = {x: y for x, y in zip(dt_gene.keys(), palette)}
+
+    df_geneModuleChangeColor = df_geneModule.assign(
+        module=lambda df: df["module"].map(dt_geneColor)
+    )
+
+    axs = sns.clustermap(
+        df_mtx,
+        col_cluster=False,
+        cmap="Reds",
+        col_colors=df_geneModuleChangeColor,
+        row_colors=df_cellAnno,
+        dendrogram_ratio=0.1,
+        figsize=figsize,
+        cbar_pos=cbarPos,
+        **dt_arg,
+    )
+    _dt = df_geneModule.groupby("module").apply(len).to_dict()
+    dt_geneCounts = {x: _dt[x] for x in dt_gene.keys()}
+    if not dt_geneColor:
+        from scanpy.plotting import palettes
+
+        length = len(dt_gene)
+        if length <= 20:
+            palette = palettes.default_20
+        elif length <= 28:
+            palette = palettes.default_28
+        elif length <= len(palettes.default_102):  # 103 colors
+            palette = palettes.default_102
+        else:
+            palette = ["grey" for _ in range(length)]
+        dt_geneColor = {x: y for x, y in zip(dt_gene.keys(), palette)}
+    df_geneModule["module"] = df_geneModule["module"].map(dt_geneColor)
+
+    plt.sca(axs.ax_col_colors)
+    pos_current = 0
+    for name, counts in dt_geneCounts.items():
+        pos_next = pos_current + counts
+        plt.text(
+            (pos_current + pos_next) / 2,
+            -0.2,
+            name,
+            rotation=90,
+            va="bottom",
+            ha="center",
+        )
+        pos_current = pos_next
+        plt.yticks([])
+
+    for i, anno in enumerate(obsAnno):
+        dt_color = basic.getadataColor(ad, anno)
+        addColorLegendToAx(
+            axs.ax_heatmap,
+            anno,
+            dt_color,
+            1,
+            bbox_to_anchor=(1.05 + space_obsAnnoLegend * i, 1),
+            frameon=False,
+        )
+
+    plt.sca(axs.ax_heatmap)
+    plt.xticks([])
+    plt.yticks([])
+    plt.xlabel("")
+    return axs

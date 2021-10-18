@@ -269,9 +269,6 @@ def so2ad(so, dir_tmp=None) -> sc.AnnData:
                 h5so[f"/assays/{assay}_{slot}/features"] = h5so[
                     f"/assays/{assay}/features"
                 ]
-                h5so[f"/assays/{assay}_{slot}/meta.features"] = h5so[
-                    f"/assays/{assay}/meta.features"
-                ]
                 h5so[f"/assays/{assay}_{slot}/misc"] = h5so[f"/assays/{assay}/misc"]
             else:
                 h5so[f"/assays/{assay}_{slot}/scale.data"] = h5so[
@@ -280,9 +277,6 @@ def so2ad(so, dir_tmp=None) -> sc.AnnData:
                 h5so[f"/assays/{assay}_{slot}/data"] = h5so[f"/assays/{assay}/{slot}"]
                 h5so[f"/assays/{assay}_{slot}/features"] = h5so[
                     f"/assays/{assay}/features"
-                ]
-                h5so[f"/assays/{assay}_{slot}/meta.features"] = h5so[
-                    f"/assays/{assay}/meta.features"
                 ]
                 h5so[f"/assays/{assay}_{slot}/misc"] = h5so[f"/assays/{assay}/misc"]
                 h5so[f"/assays/{assay}_{slot}/scaled.features"] = h5so[
