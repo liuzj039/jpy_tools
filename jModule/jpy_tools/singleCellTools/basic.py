@@ -13,6 +13,7 @@ from loguru import logger
 from io import StringIO
 from concurrent.futures import ProcessPoolExecutor as Mtp
 from concurrent.futures import ThreadPoolExecutor as MtT
+from joblib import Parallel, delayed
 import sh
 import h5py
 from tqdm import tqdm
@@ -46,7 +47,7 @@ def splitAdata(
     batchKey: str,
     copy=True,
     axis: Literal[0, "cell", 1, "feature"] = 0,
-    needName = False
+    needName=False,
 ) -> Iterator[anndata.AnnData]:
     if axis in [0, "cell"]:
         assert batchKey in adata.obs.columns, f"{batchKey} not detected in adata"
@@ -61,7 +62,9 @@ def splitAdata(
         for batchObs in tqdm(batchObsLs):
             if needName:
                 if copy:
-                    yield adata[batchObs].obs.iloc[0].loc["__group"], adata[batchObs].copy()
+                    yield adata[batchObs].obs.iloc[0].loc["__group"], adata[
+                        batchObs
+                    ].copy()
                 else:
                     yield adata[batchObs].obs.iloc[0].loc["__group"], adata[batchObs]
             else:
@@ -69,7 +72,6 @@ def splitAdata(
                     yield adata[batchObs].copy()
                 else:
                     yield adata[batchObs]
-
 
     elif axis in [1, "feature"]:
         assert batchKey in adata.var.columns, f"{batchKey} not detected in adata"
@@ -85,7 +87,9 @@ def splitAdata(
         for batchVar in tqdm(batchVarLs):
             if needName:
                 if copy:
-                    yield adata[batchVar].var.iloc[0].loc["__group"], adata[batchVar].copy()
+                    yield adata[batchVar].var.iloc[0].loc["__group"], adata[
+                        batchVar
+                    ].copy()
                 else:
                     yield adata[batchVar].var.iloc[0].loc["__group"], adata[batchVar]
             else:
@@ -818,6 +822,7 @@ def saveMarkerGeneToPdf(
     import os
     import shutil
     from PyPDF2 import PdfFileMerger
+
     sh.mkdir(outputDirPath, p=True)
 
     if allGeneStoreDir:
@@ -852,21 +857,48 @@ def saveMarkerGeneToPdf(
     logger.info("All finished")
 
 
-def _plot_saveAllGeneEmbedding(adata, layer, batch, ls_batch, nrows, ncols, figsize, outputDirPath, cbarPos=0):
+def _plot_saveAllGeneEmbedding(
+    adata,
+    layer,
+    batch,
+    ls_batch,
+    nrows,
+    ncols,
+    figsize,
+    outputDirPath,
+    cbarPos=0,
+    disable=False,
+):
     allGeneLs = adata.var.index.to_list()
     geneCounts = len(allGeneLs)
     if not batch:
-        for i, gene in tqdm(enumerate(allGeneLs), "Processed Gene", geneCounts, position=cbarPos):
+        for i, gene in tqdm(
+            enumerate(allGeneLs),
+            "Processed Gene",
+            geneCounts,
+            position=cbarPos,
+            disable=disable,
+        ):
             sc.pl.umap(adata, layer=layer, color=gene, cmap="Reds", show=False)
             plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
             plt.close()
     else:
-        for i, gene in tqdm(enumerate(allGeneLs), "Processed Gene", geneCounts, position=cbarPos):
+        for i, gene in tqdm(
+            enumerate(allGeneLs),
+            "Processed Gene",
+            geneCounts,
+            position=cbarPos,
+            disable=disable,
+        ):
+            xMin = adata.obsm["X_umap"][:, 0].min()
+            xMax = adata.obsm["X_umap"][:, 0].max()
+            yMin = adata.obsm["X_umap"][:, 1].min()
+            yMax = adata.obsm["X_umap"][:, 0].max()
             fig, axs = plt.subplots(nrows, ncols, figsize=figsize)
             axs = axs.reshape(-1)
             for batchName, ax in zip(ls_batch, axs):
-                _ad = adata[adata.obs.eval("batch in @batchName")]
-                batchName = batchName[0] if len(batchName) == 1 else 'all'
+                _ad = adata[adata.obs.eval(f"{batch} in @batchName")]
+                batchName = batchName[0] if len(batchName) == 1 else "all"
                 sc.pl.umap(
                     _ad,
                     color=gene,
@@ -877,10 +909,15 @@ def _plot_saveAllGeneEmbedding(adata, layer, batch, ls_batch, nrows, ncols, figs
                     ax=ax,
                     show=False,
                     vmax=adata[:, gene].to_df(layer).quantile(0.999),
-                    vmin=0
-                )                
+                    vmin=0,
+                )
+                plt.sca(ax)
+                plt.xlim(xMin - 0.5, xMax + 0.5)
+                plt.ylim(yMin - 0.5, yMax + 0.5)
+            plt.tight_layout()
             plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
             plt.close()
+
 
 def saveAllGeneEmbedding(
     adata: anndata.AnnData,
@@ -892,6 +929,7 @@ def saveAllGeneEmbedding(
     ncols: Optional[int] = None,
     figsize: Optional[str] = None,
     threads: int = 1,
+    batchSize: int = 100,
 ):
     # def __saveSingleGene(gene):
     #     nonlocal adata
@@ -917,15 +955,44 @@ def saveAllGeneEmbedding(
     else:
         ls_batch = adata.obs[batch].unique()
         ls_batch = [ls_batch, *[[x] for x in ls_batch]]
-    
+
     if threads == 1:
-        _plot_saveAllGeneEmbedding(adata, layer, batch, ls_batch, nrows, ncols, figsize, outputDirPath)
+        _plot_saveAllGeneEmbedding(
+            adata, layer, batch, ls_batch, nrows, ncols, figsize, outputDirPath
+        )
     else:
-        adata.var["__random"] = np.random.choice([str(x) for x in range(threads)], adata.shape[1])
-        adata.var["__random"] = adata.var["__random"].astype('category')
-        with Mtp(threads) as mtp:
-            for i, _ad in enumerate(splitAdata(adata, "__random", axis=1)):
-                mtp.submit(_plot_saveAllGeneEmbedding, _ad, layer, batch, ls_batch, nrows, ncols, figsize, outputDirPath)
+        Parallel(n_jobs=threads)(
+            delayed(_plot_saveAllGeneEmbedding)(
+                adata[:, i : i + batchSize].copy(),
+                layer,
+                batch,
+                ls_batch,
+                nrows,
+                ncols,
+                figsize,
+                outputDirPath,
+                disable=True,
+            )
+            for i in tqdm(range(0, adata.shape[1], batchSize))
+        )
+    # else:
+    #     adata.var["__random"] = np.random.choice(
+    #         [str(x) for x in range(threads)], adata.shape[1]
+    #     )
+    #     adata.var["__random"] = adata.var["__random"].astype("category")
+    #     with Mtp(threads) as mtp:
+    #         for i, _ad in enumerate(splitAdata(adata, "__random", axis=1)):
+    #             mtp.submit(
+    #                 _plot_saveAllGeneEmbedding,
+    #                 _ad,
+    #                 layer,
+    #                 batch,
+    #                 ls_batch,
+    #                 nrows,
+    #                 ncols,
+    #                 figsize,
+    #                 outputDirPath,
+    #             )
 
     logger.info("All finished")
 

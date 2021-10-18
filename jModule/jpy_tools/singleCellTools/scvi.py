@@ -72,7 +72,7 @@ def identifyDEGByScvi(
     scvi.settings.seed = 39
     scvi.settings.num_threads = threads
 
-    layer = None if layer == 'X' else layer
+    layer = None if layer == "X" else layer
     ad.X = ad.layers[layer].copy()
     ad_forDE = sc.pp.filter_genes(ad, min_cells=minCells, copy=True)
     scvi.data.setup_anndata(
@@ -91,8 +91,10 @@ def identifyDEGByScvi(
             scvi_model = path_model
         else:
             assert False, f"Unknown data type: {type(path_model)}"
-    
-    df_deInfo = scvi_model.differential_expression(ad_forDE, groupby=groupby, batch_correction=correctBatch)
+
+    df_deInfo = scvi_model.differential_expression(
+        ad_forDE, groupby=groupby, batch_correction=correctBatch
+    )
     if not keyAdded:
         pass
     else:
@@ -100,8 +102,6 @@ def identifyDEGByScvi(
         ad.uns[keyAdded] = df_deInfo
 
     return scvi_model, df_deInfo
-
-
 
 
 def getDEG(
@@ -202,6 +202,8 @@ def labelTransferByScanvi(
         ls_removeCateKey = ["_batch"]
 
     queryAd.obs[refLabel] = "unknown"
+    refAd.obs["_batch"] = "ref"
+    queryAd.obs["_batch"] = "query"
     ad_merge = sc.concat([refAd, queryAd], label="_batch", keys=["ref", "query"])
     ad_merge.X = ad_merge.X.astype(int)
     sc.pp.highly_variable_genes(
@@ -292,10 +294,14 @@ def labelTransferByScanvi(
     ad_merge = basic.setadataColor(
         ad_merge, f"labelTransfer_scanvi_{refLabel}", dt_color
     )
-    dt_color['unknown'] = '#000000'
+    dt_color["unknown"] = "#000000"
     dt_color = basic.setadataColor(ad_merge, refLabel, dt_color)
     sc.pl.umap(ad_merge, color="_batch")
-    sc.pl.umap(ad_merge, color=refLabel, groups=[x for x in ad_merge.obs[refLabel].unique() if x != 'unknown'])
+    sc.pl.umap(
+        ad_merge,
+        color=refLabel,
+        groups=[x for x in ad_merge.obs[refLabel].unique() if x != "unknown"],
+    )
     sc.pl.umap(ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data")
 
     # get predicted labels

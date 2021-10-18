@@ -20,6 +20,9 @@ from IPython.display import Image, display
 from .otherTools import Capturing
 import rpy2.robjects as ro
 from rpy2.robjects.packages import importr
+import scanpy as sc
+import h5py
+from tempfile import TemporaryDirectory
 
 R = ro.r
 
@@ -155,6 +158,60 @@ def py2r_disk(obj, check=False, *args, **kwargs):
     return objR
 
 
+def ad2so(ad, layer="raw", dir_tmp=None):
+    """
+    anndata to seuratObject.
+
+    obsm:
+        matrix which's name does not start with 'X_' will be discarded.
+    uns:
+        discarded
+    obsp:
+        only keep 'distances'
+    varp:
+        discarded
+
+    layer must be raw.
+    """
+    seuratDisk = importr("SeuratDisk")
+
+    if not dir_tmp:
+        dir_tmp_ = TemporaryDirectory()
+        dir_tmp = dir_tmp_.name
+    path_h5ad = f"{dir_tmp}/temp.h5ad"
+    path_h5so = f"{dir_tmp}/temp.h5seurat"
+    ad_partial = sc.AnnData(
+        ad.layers[layer].copy(),
+        obs=ad.obs,
+        var=ad.var,
+        obsm=ad.obsm,
+        varm=ad.varm,
+        obsp=ad.obsp,
+    )
+    _ls = []
+    for key in ad_partial.obsm:
+        if not key.startswith("X_"):
+            _ls.append(key)
+    for key in _ls:
+        del ad_partial.obsm[key]
+    ad_partial.raw = ad_partial
+    sc.pp.normalize_total(ad_partial, 1e4)
+    sc.pp.log1p(ad_partial)
+
+    ad_partial.write(path_h5ad)
+
+    h5 = h5py.File(path_h5ad, "r+")
+    if "obsp/distances" in h5:
+        h5["/uns/neighbors/distances"] = h5["/obsp/distances"]
+        h5["/uns/neighbors/params/method"] = "nn"
+
+    h5.close()
+
+    seuratDisk.Convert(path_h5ad, dest="h5Seurat", overwrite=True)
+    so = seuratDisk.LoadH5Seurat(path_h5so)
+    return so
+
+
 @rpy2_check
 @anndata2ri_check
 def r2py(x, name=None):
@@ -189,6 +246,56 @@ def r2py(x, name=None):
     print("\r" + f"transfer `{objType}` to python: {name} End  ", flush=True)
     return x
 
+
+def so2ad(so, dir_tmp=None) -> sc.AnnData:
+    seuratDisk = importr("SeuratDisk")
+    if not dir_tmp:
+        dir_tmp_ = TemporaryDirectory()
+        dir_tmp = dir_tmp_.name
+    path_h5ad = f"{dir_tmp}/temp.h5ad"
+    path_h5so = f"{dir_tmp}/temp.h5seurat"
+
+    seuratDisk.SaveH5Seurat(so, path_h5so, overwrite=True)
+
+    h5so = h5py.File(path_h5so, "r+")
+    ls_assays = h5so["/assays"].keys()
+    for assay in ls_assays:
+        ls_slots = [
+            x for x in h5so[f"/assays/{assay}"] if x in ["counts", "data", "scale.data"]
+        ]
+        for slot in ls_slots:
+            if slot != "scale.data":
+                h5so[f"/assays/{assay}_{slot}/data"] = h5so[f"/assays/{assay}/{slot}"]
+                h5so[f"/assays/{assay}_{slot}/features"] = h5so[
+                    f"/assays/{assay}/features"
+                ]
+                h5so[f"/assays/{assay}_{slot}/meta.features"] = h5so[
+                    f"/assays/{assay}/meta.features"
+                ]
+                h5so[f"/assays/{assay}_{slot}/misc"] = h5so[f"/assays/{assay}/misc"]
+            else:
+                h5so[f"/assays/{assay}_{slot}/scale.data"] = h5so[
+                    f"/assays/{assay}/{slot}"
+                ]
+                h5so[f"/assays/{assay}_{slot}/data"] = h5so[f"/assays/{assay}/{slot}"]
+                h5so[f"/assays/{assay}_{slot}/features"] = h5so[
+                    f"/assays/{assay}/features"
+                ]
+                h5so[f"/assays/{assay}_{slot}/meta.features"] = h5so[
+                    f"/assays/{assay}/meta.features"
+                ]
+                h5so[f"/assays/{assay}_{slot}/misc"] = h5so[f"/assays/{assay}/misc"]
+                h5so[f"/assays/{assay}_{slot}/scaled.features"] = h5so[
+                    f"/assays/{assay}/scaled.features"
+                ]
+    h5so.close()
+
+    seuratDisk.Convert(path_h5so, dest="h5ad", overwrite=True)
+    with h5py.File(path_h5ad, "a") as h5ad:
+        if "raw" in h5ad.keys():
+            del h5ad["raw"]
+    ad = sc.read_h5ad(path_h5ad)
+    return ad
 
 
 @contextmanager

@@ -49,7 +49,7 @@ def sct(ad, n_top_genes=3000):
     ad.layers["normalize_log"] = ad.layers["raw"].copy()
     sc.pp.normalize_total(ad, 1e4, layer="normalize_log")
     sc.pp.log1p(ad, layer="normalize_log")
-    normalize.normalizeBySCT(ad, layer="raw", min_cells=10, log_scale_correct=True, n_top_genes=n_top_genes, n_genes=n_top_genes)
+    normalize.normalizeBySCT(ad, layer="raw", min_cells=1, log_scale_correct=True, n_top_genes=n_top_genes, n_genes=n_top_genes)
     ad.X = ad.layers["sct_residuals"].copy()
     sc.tl.pca(ad)
     sc.pp.neighbors(ad, n_pcs=50)
@@ -63,7 +63,8 @@ def multiBatch(
     method: Optional[Literal["harmony", "scanorama", "scvi"]] = None,
     nomalization: Optional[Literal["total", "SCT"]] = "total",
     n_top_genes = 5000,
-    ls_removeCateKey = []
+    ls_removeCateKey = [],
+    scaleIndividual = False
 ):
     """
     sct + pca + harmony|scanorama|scvi + neighbors + umap
@@ -87,10 +88,10 @@ def multiBatch(
     sc.pp.highly_variable_genes(ad, "raw", n_top_genes=n_top_genes, flavor="seurat_v3")
     ad.X = ad.layers["normalize_log"].copy()
     if nomalization == "total":
-        if method == "harmony":
-            sc.pp.scale(ad, max_value=10)
-        elif method == "scanorama":
+        if scaleIndividual:
             basic.scIB_scale_batch(ad, batch)
+        else:
+            sc.pp.scale(ad, max_value=10)
     elif nomalization == "SCT":
         ls_adataAfterSCT = []
         for _ad in basic.splitAdata(ad, batch):
