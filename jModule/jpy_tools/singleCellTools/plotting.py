@@ -278,6 +278,7 @@ def clustermap(
     cbarPos=(0.72, 0.15, 0.01, 0.18),
     sort=True,
     dt_geneColor: Optional[Mapping[str, str]] = None,
+    add_gene_name: bool = True,
     **dt_arg,
 ):
     from ..otherTools import addColorLegendToAx
@@ -345,20 +346,24 @@ def clustermap(
         dt_geneColor = {x: y for x, y in zip(dt_gene.keys(), palette)}
     df_geneModule["module"] = df_geneModule["module"].map(dt_geneColor)
 
+    if add_gene_name:
+        plt.sca(axs.ax_col_colors)
+        pos_current = 0
+        for name, counts in dt_geneCounts.items():
+            pos_next = pos_current + counts
+            plt.text(
+                (pos_current + pos_next) / 2,
+                -0.2,
+                name,
+                rotation=90,
+                va="bottom",
+                ha="center",
+            )
+            pos_current = pos_next
+            plt.yticks([])
     plt.sca(axs.ax_col_colors)
-    pos_current = 0
-    for name, counts in dt_geneCounts.items():
-        pos_next = pos_current + counts
-        plt.text(
-            (pos_current + pos_next) / 2,
-            -0.2,
-            name,
-            rotation=90,
-            va="bottom",
-            ha="center",
-        )
-        pos_current = pos_next
-        plt.yticks([])
+    plt.xticks([])
+    plt.yticks([])
 
     for i, anno in enumerate(obsAnno):
         dt_color = basic.getadataColor(ad, anno)

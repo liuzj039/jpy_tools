@@ -171,6 +171,7 @@ def addColorLegendToAx(
         bbox_to_anchor=bbox_to_anchor,
         **legendParamsDt,
     )
+    leg._legend_box.align = "left"
     ax.add_artist(leg)
 
     # leg = ax.legend(title=title, loc=loc, ncol=ncol, bbox_to_anchor=bbox_to_anchor)
