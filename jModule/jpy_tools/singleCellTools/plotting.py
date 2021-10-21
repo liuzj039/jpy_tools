@@ -172,6 +172,12 @@ def plotGeneInDifferentBatch(
     assert len(ls_name) == len(
         ls_gene
     ), "The length of `ls_name` is not equal to `ls_gene`"
+
+    xMin = ad.obsm["X_umap"][:, 0].min()
+    xMax = ad.obsm["X_umap"][:, 0].max()
+    yMin = ad.obsm["X_umap"][:, 1].min()
+    yMax = ad.obsm["X_umap"][:, 0].max()
+
     for gene, name in zip(ls_gene, ls_name):
         fig, axs = plt.subplots(nrows, ncols, figsize=figsize)
         axs = axs.reshape(-1)
@@ -192,6 +198,10 @@ def plotGeneInDifferentBatch(
                 vmin=0,
                 **dt_arg,
             )
+            plt.sca(ax)
+            plt.xlim(xMin - 0.5, xMax + 0.5)
+            plt.ylim(yMin - 0.5, yMax + 0.5)
+            
         plt.tight_layout()
         plt.show()
         plt.close()

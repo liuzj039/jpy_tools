@@ -42,6 +42,7 @@ def identifyDEGByScvi(
     minCells: int = 10,
     threads: int = 36,
     keyAdded: Optional[str] = "marker_byScvi",
+    only_train_model: bool = False
 ) -> Tuple[scvi.model.SCVI, pd.DataFrame]:
     """[summary]
 
@@ -84,6 +85,8 @@ def identifyDEGByScvi(
     if not path_model:
         scvi_model = scvi.model.SCVI(ad_forDE)
         scvi_model.train(early_stopping=True)
+        if only_train_model:
+            return scvi_model
     else:
         if isinstance(path_model, str):
             scvi_model = scvi.model.SCVI.load(path_model, ad_forDE)
