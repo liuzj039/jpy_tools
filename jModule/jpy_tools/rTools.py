@@ -158,7 +158,12 @@ def py2r_disk(obj, check=False, *args, **kwargs):
     return objR
 
 
-def ad2so(ad, layer="raw", dir_tmp=None):
+def ad2so(
+    ad,
+    layer="raw",
+    dir_tmp=None,
+    R_path="/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/bin/R",
+):
     """
     anndata to seuratObject.
 
@@ -173,6 +178,11 @@ def ad2so(ad, layer="raw", dir_tmp=None):
 
     layer must be raw.
     """
+    import sh
+
+    R(
+        '.libPaths("/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/lib/R/library")'
+    )
     seuratDisk = importr("SeuratDisk")
 
     if not dir_tmp:
@@ -207,7 +217,15 @@ def ad2so(ad, layer="raw", dir_tmp=None):
 
     h5.close()
 
-    seuratDisk.Convert(path_h5ad, dest="h5Seurat", overwrite=True)
+    # seuratDisk.Convert(path_h5ad, dest="h5Seurat", overwrite=True)
+    ls_cmd = [
+        "-q",
+        "-e",
+        f"library(SeuratDisk); Convert(\'{path_h5ad}\', dest=\'h5Seurat\', overwrite=True)"
+    ]
+    sh_cmd = sh.Command(R_path)(*ls_cmd)
+    print(sh_cmd.stdout.decode())
+    print(sh_cmd.stderr.decode())
     so = seuratDisk.LoadH5Seurat(path_h5so)
     return so
 
@@ -248,6 +266,9 @@ def r2py(x, name=None):
 
 
 def so2ad(so, dir_tmp=None) -> sc.AnnData:
+    R(
+        '.libPaths("/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/lib/R/library")'
+    )
     seuratDisk = importr("SeuratDisk")
     if not dir_tmp:
         dir_tmp_ = TemporaryDirectory()

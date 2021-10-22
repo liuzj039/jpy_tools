@@ -118,11 +118,14 @@ def scWGCNA(
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
     from ..rTools import py2r, r2py, r_inline_plot, rHelp, trl, rGet, rSet, ad2so, so2ad
+    import os
+    os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
     rBase = importr("base")
     rUtils = importr("utils")
     tidyverse = importr("tidyverse")
     WGCNA = importr("WGCNA")
+    seurat = importr("Seurat")
 
     R = ro.r
     R(f"enableWGCNAThreads({threads})")

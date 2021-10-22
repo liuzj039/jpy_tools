@@ -220,6 +220,7 @@ def labelTransferByCellId(
     refLayer: str,
     queryAd: anndata.AnnData,
     queryLayer: str,
+    query_batch_key: Optional[str] = None,
     markerCount: int = 200,
     n_top_genes: int = 5000,
     cutoff: float = 2.0,
@@ -295,19 +296,38 @@ def labelTransferByCellId(
         returnR=True,
         nmcs=nmcs,
     )
+    
+    if not query_batch_key:
+        _ad = basic.getPartialLayersAdata(queryAd, ["X"])
+        sc.pp.scale(_ad, max_value=10)
+        adR_query = py2r(_ad)
+        adR_query = cellId.RunMCA(adR_query, slot="X", nmcs=nmcs)
+        df_labelTransfered = r2py(
+            rBase.data_frame(
+                cellId.RunCellHGT(
+                    adR_query, VectorR_Refmarker, dims=py2r(np.arange(1, 1 + nmcs))
+                ),
+                check_names=False,
+            )
+        ).T
+    else:
+        lsDf_labelTransfered = []
+        for _ad in basic.splitAdata(queryAd, query_batch_key):
+            _ad = basic.getPartialLayersAdata(queryAd, ["X"])
+            sc.pp.scale(_ad, max_value=10)
+            adR_query = py2r(_ad)
+            adR_query = cellId.RunMCA(adR_query, slot="X", nmcs=nmcs)
+            df_labelTransfered = r2py(
+                rBase.data_frame(
+                    cellId.RunCellHGT(
+                        adR_query, VectorR_Refmarker, dims=py2r(np.arange(1, 1 + nmcs))
+                    ),
+                    check_names=False,
+                )
+            ).T
+            lsDf_labelTransfered.append(df_labelTransfered)
+        df_labelTransfered = pd.concat(lsDf_labelTransfered).reindex(queryAd_org.obs.index)
 
-    _ad = basic.getPartialLayersAdata(queryAd, ["X"])
-    sc.pp.scale(_ad, max_value=10)
-    adR_query = py2r(_ad)
-    adR_query = cellId.RunMCA(adR_query, slot="X", nmcs=nmcs)
-    df_labelTransfered = r2py(
-        rBase.data_frame(
-            cellId.RunCellHGT(
-                adR_query, VectorR_Refmarker, dims=py2r(np.arange(1, 1 + nmcs))
-            ),
-            check_names=False,
-        )
-    ).T
     queryAd_org.obsm[f"cellid_{refLabel}_labelTranferScore"] = df_labelTransfered
     queryAd_org.obs[f"cellid_{refLabel}_labelTranfer"] = queryAd_org.obsm[
         f"cellid_{refLabel}_labelTranferScore"

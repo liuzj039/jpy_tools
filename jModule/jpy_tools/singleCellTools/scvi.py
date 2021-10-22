@@ -85,8 +85,6 @@ def identifyDEGByScvi(
     if not path_model:
         scvi_model = scvi.model.SCVI(ad_forDE)
         scvi_model.train(early_stopping=True)
-        if only_train_model:
-            return scvi_model
     else:
         if isinstance(path_model, str):
             scvi_model = scvi.model.SCVI.load(path_model, ad_forDE)
@@ -95,6 +93,9 @@ def identifyDEGByScvi(
         else:
             assert False, f"Unknown data type: {type(path_model)}"
 
+    if only_train_model:
+        return scvi_model
+        
     df_deInfo = scvi_model.differential_expression(
         ad_forDE, groupby=groupby, batch_correction=correctBatch
     )
