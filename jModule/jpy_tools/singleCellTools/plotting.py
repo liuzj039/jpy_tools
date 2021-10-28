@@ -289,6 +289,7 @@ def clustermap(
     sort=True,
     dt_geneColor: Optional[Mapping[str, str]] = None,
     add_gene_name: bool = True,
+    col_label: bool = False,
     **dt_arg,
 ):
     from ..otherTools import addColorLegendToAx
@@ -387,7 +388,8 @@ def clustermap(
         )
 
     plt.sca(axs.ax_heatmap)
-    plt.xticks([])
+    if not col_label:
+        plt.xticks([])
     plt.yticks([])
     plt.xlabel("")
     return axs

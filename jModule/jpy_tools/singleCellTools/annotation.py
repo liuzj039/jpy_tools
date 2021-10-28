@@ -223,6 +223,7 @@ def labelTransferByCellId(
     query_batch_key: Optional[str] = None,
     markerCount: int = 200,
     n_top_genes: int = 5000,
+    ls_use_gene: Optional[List[str]] = None,
     cutoff: float = 2.0,
     nmcs: int = 30,
     copy: bool = False,
@@ -273,14 +274,17 @@ def labelTransferByCellId(
     ad_integrated = sc.concat(
         {"ref": refAd, "query": queryAd}, label="batch_cellid", index_unique="-"
     )
-    sc.pp.highly_variable_genes(
-        ad_integrated,
-        n_top_genes=n_top_genes,
-        flavor="seurat_v3",
-        batch_key="batch_cellid",
-        subset=True,
-    )
-    ls_useGene = ad_integrated.var.index.to_list()
+    if not ls_use_gene:
+        sc.pp.highly_variable_genes(
+            ad_integrated,
+            n_top_genes=n_top_genes,
+            flavor="seurat_v3",
+            batch_key="batch_cellid",
+            subset=True,
+        )
+        ls_useGene = ad_integrated.var.index.to_list()
+    else:
+        ls_useGene = ls_use_gene
 
     sc.pp.normalize_total(refAd, 1e4)
     sc.pp.normalize_total(queryAd, 1e4)
@@ -313,7 +317,7 @@ def labelTransferByCellId(
     else:
         lsDf_labelTransfered = []
         for _ad in basic.splitAdata(queryAd, query_batch_key):
-            _ad = basic.getPartialLayersAdata(queryAd, ["X"])
+            _ad = basic.getPartialLayersAdata(_ad, ["X"])
             sc.pp.scale(_ad, max_value=10)
             adR_query = py2r(_ad)
             adR_query = cellId.RunMCA(adR_query, slot="X", nmcs=nmcs)
@@ -503,12 +507,14 @@ def labelTransferBySeurat(
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
     from ..rTools import py2r, r2py, r_inline_plot, rHelp, trl, rGet, rSet
+    from ..otherTools import setSeed
 
     rBase = importr("base")
     rUtils = importr("utils")
     R = ro.r
     seurat = importr("Seurat")
     seuratObject = importr("SeuratObject")
+    setSeed(0)
 
     queryAdOrg = queryAd.copy() if copy else queryAd
     refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel])

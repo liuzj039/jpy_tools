@@ -215,6 +215,7 @@ def sankeyPlotByPyechart(
     from matplotlib.colors import rgb2hex
     from pyecharts import options as opts
     from pyecharts.charts import Sankey
+    from scanpy.plotting import palettes
 
     def getSankeyFormatFromDf_Only2(
         df: pd.DataFrame,
@@ -236,13 +237,30 @@ def sankeyPlotByPyechart(
         )
 
         if not fromColorDt:
-            fromColorDt = {
-                x: rgb2hex(y) for x, y in zip(df[fromCol].unique(), sns.color_palette())
-            }
+            length = len(df[fromCol].unique())
+            if length <= 20:
+                palette = palettes.default_20
+            elif length <= 28:
+                palette = palettes.default_28
+            elif length <= len(palettes.default_102):  # 103 colors
+                palette = palettes.default_102
+            else:
+                palette = ["grey" for _ in range(length)]
+
+            fromColorDt = {x: rgb2hex(y) for x, y in zip(df[fromCol].unique(), palette)}
         if not toColorDt:
-            toColorDt = {
-                x: rgb2hex(y) for x, y in zip(df[toCol].unique(), sns.color_palette())
-            }
+            length = len(df[toCol].unique())
+            if length <= 20:
+                palette = palettes.default_20
+            elif length <= 28:
+                palette = palettes.default_28
+            elif length <= len(palettes.default_102):  # 103 colors
+                palette = palettes.default_102
+            else:
+                palette = ["grey" for _ in range(length)]
+
+            toColorDt = {x: rgb2hex(y) for x, y in zip(df[toCol].unique(), palette)}
+
         fromColorDt = {f"{x}{' ' * layerNum}": y for x, y in fromColorDt.items()}
         toColorDt = {f"{x}{' ' * (layerNum+1)}": y for x, y in toColorDt.items()}
 
@@ -328,7 +346,7 @@ def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, **dt_arg)
     config :
         will overwrite writeFc, arg_path and dt_arg
         support:
-            scvi_model
+            scvi_model|mudata
     writeFc :
         write function
     arg_path : [type], optional
@@ -342,8 +360,14 @@ def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, **dt_arg)
             "writeFc": lambda x, **dt: x.save(**dt),
             "arg_path": "dir_path",
             "dt_arg": {"overwrite": True},
-            "readFc": "lambda **dt:scvi.model.SCVI.load(**dt), arg_path='dir_path', adata=ad_forScvi",
-        }
+            "readFc": "lambda **dt:scvi.model.SCVI.load(**dt), arg_path='dir_path', adata=ad",
+        },
+        "mudata": {
+            "writeFc": lambda x, **dt: x.write_h5mu(**dt),
+            "arg_path": "filename",
+            "dt_arg": {},
+            "readFc": "lambda **dt:mu.read_h5mu(**dt), arg_path='filename",
+        },
     }
 
     dt_dirPkl = {
@@ -364,7 +388,7 @@ def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, **dt_arg)
         writeFc = config["writeFc"]
         arg_path = config["arg_path"]
         dt_arg = config["dt_arg"]
-        logger.info(f"please run `{config['readFc']}` to get object")
+        logger.info(f"please run `loadPkl({name}, {config['readFc']})` to get object")
 
     if not writeFc:
         with open(f"{dir_currentPkl}/{name}", "wb") as fh:

@@ -102,7 +102,7 @@ def normalizeByScran(
         adataPP = basic.getPartialLayersAdata(adata, layer)
 
         if needNormalizePre:
-            basic.testAllCountIsInt(adataPP, layer)
+            basic.testAllCountIsInt(adataPP, None)
             sc.pp.normalize_per_cell(adataPP, counts_per_cell_after=1e6)
         else:
             logger.warning(
