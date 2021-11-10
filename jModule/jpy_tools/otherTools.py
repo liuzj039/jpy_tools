@@ -366,7 +366,7 @@ def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, **dt_arg)
             "writeFc": lambda x, **dt: x.write_h5mu(**dt),
             "arg_path": "filename",
             "dt_arg": {},
-            "readFc": "lambda **dt:mu.read_h5mu(**dt), arg_path='filename",
+            "readFc": "lambda **dt:mu.read_h5mu(**dt), arg_path='filename'",
         },
     }
 

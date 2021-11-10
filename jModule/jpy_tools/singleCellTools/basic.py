@@ -868,6 +868,10 @@ def _plot_saveAllGeneEmbedding(
     outputDirPath,
     cbarPos=0,
     disable=False,
+    format="pdf",
+    cmap="Reds",
+    size=None,
+    distance_from_border=1,
 ):
     allGeneLs = adata.var.index.to_list()
     geneCounts = len(allGeneLs)
@@ -879,8 +883,8 @@ def _plot_saveAllGeneEmbedding(
             position=cbarPos,
             disable=disable,
         ):
-            sc.pl.umap(adata, layer=layer, color=gene, cmap="Reds", show=False)
-            plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
+            sc.pl.umap(adata, layer=layer, color=gene, show=False, cmap=cmap, size=size)
+            plt.savefig(f"{outputDirPath}{gene}.{format}", format=format)
             plt.close()
     else:
         for i, gene in tqdm(
@@ -893,29 +897,36 @@ def _plot_saveAllGeneEmbedding(
             xMin = adata.obsm["X_umap"][:, 0].min()
             xMax = adata.obsm["X_umap"][:, 0].max()
             yMin = adata.obsm["X_umap"][:, 1].min()
-            yMax = adata.obsm["X_umap"][:, 0].max()
+            yMax = adata.obsm["X_umap"][:, 1].max()
             fig, axs = plt.subplots(nrows, ncols, figsize=figsize)
             axs = axs.reshape(-1)
             for batchName, ax in zip(ls_batch, axs):
                 _ad = adata[adata.obs.eval(f"{batch} in @batchName")]
                 batchName = batchName[0] if len(batchName) == 1 else "all"
+                vmax = adata[:, gene].to_df(layer).iloc[:, 0]
+                vmax = sorted(list(vmax))
+                vmax = vmax[-2]
+                if vmax <= 1:
+                    vmax = 1
                 sc.pl.umap(
                     _ad,
                     color=gene,
                     title=f"{gene}\n({batchName})",
-                    cmap="Reds",
                     layer=layer,
-                    size=120000 / len(adata),
+                    size=size,
                     ax=ax,
                     show=False,
-                    vmax=adata[:, gene].to_df(layer).quantile(0.999),
+                    vmax=vmax,
                     vmin=0,
+                    cmap=cmap,
                 )
                 plt.sca(ax)
-                plt.xlim(xMin - 0.5, xMax + 0.5)
-                plt.ylim(yMin - 0.5, yMax + 0.5)
+                plt.xlim(xMin - distance_from_border, xMax + distance_from_border)
+                plt.ylim(yMin - distance_from_border, yMax + distance_from_border)
+            for ax in axs[len(ls_batch) :]:
+                fig.delaxes(ax)
             plt.tight_layout()
-            plt.savefig(f"{outputDirPath}{gene}.pdf", format="pdf")
+            plt.savefig(f"{outputDirPath}{gene}.{format}", format=format)
             plt.close()
 
 
@@ -930,6 +941,10 @@ def saveAllGeneEmbedding(
     figsize: Optional[str] = None,
     threads: int = 1,
     batchSize: int = 100,
+    format: str = "pdf",
+    cmap="Reds",
+    size=None,
+    distance_from_border=1
 ):
     # def __saveSingleGene(gene):
     #     nonlocal adata
@@ -956,9 +971,23 @@ def saveAllGeneEmbedding(
         ls_batch = adata.obs[batch].unique()
         ls_batch = [ls_batch, *[[x] for x in ls_batch]]
 
+    if not size:
+        size = 120000 / len(adata)
+
     if threads == 1:
         _plot_saveAllGeneEmbedding(
-            adata, layer, batch, ls_batch, nrows, ncols, figsize, outputDirPath
+            adata,
+            layer,
+            batch,
+            ls_batch,
+            nrows,
+            ncols,
+            figsize,
+            outputDirPath,
+            format=format,
+            cmap=cmap,
+            size=size,
+            distance_from_border=distance_from_border
         )
     else:
         Parallel(n_jobs=threads)(
@@ -972,6 +1001,10 @@ def saveAllGeneEmbedding(
                 figsize,
                 outputDirPath,
                 disable=True,
+                format=format,
+                cmap=cmap,
+                size=size,
+                distance_from_border=distance_from_border
             )
             for i in tqdm(range(0, adata.shape[1], batchSize))
         )

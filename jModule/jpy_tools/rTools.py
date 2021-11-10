@@ -89,6 +89,7 @@ def py2r(x, name=None, on_disk=None):
     from rpy2.robjects import numpy2ri, pandas2ri
     from rpy2.robjects.conversion import localconverter
     import anndata2ri
+    import time
 
     if not name:
         name = ""
@@ -98,6 +99,8 @@ def py2r(x, name=None, on_disk=None):
         on_disk = True if py2r_disk(x, check=True) else False
 
     print(f"on disk mode: {on_disk}, transfer `{objType}` to R: {name} start.", end="")
+    timeStart=time.time()
+
     if on_disk:
         x = py2r_disk(x)
 
@@ -114,8 +117,10 @@ def py2r(x, name=None, on_disk=None):
         ):
             x = ro.conversion.py2rpy(x)
 
+    timeEnd=time.time()
+    timePass = timeEnd - timeStart
     print(
-        "\r" + f"on disk mode: {on_disk}, transfer `{objType}` to R: {name} End.   ",
+        "\r" + f"on disk mode: {on_disk}, transfer `{objType}` to R: {name} End. Elapsed time: {timePass:.0f}",
         flush=True,
     )
     return x
@@ -223,9 +228,8 @@ def ad2so(
         "-e",
         f"library(SeuratDisk); Convert(\'{path_h5ad}\', dest=\'h5Seurat\', overwrite=True)"
     ]
-    sh_cmd = sh.Command(R_path)(*ls_cmd)
-    print(sh_cmd.stdout.decode())
-    print(sh_cmd.stderr.decode())
+    for x in sh.Command(R_path)(*ls_cmd, _err_to_out=True, _iter=True):
+        print(x.rstrip())
     so = seuratDisk.LoadH5Seurat(path_h5so)
     return so
 
@@ -238,6 +242,7 @@ def r2py(x, name=None):
     from rpy2.robjects import numpy2ri, pandas2ri
     from rpy2.robjects.conversion import localconverter
     import anndata2ri
+    import time
 
     if not name:
         name = ""
@@ -248,6 +253,7 @@ def r2py(x, name=None):
         objType = "unknown type"
 
     print(f"transfer `{objType}` to python: {name} start", end="")
+    timeStart=time.time()
     try:
         with localconverter(
             ro.default_converter
@@ -261,7 +267,9 @@ def r2py(x, name=None):
     except TypeError:
         # workaround for: https://github.com/theislab/anndata2ri/issues/47
         x = anndata2ri.scipy2ri.rpy2py(x)
-    print("\r" + f"transfer `{objType}` to python: {name} End  ", flush=True)
+    timeEnd=time.time()
+    timePass = timeEnd - timeStart
+    print("\r" + f"transfer `{objType}` to python: {name} End. Elapsed time: {timePass:.0f}", flush=True)
     return x
 
 
@@ -281,8 +289,10 @@ def so2ad(so, dir_tmp=None) -> sc.AnnData:
     h5so = h5py.File(path_h5so, "r+")
     ls_assays = h5so["/assays"].keys()
     for assay in ls_assays:
+        ls_keys = ls_assays = h5so[f"/assays/{assay}"].keys()
+        ls_slots = [x for x in ls_keys if x in ["counts", "data", "scale.data"]]
         ls_slots = [
-            x for x in h5so[f"/assays/{assay}"] if x in ["counts", "data", "scale.data"]
+            x for x in h5so[f"/assays/{assay}"] if x in ls_slots
         ]
         for slot in ls_slots:
             if slot != "scale.data":
@@ -290,7 +300,7 @@ def so2ad(so, dir_tmp=None) -> sc.AnnData:
                 h5so[f"/assays/{assay}_{slot}/features"] = h5so[
                     f"/assays/{assay}/features"
                 ]
-                h5so[f"/assays/{assay}_{slot}/misc"] = h5so[f"/assays/{assay}/misc"]
+                # h5so[f"/assays/{assay}_{slot}/misc"] = h5so[f"/assays/{assay}/misc"]
             else:
                 h5so[f"/assays/{assay}_{slot}/scale.data"] = h5so[
                     f"/assays/{assay}/{slot}"
@@ -299,7 +309,7 @@ def so2ad(so, dir_tmp=None) -> sc.AnnData:
                 h5so[f"/assays/{assay}_{slot}/features"] = h5so[
                     f"/assays/{assay}/features"
                 ]
-                h5so[f"/assays/{assay}_{slot}/misc"] = h5so[f"/assays/{assay}/misc"]
+                # h5so[f"/assays/{assay}_{slot}/misc"] = h5so[f"/assays/{assay}/misc"]
                 h5so[f"/assays/{assay}_{slot}/scaled.features"] = h5so[
                     f"/assays/{assay}/scaled.features"
                 ]

@@ -37,7 +37,7 @@ def identifyDEGByScvi(
     path_model: Optional[Union[str, scvi.model.SCVI]],
     layer: Optional[str],
     groupby: str,
-    batchKey: Optional[str],
+    batchKey: Optional[str] = None,
     correctBatch: bool = True,
     minCells: int = 10,
     threads: int = 36,
@@ -94,7 +94,7 @@ def identifyDEGByScvi(
             assert False, f"Unknown data type: {type(path_model)}"
 
     if only_train_model:
-        return scvi_model
+        return scvi_model, None
         
     df_deInfo = scvi_model.differential_expression(
         ad_forDE, groupby=groupby, batch_correction=correctBatch
