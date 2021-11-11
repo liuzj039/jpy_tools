@@ -77,6 +77,7 @@ def scWGCNA(
     batch_key: Optional[str]=None,
     threads: int=16,
     soft_power:Optional[int]=None, 
+    max_block_size:Optional[int]=None
 ) -> sc.AnnData:
     """
     perform scWGCNA
@@ -133,6 +134,8 @@ def scWGCNA(
     ro.globalenv["dir_result"] = dir_result
     if not batch_key:
         batch_key = groupby
+    if not max_block_size:
+        max_block_size = n_top_genes
 
     # preprocess
     sc.pp.filter_genes(ad, min_cells=min_cells)
@@ -277,7 +280,7 @@ def scWGCNA(
     R(
         f"""
     net=blockwiseConsensusModules(multiExpr, blocks = NULL,
-                                            maxBlockSize = 10000, ## This should be set to a smaller size if the user has limited RAM
+                                            maxBlockSize = {max_block_size}, ## This should be set to a smaller size if the user has limited RAM
                                             randomSeed = 39,
                                             corType = "pearson",
                                             power = softPower,
@@ -346,6 +349,7 @@ def scWGCNA(
                             xLabelsAngle = 90)
         """
         )
+
 
     # save results
     R(f"load(paste0(dir_result, '/{jobid}_TOM_block.1.rda'), verbose=T)")

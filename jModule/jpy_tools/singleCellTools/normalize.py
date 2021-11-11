@@ -97,6 +97,7 @@ def normalizeByScran(
     importr("scran")
     logger.info("Initialization")
     adata = adata.copy() if copy else adata
+    layer = "X" if layer is None else layer
 
     if not clusterInfo:
         adataPP = basic.getPartialLayersAdata(adata, layer)
@@ -122,20 +123,21 @@ def normalizeByScran(
         logger.info("transfer data to R")
         inputGroupDf_r = py2r(adata.obs[clusterInfo])
 
-    rawMtx = adata.X if not layer else adata.layers[layer]
-    dataMat_r = py2r(rawMtx.A.T) if isspmatrix(rawMtx) else py2r(rawMtx.T)
+    se = py2r(adata)
 
     logger.info("calculate size factor")
     sizeFactorSr_r = R.sizeFactors(
         R.computeSumFactors(
-            R.SingleCellExperiment(R.list(counts=dataMat_r)),
+            se,
             clusters=inputGroupDf_r,
-            **{"min.mean": 0.1},
+            **{"min.mean": 0.1, "assay.type": layer},
         )
     )
     sizeFactorSr = r2py(sizeFactorSr_r).copy()
 
     logger.info("process result")
+    rawMtx = adata.X if layer == 'X' else adata.layers[layer]
+    rawMtx = rawMtx.A if isspmatrix(rawMtx) else rawMtx
     adata.obs["sizeFactor"] = sizeFactorSr
     adata.layers["scran"] = rawMtx / adata.obs["sizeFactor"].values.reshape([-1, 1])
 
