@@ -184,6 +184,7 @@ def ad2so(
     layer must be raw.
     """
     import sh
+    import scipy.sparse as ss
 
     R(
         '.libPaths("/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/lib/R/library")'
@@ -203,6 +204,7 @@ def ad2so(
         varm=ad.varm,
         obsp=ad.obsp,
     )
+    ad_partial.X = ss.csr_matrix(ad_partial.X) # workaround https://github.com/satijalab/seurat/issues/2374
     _ls = []
     for key in ad_partial.obsm:
         if not key.startswith("X_"):

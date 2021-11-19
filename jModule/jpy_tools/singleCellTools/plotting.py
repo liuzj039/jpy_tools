@@ -176,7 +176,10 @@ def plotGeneInDifferentBatch(
     xMin = ad.obsm["X_umap"][:, 0].min()
     xMax = ad.obsm["X_umap"][:, 0].max()
     yMin = ad.obsm["X_umap"][:, 1].min()
-    yMax = ad.obsm["X_umap"][:, 0].max()
+    yMax = ad.obsm["X_umap"][:, 1].max()
+    if 'size' not in dt_arg:
+        size = 120000 / len(ad)
+        dt_arg['size'] = size
 
     for gene, name in zip(ls_gene, ls_name):
         fig, axs = plt.subplots(nrows, ncols, figsize=figsize)
@@ -189,7 +192,6 @@ def plotGeneInDifferentBatch(
                 _ad,
                 color=gene,
                 title=f"{name}\n({batch})",
-                size=120000 / len(ad),
                 layer=layer,
                 cmap=cmap,
                 ax=ax,

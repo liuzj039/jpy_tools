@@ -64,7 +64,7 @@ def sct(ad, n_top_genes=3000):
     ad.X = ad.layers["normalize_log"].copy()
 
 
-def singleBatch(ad, method: Literal["total", "SCT", "scran"], n_top_genes=3000) -> sc.AnnData:
+def singleBatch(ad, method: Literal["total", "sct", "scran"], n_top_genes=3000) -> sc.AnnData:
     """
     sct|scran|total + pca + neighbors + umap
 
@@ -74,12 +74,13 @@ def singleBatch(ad, method: Literal["total", "SCT", "scran"], n_top_genes=3000) 
     `ad` will be updated.
     ad.X will be `normalize_log` layer
     """
+    method = method.lower()
     basic.testAllCountIsInt(ad, None)
     ad.layers["raw"] = ad.X.copy()
     ad.layers["normalize_log"] = ad.layers["raw"].copy()
     sc.pp.normalize_total(ad, 1e4, layer="normalize_log")
     sc.pp.log1p(ad, layer="normalize_log")
-    if method == "SCT":
+    if method == "sct":
         normalize.normalizeBySCT(
             ad,
             layer="raw",
@@ -107,12 +108,12 @@ def singleBatch(ad, method: Literal["total", "SCT", "scran"], n_top_genes=3000) 
     ad.X = ad.layers["normalize_log"].copy()
     return ad
 
-type_method = Literal["harmony", "scanorama", "scvi"]
+type_method = Literal["harmony", "scanorama", "scvi", 'seurat']
 def multiBatch(
     ad,
     batch: str,
     method: Union[List[type_method], type_method],
-    normalization: Optional[Literal["total", "SCT", 'scran']] = "total",
+    normalization: Optional[Literal["total", "sct", 'scran']] = "total",
     n_top_genes=5000,
     ls_remove_cateKey=[],
     scale_individual=False,
@@ -132,6 +133,7 @@ def multiBatch(
         ls_method = [method]
     else:
         ls_method = method
+    normalization = normalization.lower()
 
     basic.testAllCountIsInt(ad, None)
     # if not batch:
@@ -148,7 +150,7 @@ def multiBatch(
             basic.scIB_scale_batch(ad, batch)
         else:
             sc.pp.scale(ad, max_value=10)
-    elif normalization == "SCT":
+    elif normalization == "sct":
         ls_adataAfterSCT = []
         for _ad in basic.splitAdata(ad, batch):
             normalize.normalizeBySCT(
@@ -201,6 +203,10 @@ def multiBatch(
             model.train(max_epochs=max_epochs, early_stopping=True)
             ad.obsm["X_scvi"] = model.get_latent_representation(ad_forScvi).copy()
             ad.obsm["X_integrated"] = ad.obsm["X_scvi"].copy()
+        elif method == "seurat":
+            from .normalize import integrateBySeurat
+            integrateBySeurat(ad, batch, layer="raw", n_top_genes=n_top_genes)
+            ad.obsm["X_integrated"] = ad.obs['X_pca_seurat'].copy()
         else:
             assert False, "Unsupported"
         sc.pp.neighbors(ad, use_rep="X_integrated")

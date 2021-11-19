@@ -34,6 +34,7 @@ from xarray import corr
 from . import basic
 from ..otherTools import setSeed
 
+
 def normalizeMultiAd(multiAd, removeAmbiguous=True):
     """
     normalize illumina and nanopore data separately, each cell's sum counts will equals to 3e4
@@ -136,7 +137,7 @@ def normalizeByScran(
     sizeFactorSr = r2py(sizeFactorSr_r).copy()
 
     logger.info("process result")
-    rawMtx = adata.X if layer == 'X' else adata.layers[layer]
+    rawMtx = adata.X if layer == "X" else adata.layers[layer]
     rawMtx = rawMtx.A if isspmatrix(rawMtx) else rawMtx
     adata.obs["sizeFactor"] = sizeFactorSr
     adata.layers["scran"] = rawMtx / adata.obs["sizeFactor"].values.reshape([-1, 1])
@@ -184,7 +185,7 @@ def normalizeByScranMultiBatchNorm(
         layers['scranMbn'] will be updated by log-normalized data
     """
     from rpy2.robjects.packages import importr
-    from .rTools import (
+    from ..rTools import (
         py2r,
         r2py,
         r_set_seed,
@@ -217,9 +218,7 @@ def normalizeByScranMultiBatchNorm(
     else:
         ls_results = []
         for _ad in ls_ad:
-            ls_results.append(
-                normalize.normalizeByScran(_ad, copy=True, **argsToScran)
-            )
+            ls_results.append(normalize.normalizeByScran(_ad, copy=True, **argsToScran))
 
     ad = sc.concat(ls_results)
     ad.layers["counts"] = ad.X.copy()
@@ -311,6 +310,7 @@ def normalizeBySCT(
     import scanpy as sc
     from scanpy.preprocessing import filter_genes
     import rpy2.robjects as ro
+
     setSeed()
     layer = "X" if not layer else layer
 
@@ -360,9 +360,7 @@ def normalizeBySCT(
         threads=threads,
         verbosity=1,
     )
-    residuals = pysctransform.get_hvg_residuals(
-        vst_out, n_top_genes, res_clip_range
-    )
+    residuals = pysctransform.get_hvg_residuals(vst_out, n_top_genes, res_clip_range)
 
     ro.numpy2ri.deactivate()
     ro.pandas2ri.deactivate()
@@ -377,3 +375,79 @@ def normalizeBySCT(
             basic.setLayerInfo(adata, sct_corrected="log-normalized")
     if copy:
         return adata
+
+
+def integrateBySeurat(
+    ad: anndata.AnnData, batch_key, n_top_genes=5000, layer="raw"
+) -> sc.AnnData:
+    """
+    Integrate by Seurat [Hafemeister19]_.
+
+    Parameters
+    ----------
+    ad : anndata.AnnData
+    batch_key : str
+    n_top_genes : int
+    layer : str, must be raw counts
+
+    Notes
+    -------
+    ad will be updated as following rules:
+        ad.obsm['seurat_integrated_data']: integrated log-transformed data
+        ad.obs['X_pca_seurat']: PCA of integrated data
+
+    Returns
+    -------
+    anndata.AnnData: ad_combined
+    """
+    import rpy2
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
+    from ..rTools import ad2so, so2ad
+
+    rBase = importr("base")
+    rUtils = importr("utils")
+    R = ro.r
+    setSeed()
+
+    importr("Seurat")
+    sc.pp.highly_variable_genes(
+        ad,
+        layer=layer,
+        batch_key=batch_key,
+        n_top_genes=n_top_genes,
+        flavor="seurat_v3",
+    )
+    ls_features = ad.var.loc[ad.var["highly_variable"]].index.to_list()
+    lsR_features = R.c(*ls_features)
+
+    so = ad2so(ad)
+
+    ro.globalenv["so"] = so
+    ro.globalenv["batch_key"] = batch_key
+    ro.globalenv["n_top_genes"] = n_top_genes
+    ro.globalenv["lsR_features"] = lsR_features
+
+    R(
+        """
+    so.list <- SplitObject(so, split.by = batch_key)
+    so.list <- lapply(X = so.list, FUN = function(x) {
+        x <- NormalizeData(x)
+    })
+    """
+    )
+    R(
+        """
+    so.anchors <- FindIntegrationAnchors(object.list = so.list, anchor.features = lsR_features)
+    so.combined <- IntegrateData(anchorset = so.anchors)
+    """
+    )
+
+    so_combined = R("so.combined")
+    ad_combined = so2ad(so_combined)
+    sc.pp.scale(ad_combined)
+    sc.tl.pca(ad_combined)
+
+    ad.obsm["seurat_integrated_data"] = ad_combined.to_df("integrated_data").copy()
+    ad.obsm["X_pca_seurat"] = ad_combined.obsm["X_pca"].copy()
+    return ad_combined

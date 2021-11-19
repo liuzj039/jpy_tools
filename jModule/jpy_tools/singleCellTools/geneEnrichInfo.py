@@ -51,7 +51,7 @@ def getUcellScore(
         key is label, value is marker genes
     layer : Optional[str]
         must NOT be scaled data
-    label : 
+    label :
         label for result.
     cutoff : float, optional
         by default 0.2
@@ -63,7 +63,7 @@ def getUcellScore(
     R = ro.r
     ucell = importr("UCell")
     rBase = importr("base")
-    
+
     layer = None if layer == "X" else layer
     dtR_deGene = {x: R.c(*y) for x, y in dt_deGene.items()}
     dtR_deGene = R.list(**dtR_deGene)
@@ -364,9 +364,53 @@ def calculateEnrichScoreByCellex(
     df_meta = adata.obs[[clusterName]].rename({clusterName: "cell_type"}, axis=1)
     eso = cellex.ESObject(data=df_mtx, annotation=df_meta)
     eso.compute()
-    adata.varm[f"{clusterName}_cellexES"] = (
-        eso.results["esmu"].reindex(adata.var.index).fillna(0)
+    mtx_enrichScore = eso.results["esmu"].reindex(adata.var.index).fillna(0)
+    adata.varm[f"{clusterName}_cellexES"] = mtx_enrichScore
+
+    mtx_geneExpRatio = (
+        adata.to_df(layer)
+        .groupby(adata.obs[clusterName])
+        .apply(lambda df: (df > 0).mean())
+        .T
     )
+    df_geneExpRatio = (
+        mtx_geneExpRatio.rename_axis(index="gene", columns=clusterName)
+        .melt(ignore_index=False, value_name="expressed_ratio")
+        .reset_index()
+    )
+
+    ls_cluster = adata.obs[clusterName].unique()
+    mtx_binary = (adata.to_df(layer) > 0).astype(int)
+
+    dt_geneExpRatioOtherCluster = {}
+    for cluster in ls_cluster:
+        ls_index = adata.obs[clusterName].pipe(lambda sr: sr[sr != cluster]).index
+        dt_geneExpRatioOtherCluster[cluster] = mtx_binary.loc[ls_index].mean(0)
+
+    mtx_geneExpRatioOtherCluster = pd.DataFrame.from_dict(dt_geneExpRatioOtherCluster)
+    df_geneExpRatioOtherCluster = (
+        mtx_geneExpRatioOtherCluster.rename_axis(index="gene", columns=clusterName)
+        .melt(ignore_index=False, value_name="expressed_ratio_others")
+        .reset_index()
+    )
+
+    df_result = (
+        mtx_enrichScore.rename_axis(index="gene", columns=clusterName)
+        .melt(ignore_index=False, value_name="enrichScore")
+        .reset_index()
+        .merge(
+            df_geneExpRatio,
+            left_on=["gene", clusterName],
+            right_on=["gene", clusterName],
+        )
+        .merge(
+            df_geneExpRatioOtherCluster,
+            left_on=["gene", clusterName],
+            right_on=["gene", clusterName],
+        )
+    )
+    adata.uns[f"{clusterName}_cellexES"] = df_result
+
     if copy:
         return adata
 
