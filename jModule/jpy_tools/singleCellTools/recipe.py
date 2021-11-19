@@ -206,7 +206,7 @@ def multiBatch(
         elif method == "seurat":
             from .normalize import integrateBySeurat
             integrateBySeurat(ad, batch, layer="raw", n_top_genes=n_top_genes)
-            ad.obsm["X_integrated"] = ad.obs['X_pca_seurat'].copy()
+            ad.obsm["X_integrated"] = ad.obsm['X_pca_seurat'].copy()
         else:
             assert False, "Unsupported"
         sc.pp.neighbors(ad, use_rep="X_integrated")
