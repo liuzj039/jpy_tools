@@ -447,3 +447,68 @@ def loadPkl(name: str, readFc=None, arg_path=None, **dt_arg):
         obj = readFc(**dt_arg)
 
     return obj
+
+
+def getGoDesc(goTerm: Union[str, List[str]], retry=5) -> pd.DataFrame:
+    """
+    query GO term description from QuickGO
+
+    Parameters
+    ----------
+    goTerm :
+        go term
+    retry :
+        retry times
+
+    Returns
+    -------
+    pd.DataFrame
+    """
+    import requests, sys, json
+    import pandas as pd
+    from joblib import Parallel, delayed
+    from tqdm import tqdm
+
+    def _getGOcomment(goTerm, retry=5):
+        _goTerm = goTerm.split(":")[-1]
+        requestURL = (
+            f"https://www.ebi.ac.uk/QuickGO/services/ontology/go/terms/GO%3A{_goTerm}"
+        )
+        for i in range(retry):
+            try:
+                r = requests.get(requestURL, headers={"Accept": "application/json"})
+                break
+            except:
+                pass
+
+        if not r.ok:
+            r.raise_for_status()
+            sys.exit()
+
+        responseBody = r.text
+        return goTerm, responseBody
+
+    if isinstance(goTerm, str):
+        goTerm = [goTerm]
+    for x in goTerm:
+        assert x.startswith("GO:"), f"Wrong format: {x}"
+
+    ls_goTerm = Parallel(128, "threading")(
+        delayed(_getGOcomment)(x, retry) for x in tqdm(goTerm, position=0)
+    )
+
+    dt_go = {}
+    for name, dt_singleGo in ls_goTerm:
+        dt_singleGo = json.loads(dt_singleGo)
+        dt_singleGoFirstHit = dt_singleGo["results"][0]
+        dt_go[name] = {
+            "hitGO": dt_singleGoFirstHit["id"],
+            "hitName": name + ': ' + dt_singleGoFirstHit["name"],
+            "hitDefinition": dt_singleGoFirstHit["definition"]["text"],
+            "hitCounts": dt_singleGo["numberOfHits"],
+        }
+        if name != dt_go[name]["hitGO"]:
+            logger.warning(f"query : {name}, target : {dt_go[name]['hitGO']}")
+    df_go = pd.DataFrame.from_dict(dt_go, "index")
+    return df_go
+

@@ -378,7 +378,12 @@ def normalizeBySCT(
 
 
 def integrateBySeurat(
-    ad: anndata.AnnData, batch_key, n_top_genes=5000, layer="raw"
+    ad: anndata.AnnData,
+    batch_key,
+    n_top_genes=5000,
+    layer="raw",
+    reduction: Literal["cca", "rpca", "rlsi"] = "cca",
+    normalization_method: Literal["LogNormalize", "SCT"] = "LogNormalize",
 ) -> sc.AnnData:
     """
     Integrate by Seurat [Hafemeister19]_.
@@ -404,6 +409,7 @@ def integrateBySeurat(
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
     from ..rTools import ad2so, so2ad
+    from cool import F
 
     rBase = importr("base")
     rUtils = importr("utils")
@@ -418,7 +424,9 @@ def integrateBySeurat(
         n_top_genes=n_top_genes,
         flavor="seurat_v3",
     )
-    ls_features = ad.var.loc[ad.var["highly_variable"]].index.to_list()
+    ls_features = ad.var.loc[ad.var["highly_variable"]].index.to_list() | F(
+        lambda z: [x.replace("_", "-") for x in z]
+    )  # seurat always use dash to separate gene names
     lsR_features = R.c(*ls_features)
 
     so = ad2so(ad)
@@ -427,19 +435,37 @@ def integrateBySeurat(
     ro.globalenv["batch_key"] = batch_key
     ro.globalenv["n_top_genes"] = n_top_genes
     ro.globalenv["lsR_features"] = lsR_features
+    ro.globalenv["reduction"] = reduction
+    ro.globalenv["normalization.method"] = normalization_method
 
     R(
         """
     so.list <- SplitObject(so, split.by = batch_key)
-    so.list <- lapply(X = so.list, FUN = function(x) {
-        x <- NormalizeData(x)
-    })
     """
     )
+    if normalization_method == "LogNormalize":
+        R(
+            """
+        so.list <- lapply(X = so.list, FUN = function(x) {
+            x <- NormalizeData(x)
+        })
+        """
+        )
+    elif normalization_method == "SCT":
+        R(
+            """
+        so.list <- lapply(X = so.list, FUN = SCTransform, method = "glmGamPoi", residual.features = lsR_features)
+        so.list <- PrepSCTIntegration(object.list = so.list, anchor.features = lsR_features)
+        """
+        )
+
+    else:
+        assert False, f"unknown normalization method : {normalization_method}"
+
     R(
         """
-    so.anchors <- FindIntegrationAnchors(object.list = so.list, anchor.features = lsR_features)
-    so.combined <- IntegrateData(anchorset = so.anchors)
+    so.anchors <- FindIntegrationAnchors(object.list = so.list, anchor.features = lsR_features, reduction = reduction, normalization.method = normalization.method)
+    so.combined <- IntegrateData(anchorset = so.anchors, normalization.method = normalization.method)
     """
     )
 

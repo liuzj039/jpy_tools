@@ -64,7 +64,9 @@ def sct(ad, n_top_genes=3000):
     ad.X = ad.layers["normalize_log"].copy()
 
 
-def singleBatch(ad, method: Literal["total", "sct", "scran"], n_top_genes=3000) -> sc.AnnData:
+def singleBatch(
+    ad, method: Literal["total", "sct", "scran"], n_top_genes=3000
+) -> sc.AnnData:
     """
     sct|scran|total + pca + neighbors + umap
 
@@ -89,14 +91,18 @@ def singleBatch(ad, method: Literal["total", "sct", "scran"], n_top_genes=3000) 
             n_top_genes=n_top_genes,
             n_genes=n_top_genes,
         )
-        ad.X = ad.layers["sct_residuals"].copy()        
+        ad.X = ad.layers["sct_residuals"].copy()
     elif method == "scran":
-        sc.pp.highly_variable_genes(ad, layer='raw', flavor="seurat_v3", n_top_genes=n_top_genes)
+        sc.pp.highly_variable_genes(
+            ad, layer="raw", flavor="seurat_v3", n_top_genes=n_top_genes
+        )
         normalize.normalizeByScran(ad, layer="raw")
         ad.X = ad.layers["scran"].copy()
         sc.pp.scale(ad)
     elif method == "total":
-        sc.pp.highly_variable_genes(ad, layer='raw', flavor="seurat_v3", n_top_genes=n_top_genes)
+        sc.pp.highly_variable_genes(
+            ad, layer="raw", flavor="seurat_v3", n_top_genes=n_top_genes
+        )
         ad.X = ad.layers["normalize_log"].copy()
         sc.pp.scale(ad)
     else:
@@ -108,16 +114,20 @@ def singleBatch(ad, method: Literal["total", "sct", "scran"], n_top_genes=3000) 
     ad.X = ad.layers["normalize_log"].copy()
     return ad
 
-type_method = Literal["harmony", "scanorama", "scvi", 'seurat']
+
+type_method = Literal["harmony", "scanorama", "scvi", "seurat"]
+
+
 def multiBatch(
     ad,
     batch: str,
     method: Union[List[type_method], type_method],
-    normalization: Optional[Literal["total", "sct", 'scran']] = "total",
+    normalization: Optional[Literal["total", "sct", "scran"]] = "total",
     n_top_genes=5000,
     ls_remove_cateKey=[],
     scale_individual=False,
     max_epochs=None,
+    reduction: Literal["cca", "rpca", "rlsi"] = "cca",
 ) -> sc.AnnData:
     """
     sct + pca + harmony|scanorama|scvi + neighbors + umap
@@ -129,6 +139,7 @@ def multiBatch(
     ad.X will be `normalize_log` layer
     """
     import scanpy.external as sce
+
     if isinstance(method, str):
         ls_method = [method]
     else:
@@ -151,22 +162,23 @@ def multiBatch(
         else:
             sc.pp.scale(ad, max_value=10)
     elif normalization == "sct":
-        ls_adataAfterSCT = []
-        for _ad in basic.splitAdata(ad, batch):
-            normalize.normalizeBySCT(
-                _ad,
-                layer="raw",
-                n_top_genes=n_top_genes,
-                n_genes=n_top_genes,
-                log_scale_correct=True,
+        if method != 'seurat':
+            ls_adataAfterSCT = []
+            for _ad in basic.splitAdata(ad, batch):
+                normalize.normalizeBySCT(
+                    _ad,
+                    layer="raw",
+                    n_top_genes=n_top_genes,
+                    n_genes=n_top_genes,
+                    log_scale_correct=True,
+                )
+                ls_adataAfterSCT.append(_ad)
+            ad = sc.concat(ls_adataAfterSCT)
+            ad.X = ad.layers["sct_residuals"].copy()
+            sc.pp.highly_variable_genes(
+                ad, "raw", n_top_genes=n_top_genes, flavor="seurat_v3"
             )
-            ls_adataAfterSCT.append(_ad)
-        ad = sc.concat(ls_adataAfterSCT)
-        ad.X = ad.layers["sct_residuals"].copy()
-        sc.pp.highly_variable_genes(
-            ad, "raw", n_top_genes=n_top_genes, flavor="seurat_v3"
-        )
-    elif normalization == 'scran':
+    elif normalization == "scran":
         ls_adataAfterScran = []
         for _ad in basic.splitAdata(ad, batch):
             normalize.normalizeByScran(_ad, layer="raw")
@@ -189,24 +201,38 @@ def multiBatch(
             ad.obsm["X_integrated"] = ad.obsm["X_scanorama"].copy()
         elif method == "scvi":
             import scvi
+
             ad_forScvi = basic.getPartialLayersAdata(
                 ad, "raw", [batch, *ls_remove_cateKey], ["highly_variable"]
             )
             ad_forScvi = ad_forScvi[:, ad_forScvi.var["highly_variable"]].copy()
             scvi.data.setup_anndata(
-                ad_forScvi, batch_key=batch, categorical_covariate_keys=ls_remove_cateKey
+                ad_forScvi,
+                batch_key=batch,
+                categorical_covariate_keys=ls_remove_cateKey,
             )
 
             scvi.settings.seed = 39
-            scvi.settings.num_threads = 56
+            scvi.settings.num_threads = 36
             model = scvi.model.SCVI(ad_forScvi)
             model.train(max_epochs=max_epochs, early_stopping=True)
             ad.obsm["X_scvi"] = model.get_latent_representation(ad_forScvi).copy()
             ad.obsm["X_integrated"] = ad.obsm["X_scvi"].copy()
         elif method == "seurat":
             from .normalize import integrateBySeurat
-            integrateBySeurat(ad, batch, layer="raw", n_top_genes=n_top_genes)
-            ad.obsm["X_integrated"] = ad.obsm['X_pca_seurat'].copy()
+
+            seuratNormalizeMethod = {"total": "LogNormalize", "sct": "SCT"}[
+                normalization
+            ]
+            integrateBySeurat(
+                ad,
+                batch,
+                layer="raw",
+                n_top_genes=n_top_genes,
+                reduction=reduction,
+                normalization_method=seuratNormalizeMethod,
+            )
+            ad.obsm["X_integrated"] = ad.obsm["X_pca_seurat"].copy()
         else:
             assert False, "Unsupported"
         sc.pp.neighbors(ad, use_rep="X_integrated")
