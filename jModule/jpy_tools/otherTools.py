@@ -15,6 +15,7 @@ import sys
 from threading import Thread
 import matplotlib.pyplot as plt
 import seaborn as sns
+from cool import F
 from typing import (
     List,
     Optional,
@@ -184,6 +185,7 @@ def sankeyPlotByPyechart(
     figsize=[5, 5],
     colorDictLs: Optional[List[Dict[str, str]]] = None,
     defaultJupyter: Literal["notebook", "lab"] = "notebook",
+    needCounts: bool = False,
 ):
     """
     [summary]
@@ -287,6 +289,14 @@ def sankeyPlotByPyechart(
     skNameLs = []
     if not colorDictLs:
         colorDictLs = [None] * len(columns)
+    df = df.copy()
+    if needCounts:
+        for i in range(len(columns)):
+            dt_newName = df.loc[:, columns[i]].value_counts().to_dict() | F(
+                lambda z: {x: f"{x}\nN = {y}" for x, y in z.items()}
+            )
+            df.loc[:, columns[i]] = df.loc[:, columns[i]].map(dt_newName)
+            colorDictLs[i] = {dt_newName[x]: y for x, y in colorDictLs[i].items()}
 
     for i in range(len(columns) - 1):
         partSkNodeLs, partSkLinkLs, skNameLs = getSankeyFormatFromDf_Only2(
@@ -314,7 +324,7 @@ def sankeyPlotByPyechart(
         skLinkLs,
         linestyle_opt=opts.LineStyleOpts(opacity=0.2, curve=0.5, color="source"),
         label_opts=opts.LabelOpts(position="right"),
-    ).set_global_opts(title_opts=opts.TitleOpts(title=""))
+    ).set_global_opts(title_opts=opts.TitleOpts(title=""), )
 
     return sankey
 
@@ -503,7 +513,7 @@ def getGoDesc(goTerm: Union[str, List[str]], retry=5) -> pd.DataFrame:
         dt_singleGoFirstHit = dt_singleGo["results"][0]
         dt_go[name] = {
             "hitGO": dt_singleGoFirstHit["id"],
-            "hitName": name + ': ' + dt_singleGoFirstHit["name"],
+            "hitName": name + ": " + dt_singleGoFirstHit["name"],
             "hitDefinition": dt_singleGoFirstHit["definition"]["text"],
             "hitCounts": dt_singleGo["numberOfHits"],
         }
@@ -511,4 +521,3 @@ def getGoDesc(goTerm: Union[str, List[str]], retry=5) -> pd.DataFrame:
             logger.warning(f"query : {name}, target : {dt_go[name]['hitGO']}")
     df_go = pd.DataFrame.from_dict(dt_go, "index")
     return df_go
-

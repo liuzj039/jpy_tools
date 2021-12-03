@@ -333,6 +333,7 @@ def calculateEnrichScoreByCellex(
     adata: anndata.AnnData,
     layer: Optional[str] = None,
     clusterName: str = "leiden",
+    batchKey: Optional[str] = None,
     copy: bool = False,
 ) -> Optional[anndata.AnnData]:
     """
@@ -354,65 +355,115 @@ def calculateEnrichScoreByCellex(
     """
     import cellex
 
-    if layer == "X":
-        layer = None
+    def _singleBatch(adata, layer, clusterName):
+        df_mtx = adata.to_df(layer).T if layer else adata.to_df().T
+        df_meta = adata.obs[[clusterName]].rename({clusterName: "cell_type"}, axis=1)
+        eso = cellex.ESObject(data=df_mtx, annotation=df_meta)
+        eso.compute()
+        mtx_enrichScore = eso.results["esmu"].reindex(adata.var.index).fillna(0)
+        adata.varm[f"{clusterName}_cellexES"] = mtx_enrichScore
+
+        mtx_geneExpRatio = (
+            adata.to_df(layer)
+            .groupby(adata.obs[clusterName])
+            .apply(lambda df: (df > 0).mean())
+            .T
+        )
+        df_geneExpRatio = (
+            mtx_geneExpRatio.rename_axis(index="gene", columns=clusterName)
+            .melt(ignore_index=False, value_name="expressed_ratio")
+            .reset_index()
+        )
+
+        ls_cluster = adata.obs[clusterName].unique()
+        mtx_binary = (adata.to_df(layer) > 0).astype(int)
+
+        dt_geneExpRatioOtherCluster = {}
+        for cluster in ls_cluster:
+            ls_index = adata.obs[clusterName].pipe(lambda sr: sr[sr != cluster]).index
+            dt_geneExpRatioOtherCluster[cluster] = mtx_binary.loc[ls_index].mean(0)
+
+        mtx_geneExpRatioOtherCluster = pd.DataFrame.from_dict(
+            dt_geneExpRatioOtherCluster
+        )
+        df_geneExpRatioOtherCluster = (
+            mtx_geneExpRatioOtherCluster.rename_axis(index="gene", columns=clusterName)
+            .melt(ignore_index=False, value_name="expressed_ratio_others")
+            .reset_index()
+        )
+
+        df_result = (
+            mtx_enrichScore.rename_axis(index="gene", columns=clusterName)
+            .melt(ignore_index=False, value_name="enrichScore")
+            .reset_index()
+            .merge(
+                df_geneExpRatio,
+                left_on=["gene", clusterName],
+                right_on=["gene", clusterName],
+            )
+            .merge(
+                df_geneExpRatioOtherCluster,
+                left_on=["gene", clusterName],
+                right_on=["gene", clusterName],
+            )
+        )
+        adata.uns[f"{clusterName}_cellexES"] = df_result
 
     adata = adata.copy() if copy else adata
     basic.testAllCountIsInt(adata, layer)
 
-    df_mtx = adata.to_df(layer).T if layer else adata.to_df().T
-    df_meta = adata.obs[[clusterName]].rename({clusterName: "cell_type"}, axis=1)
-    eso = cellex.ESObject(data=df_mtx, annotation=df_meta)
-    eso.compute()
-    mtx_enrichScore = eso.results["esmu"].reindex(adata.var.index).fillna(0)
-    adata.varm[f"{clusterName}_cellexES"] = mtx_enrichScore
-
-    mtx_geneExpRatio = (
-        adata.to_df(layer)
-        .groupby(adata.obs[clusterName])
-        .apply(lambda df: (df > 0).mean())
-        .T
-    )
-    df_geneExpRatio = (
-        mtx_geneExpRatio.rename_axis(index="gene", columns=clusterName)
-        .melt(ignore_index=False, value_name="expressed_ratio")
-        .reset_index()
-    )
-
-    ls_cluster = adata.obs[clusterName].unique()
-    mtx_binary = (adata.to_df(layer) > 0).astype(int)
-
-    dt_geneExpRatioOtherCluster = {}
-    for cluster in ls_cluster:
-        ls_index = adata.obs[clusterName].pipe(lambda sr: sr[sr != cluster]).index
-        dt_geneExpRatioOtherCluster[cluster] = mtx_binary.loc[ls_index].mean(0)
-
-    mtx_geneExpRatioOtherCluster = pd.DataFrame.from_dict(dt_geneExpRatioOtherCluster)
-    df_geneExpRatioOtherCluster = (
-        mtx_geneExpRatioOtherCluster.rename_axis(index="gene", columns=clusterName)
-        .melt(ignore_index=False, value_name="expressed_ratio_others")
-        .reset_index()
-    )
-
-    df_result = (
-        mtx_enrichScore.rename_axis(index="gene", columns=clusterName)
-        .melt(ignore_index=False, value_name="enrichScore")
-        .reset_index()
-        .merge(
-            df_geneExpRatio,
-            left_on=["gene", clusterName],
-            right_on=["gene", clusterName],
-        )
-        .merge(
-            df_geneExpRatioOtherCluster,
-            left_on=["gene", clusterName],
-            right_on=["gene", clusterName],
-        )
-    )
-    adata.uns[f"{clusterName}_cellexES"] = df_result
+    if layer == "X":
+        layer = None
+    if batchKey is None:
+        _singleBatch(adata, layer, clusterName)
+    else:
+        ls_batchAd = basic.splitAdata(adata, batchKey, needName=True)
+        adata.uns[f"{clusterName}_cellexES"] = {}
+        for sample, ad_batch in ls_batchAd:
+            _singleBatch(ad_batch, layer, clusterName)
+            adata.uns[f"{clusterName}_cellexES"][sample] = ad_batch.uns[
+                f"{clusterName}_cellexES"
+            ]
 
     if copy:
         return adata
+
+
+def getMarkerFromCellexResults(
+    ad,
+    clusterName,
+    minCounts,
+    filterExpr="enrichScore > 0.9 & expressed_ratio > 0.1 & expressed_ratio_others < 0.1",
+):
+    from functools import reduce
+
+    _ls = []
+    lsDf_Concat = []
+    for sample, df_geneInfo in ad.uns[f"{clusterName}_cellexES"].items():
+        _ls.append(df_geneInfo.query(filterExpr)[["gene", clusterName]])
+        lsDf_Concat.append(
+            df_geneInfo.rename(
+                columns=lambda x: f"{sample}_{x}"
+                if x in ["enrichScore", "expressed_ratio", "expressed_ratio_others"]
+                else x
+            )
+        )
+    sr_geneCounts = (
+        pd.concat(_ls).value_counts().rename("counts").pipe(pd.DataFrame).reset_index()
+    )
+    df_results = reduce(
+        lambda x, y: pd.merge(
+            x, y, left_on=("gene", clusterName), right_on=("gene", clusterName)
+        ),
+        [sr_geneCounts, *lsDf_Concat],
+    ).query("counts >= @minCounts")
+    df_results.insert(
+        3, "median_enrichScore", df_results.filter(like="enrichScore").median(1)
+    )
+    df_results = df_results.sort_values(
+        ["leiden", "median_enrichScore"], ascending=[True, False]
+    )
+    return df_results
 
 
 def getEnrichedGeneByCellId(

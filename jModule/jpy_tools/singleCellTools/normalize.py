@@ -384,6 +384,10 @@ def integrateBySeurat(
     layer="raw",
     reduction: Literal["cca", "rpca", "rlsi"] = "cca",
     normalization_method: Literal["LogNormalize", "SCT"] = "LogNormalize",
+    k_score=30,
+    dims=30,
+    k_filter = 200,
+    k_weight = 100
 ) -> sc.AnnData:
     """
     Integrate by Seurat [Hafemeister19]_.
@@ -431,49 +435,62 @@ def integrateBySeurat(
 
     so = ad2so(ad)
 
-    ro.globalenv["so"] = so
-    ro.globalenv["batch_key"] = batch_key
-    ro.globalenv["n_top_genes"] = n_top_genes
-    ro.globalenv["lsR_features"] = lsR_features
-    ro.globalenv["reduction"] = reduction
-    ro.globalenv["normalization.method"] = normalization_method
+    renv = ro.Environment()
+    with ro.local_context(renv) as rlc:
+        rlc["so"] = so
+        rlc["batch_key"] = batch_key
+        rlc["n_top_genes"] = n_top_genes
+        rlc["lsR_features"] = lsR_features
+        rlc["reduction"] = reduction
+        rlc["normalization.method"] = normalization_method
+        rlc["k.score"] = k_score
+        rlc["dims"] = dims
+        rlc["k.filter"] = k_filter
+        rlc["k.weight"] = k_weight
 
-    R(
-        """
-    so.list <- SplitObject(so, split.by = batch_key)
-    """
-    )
-    if normalization_method == "LogNormalize":
         R(
             """
-        so.list <- lapply(X = so.list, FUN = function(x) {
-            x <- NormalizeData(x)
-        })
+        so.list <- SplitObject(so, split.by = batch_key)
         """
         )
-    elif normalization_method == "SCT":
+        if normalization_method == "LogNormalize":
+            R(
+                """
+            so.list <- lapply(X = so.list, FUN = function(x) {
+                x <- NormalizeData(x)
+            })
+            """
+            )
+        elif normalization_method == "SCT":
+            R(
+                """
+            so.list <- lapply(X = so.list, FUN = SCTransform, method = "glmGamPoi", residual.features = lsR_features)
+            so.list <- PrepSCTIntegration(object.list = so.list, anchor.features = lsR_features)
+            """
+            )
+
+        else:
+            assert False, f"unknown normalization method : {normalization_method}"
+
         R(
             """
-        so.list <- lapply(X = so.list, FUN = SCTransform, method = "glmGamPoi", residual.features = lsR_features)
-        so.list <- PrepSCTIntegration(object.list = so.list, anchor.features = lsR_features)
+        so.anchors <- FindIntegrationAnchors(object.list = so.list, anchor.features = lsR_features, reduction = reduction, normalization.method = normalization.method, dims = 1:dims, k.score = k.score, k.filter = k.filter)
+        so.combined <- IntegrateData(anchorset = so.anchors, normalization.method = normalization.method, dims = 1:dims, k.weight=k.weight)
         """
         )
-
-    else:
-        assert False, f"unknown normalization method : {normalization_method}"
-
-    R(
-        """
-    so.anchors <- FindIntegrationAnchors(object.list = so.list, anchor.features = lsR_features, reduction = reduction, normalization.method = normalization.method)
-    so.combined <- IntegrateData(anchorset = so.anchors, normalization.method = normalization.method)
-    """
-    )
-
-    so_combined = R("so.combined")
+        so_combined = R("so.combined")
     ad_combined = so2ad(so_combined)
-    sc.pp.scale(ad_combined)
-    sc.tl.pca(ad_combined)
+    if normalization_method == "LogNormalize":
+        ad.obsm["seurat_integrated_data"] = ad_combined.to_df("integrated_data").copy()
+        ad_combined.X = ad_combined.layers["integrated_data"].copy()
+        sc.pp.scale(ad_combined)
+    else:
+        ad.obsm["seurat_integrated_scale.data"] = ad_combined.to_df(
+            "integrated_scale.data"
+        ).copy()
+        ad_combined.X = ad_combined.layers["integrated_scale.data"].copy()
 
-    ad.obsm["seurat_integrated_data"] = ad_combined.to_df("integrated_data").copy()
+    sc.tl.pca(ad_combined, use_highly_variable=False)
     ad.obsm["X_pca_seurat"] = ad_combined.obsm["X_pca"].copy()
+    renv.clear()
     return ad_combined

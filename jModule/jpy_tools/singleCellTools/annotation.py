@@ -300,7 +300,7 @@ def labelTransferByCellId(
         returnR=True,
         nmcs=nmcs,
     )
-    
+
     if not query_batch_key:
         _ad = basic.getPartialLayersAdata(queryAd, ["X"])
         sc.pp.scale(_ad, max_value=10)
@@ -330,7 +330,9 @@ def labelTransferByCellId(
                 )
             ).T
             lsDf_labelTransfered.append(df_labelTransfered)
-        df_labelTransfered = pd.concat(lsDf_labelTransfered).reindex(queryAd_org.obs.index)
+        df_labelTransfered = pd.concat(lsDf_labelTransfered).reindex(
+            queryAd_org.obs.index
+        )
 
     queryAd_org.obsm[f"cellid_{refLabel}_labelTranferScore"] = df_labelTransfered
     queryAd_org.obs[f"cellid_{refLabel}_labelTranfer"] = queryAd_org.obsm[
@@ -464,50 +466,49 @@ def labelTransferByScanpy(
 
 
 def labelTransferBySeurat(
-    refAd: anndata.AnnData,
-    refLabel: str,
-    refLayer: str,
-    queryAd: anndata.AnnData,
-    queryLayer: str,
-    features: Optional[None] = None,
-    npcs: int = 30,
-    cutoff: float = 0.5,
-    copy: bool = False,
-    n_top_genes: int = 5000,
-    needLoc: bool = False,
-) -> Optional[anndata.AnnData]:
+    ad_ref:sc.AnnData,
+    refLabel:str,
+    refLayer,
+    ad_query:sc.AnnData,
+    queryLayer,
+    nTopGenes=2000,
+    kScore=30,
+    dims=30,
+    kWeight=100,
+) -> anndata.AnnData:
     """
     annotate queryAd based on refAd annotation result.
 
     Parameters
     ----------
-    refAd : anndata.AnnData
+    ad_ref : sc.AnnData
     refLabel : str
-    refLayer : str
+    refLayer : str, optional
         raw
-    queryAd : anndata.AnnData
-    queryLayer : str
+    ad_query : [type], optional
+    queryLayer : str, optional
         raw
-    features : Optional[None]
-        list, used gene to DR
-    npcs : int, optional
+    nTopGenes : int, optional
+        by default 2000
+    kScore : int, optional
         by default 30
-    cutoff : float, optional
-        by default 0.5
-    copy : bool, optional
-        Precedence over `needLoc`. by default False.
-    needLoc: bool, optional
-        if True, and `copy` is False, intregated anndata will be returned
+    dims : int, optional
+        by default 30
+    kWeight : int, optional
+        by default 100
 
     Returns
     -------
-    Optional[anndata.AnnData]
+    anndata.AnnData
+        intregated anndata
     """
+
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
-    from ..rTools import py2r, r2py, r_inline_plot, rHelp, trl, rGet, rSet
+    from ..rTools import py2r, r2py, r_inline_plot, rHelp, trl, rGet, rSet, so2ad, ad2so
     from ..otherTools import setSeed
+    from .normalize import integrateBySeurat
 
     rBase = importr("base")
     rUtils = importr("utils")
@@ -516,138 +517,60 @@ def labelTransferBySeurat(
     seuratObject = importr("SeuratObject")
     setSeed(0)
 
-    queryAdOrg = queryAd.copy() if copy else queryAd
-    refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel])
-    queryAd = basic.getPartialLayersAdata(queryAd, queryLayer)
-    queryAd.obs["empty"] = 0  # seurat need
-    refAd, queryAd = basic.getOverlap(refAd, queryAd, copy=True)
-    refAd.obs['__batch'] = 'reference'
-    refAd.obs.index = 'reference-' + refAd.obs.index
-    queryAd.obs['__batch'] = 'query'
-    queryAd.obs.index = 'query-' + queryAd.obs.index
-    ad_concat = sc.concat(
-        {"ref": refAd, "query": queryAd}, label="__batch", index_unique="-batch-"
-    )
+    ad_ref.layers['_raw'] = ad_ref.layers[refLayer].copy()
+    ad_query.layers['_raw'] = ad_query.layers[queryLayer].copy()
 
-    if not features:
-        sc.pp.highly_variable_genes(
-            ad_concat,
-            n_top_genes=n_top_genes,
-            flavor="seurat_v3",
-            batch_key="__batch",
-            subset=True,
+    ad_concat = sc.concat({'ref': ad_ref, 'query':ad_query}, label='seurat_', index_unique='-')
+    sc.pp.highly_variable_genes(ad_concat, layer='_raw', n_top_genes=nTopGenes, batch_key='seurat_', subset=True, flavor='seurat_v3')
+    ls_features = ad_concat.var.index.str.replace('_', '-').to_list()
+
+    so_ref = ad2so(ad_ref, refLayer, ls_obs=refLabel)
+    so_query = ad2so(ad_query, queryLayer, ls_obs=[])
+    lsR_features = R.c(*ls_features)
+
+    renv = ro.Environment()
+
+    with ro.local_context(renv) as rlc:
+        rlc["so_ref"] = so_ref
+        rlc["so_query"] = so_query
+        rlc["lsR_features"] = lsR_features
+        rlc["lsR_features"] = lsR_features
+        rlc["k.score"] = kScore
+        rlc["dims"] = dims
+        rlc["k.weight"] = kWeight
+
+        R(
+            f"""
+        anchors <- FindTransferAnchors(reference = so_ref, query = so_query, dims = 1:dims, k.score=k.score,features=lsR_features)
+        predictions <- TransferData(anchorset = anchors, refdata = so_ref${refLabel}, dims = 1:dims, k.weight=k.weight)
+        """
         )
-        features = ad_concat.var.index.to_list()
 
-    sc.pp.normalize_total(refAd, 1e4)
-    sc.pp.normalize_total(queryAd, 1e4)
+    df_pred = r2py(rlc['predictions'])
 
-    ar_features = np.array(features)
-    arR_features = py2r(ar_features)
+    ad_query.obsm[f'labelTransfer_seurat_{refLabel}'] = df_pred
+    ad_query.obs[f'labelTransfer_seurat_{refLabel}'] = df_pred['predicted.id']
 
-    adR_query = py2r(queryAd)
-    adR_query = seurat.as_Seurat_SingleCellExperiment(
-        adR_query, counts=R("NULL"), data="X"
-    )
-    adR_query = seuratObject.RenameAssays(object=adR_query, originalexp="RNA")
+    ad_ref.obs[f'labelTransfer_seurat_{refLabel}'] = ad_ref.obs[refLabel]
+    ad_concat = sc.concat({'ref': ad_ref, 'query':ad_query}, label='seurat_', index_unique='-')
+    del(ad_ref.obs[f'labelTransfer_seurat_{refLabel}'])
 
-    adR_ref = py2r(refAd)
-    adR_ref = seurat.as_Seurat_SingleCellExperiment(adR_ref, counts=R("NULL"), data="X")
-    adR_ref = seuratObject.RenameAssays(object=adR_ref, originalexp="RNA")
-
-    adR_ref = seurat.ScaleData(trl(adR_ref))
-    adR_query = seurat.ScaleData(trl(adR_query))
-    anchors = seurat.FindTransferAnchors(
-        reference=trl(adR_ref),
-        query=trl(adR_query),
-        dims=py2r(np.arange(0, npcs) + 1),
-        features=arR_features,
+    ad_concat = integrateBySeurat(
+        ad_concat,
+        batch_key="seurat_",
+        n_top_genes=nTopGenes,
+        layer="_raw",
+        k_score=kScore,
+        dims=dims,
+        k_weight=kWeight
     )
 
-    predictions = seurat.TransferData(
-        anchorset=anchors,
-        refdata=rGet(adR_ref, "@meta.data", f"${refLabel}"),
-        dims=py2r(np.arange(0, npcs) + 1),
-        k_weight=10,
-    )
+    sc.pp.neighbors(ad_concat)
+    sc.tl.umap(ad_concat)
 
-    df_predScore = r2py(predictions)
-
-    df_predScore = df_predScore[
-        [
-            x
-            for x in df_predScore.columns
-            if (x.startswith("prediction.score")) & (x != "prediction.score.max")
-        ]
-    ]
-    df_predScore = df_predScore.rename(columns=lambda x: x.split("prediction.score.")[-1])
-
-    dt_name2Org = {
-        y: x
-        for x, y in zip(
-            sorted(list(refAd.obs[refLabel].unique())),
-            sorted(list(df_predScore.columns)),
-        )
-    }
-
-    df_predScore = df_predScore.rename(
-        columns=dt_name2Org, index=lambda x: x.split("query-", 1)[1]
-    )
-
-    queryAdOrg.obsm[f"labelTransfer_score_seurat_{refLabel}"] = df_predScore.reindex(
-        queryAdOrg.obs.index
-    )
-
-    queryAdOrg.obs[f"labelTransfer_seurat_{refLabel}"] = queryAdOrg.obsm[
-        f"labelTransfer_score_seurat_{refLabel}"
-    ].pipe(lambda df: np.select([df.max(1) > cutoff], [df.idxmax(1)], "unknown"))
-
-    rSet(
-        adR_ref,
-        rBase.as_matrix(rGet(adR_ref, "@assays", "$RNA", "@data")),
-        "@assays",
-        "$RNA",
-        "@data",
-    )
-    rSet(
-        adR_query,
-        rBase.as_matrix(rGet(adR_query, "@assays", "$RNA", "@data")),
-        "@assays",
-        "$RNA",
-        "@data",
-    )
-    anchor = seurat.FindIntegrationAnchors(
-        trl(R.list(adR_query, adR_ref)),
-        anchor_features=trl(arR_features),
-        dims=py2r(np.arange(0, npcs) + 1),
-    )
-    adR_integrated = seurat.IntegrateData(
-        anchorset=trl(anchor), normalization_method="LogNormalize"
-    )
-    adR_integrated = seurat.ScaleData(trl(adR_integrated))
-    adR_integrated = seurat.RunPCA(object=trl(adR_integrated), features=arR_features)
-    adR_integrated = seurat.RunUMAP(
-        object=trl(adR_integrated), dims=py2r(np.arange(0, npcs) + 1)
-    )
-
-    ad_integrated = r2py(seurat.as_SingleCellExperiment(trl(adR_integrated)))
-
-    ad_integrated.obs["batch"] = ad_integrated.obs.index.str.split("-").str[0]
-
-    ad_integrated.obs["batch"] = ad_integrated.obs.index.str.split("-").str[0]
-
-    ad_integrated.obs[f"labelTransfer_seurat_{refLabel}"] = pd.concat(
-        [queryAdOrg.obs[f"labelTransfer_seurat_{refLabel}"], refAd.obs[refLabel]]
-    ).to_list()
-
-    dt_color = basic.getadataColor(refAd, refLabel)
-    dt_color["unknown"] = "#111111"
-    dt_color["None"] = "#D3D3D3"
-    dt_color["nan"] = "#D3D3D3"
-    ad_integrated = basic.setadataColor(ad_integrated, f"labelTransfer_seurat_{refLabel}", dt_color)
-    sc.pl.umap(ad_integrated, color="batch")
-    sc.pl.umap(ad_integrated, color=f"labelTransfer_seurat_{refLabel}", legend_loc="on data")
-    if copy:
-        return queryAdOrg
-    if needLoc:
-        return ad_integrated
+    sc.pl.umap(ad_concat, color=[f'labelTransfer_seurat_{refLabel}', 'seurat_'], wspace=0.5)
+    ax = sc.pl.umap(ad_concat, size = 12e4 / len(ad_concat), show=False)
+    _ad = ad_concat[ad_concat.obs.eval('seurat_ == "query"')]
+    sc.pl.umap(_ad, color=f'labelTransfer_seurat_{refLabel}', size = 12e4 / len(ad_concat), ax=ax)
+    renv.clear()
+    return ad_concat

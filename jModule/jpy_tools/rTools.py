@@ -166,6 +166,8 @@ def py2r_disk(obj, check=False, *args, **kwargs):
 def ad2so(
     ad,
     layer="raw",
+    ls_obs=None,
+    ls_var=None,
     dir_tmp=None,
     R_path="/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/bin/R",
 ):
@@ -204,6 +206,15 @@ def ad2so(
         varm=ad.varm,
         obsp=ad.obsp,
     )
+    if not ls_obs is None:
+        if isinstance(ls_obs, str):
+            ls_obs = [ls_obs]
+        ad_partial.obs = ad_partial.obs[ls_obs]
+    if not ls_var is None:
+        if isinstance(ls_var, str):
+            ls_var = [ls_var]
+        ad_partial.var = ad_partial.var[ls_var]
+
     ad_partial.X = ss.csr_matrix(ad_partial.X) # workaround https://github.com/satijalab/seurat/issues/2374
     _ls = []
     for key in ad_partial.obsm:

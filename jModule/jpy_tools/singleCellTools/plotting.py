@@ -137,6 +137,7 @@ def plotClusterSankey(
     clusterNameLs: Sequence[str],
     figsize=[5, 5],
     defaultJupyter: Literal["notebook", "lab"] = "notebook",
+    **dargs
 ):
     """
     Returns
@@ -152,7 +153,7 @@ def plotClusterSankey(
     colorDictLs = [basic.getadataColor(adata, x) for x in clusterNameLs]
 
     sankey = sankeyPlotByPyechart(
-        df, clusterNameLs, figsize, colorDictLs, defaultJupyter=defaultJupyter
+        df, clusterNameLs, figsize, colorDictLs, defaultJupyter=defaultJupyter, **dargs
     )
     return sankey
 

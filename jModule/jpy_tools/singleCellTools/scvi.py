@@ -42,7 +42,7 @@ def identifyDEGByScvi(
     minCells: int = 10,
     threads: int = 36,
     keyAdded: Optional[str] = "marker_byScvi",
-    only_train_model: bool = False
+    only_train_model: bool = False,
 ) -> Tuple[scvi.model.SCVI, pd.DataFrame]:
     """[summary]
 
@@ -95,7 +95,7 @@ def identifyDEGByScvi(
 
     if only_train_model:
         return scvi_model, None
-        
+
     df_deInfo = scvi_model.differential_expression(
         ad_forDE, groupby=groupby, batch_correction=correctBatch
     )
@@ -160,6 +160,8 @@ def labelTransferByScanvi(
     mode: Literal["merge", "online"] = "online",
     n_top_genes=3000,
     early_stopping: bool = True,
+    batch_size_ref: int = 128,
+    batch_size_query: int = 128,
 ) -> Optional[anndata.AnnData]:
     """
     annotate queryAd based on refAd annotation result.
@@ -239,21 +241,29 @@ def labelTransferByScanvi(
         )
 
         scvi_model = scvi.model.SCVI(refAd, **dt_params2Model)
-        scvi_model.train(max_epochs=max_epochs, early_stopping=early_stopping)
+        scvi_model.train(
+            max_epochs=max_epochs,
+            early_stopping=early_stopping,
+            batch_size=batch_size_ref,
+        )
 
         lvae = scvi.model.SCANVI.from_scvi_model(scvi_model, "unknown")
-        lvae.train(max_epochs=max_epochs)
+        lvae.train(max_epochs=max_epochs, batch_size=batch_size_ref)
 
         # plot result on training dataset
         refAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae.predict(refAd)
         refAd.obsm["X_scANVI"] = lvae.get_latent_representation(refAd)
         sc.pp.neighbors(refAd, use_rep="X_scANVI")
         sc.tl.umap(refAd, min_dist=0.2)
-        sc.pl.umap(refAd, color=refLabel, legend_loc="on data")
+
+        ax = sc.pl.umap(refAd, color=refLabel, show=False)
+        sc.pl.umap(refAd, color=refLabel, legend_loc="on data", ax=ax)
+
         df_color = basic.getadataColor(refAd, refLabel)
         refAd = basic.setadataColor(refAd, f"labelTransfer_scanvi_{refLabel}", df_color)
+        ax = sc.pl.umap(refAd, color=f"labelTransfer_scanvi_{refLabel}", show=False)
         sc.pl.umap(
-            refAd, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data"
+            refAd, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data", ax=ax
         )
 
         # online learning
@@ -263,7 +273,11 @@ def labelTransferByScanvi(
         )
         lvae_online._unlabeled_indices = np.arange(queryAd.n_obs)
         lvae_online._labeled_indices = []
-        lvae_online.train(max_epochs=max_epochs, plan_kwargs=dict(weight_decay=0.0))
+        lvae_online.train(
+            max_epochs=max_epochs,
+            plan_kwargs=dict(weight_decay=0.0),
+            batch_size=batch_size_query,
+        )
 
     elif mode == "merge":
         scvi.data.setup_anndata(
@@ -274,15 +288,25 @@ def labelTransferByScanvi(
             categorical_covariate_keys=ls_removeCateKey[1:],
         )
         scvi_model = scvi.model.SCVI(ad_merge, **dt_params2Model)
-        scvi_model.train(max_epochs=max_epochs, early_stopping=early_stopping)
+        scvi_model.train(
+            max_epochs=max_epochs,
+            early_stopping=early_stopping,
+            batch_size=batch_size_ref,
+        )
 
         lvae = scvi.model.SCANVI.from_scvi_model(scvi_model, "unknown")
-        lvae.train(max_epochs=max_epochs)
+        lvae.train(
+            max_epochs=max_epochs,
+            early_stopping=early_stopping,
+            batch_size=batch_size_ref,
+        )
 
         ad_merge.obsm["X_scANVI"] = lvae.get_latent_representation(ad_merge)
         sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
         sc.tl.umap(ad_merge, min_dist=0.2)
-        sc.pl.umap(ad_merge, color=refLabel, legend_loc="on data")
+
+        ax = sc.pl.umap(ad_merge, color=refLabel, show=False)
+        sc.pl.umap(ad_merge, color=refLabel, legend_loc="on data", ax=ax)
 
         lvae_online = lvae
 
@@ -301,12 +325,27 @@ def labelTransferByScanvi(
     dt_color["unknown"] = "#000000"
     dt_color = basic.setadataColor(ad_merge, refLabel, dt_color)
     sc.pl.umap(ad_merge, color="_batch")
+
+    ax = sc.pl.umap(
+        ad_merge,
+        color=refLabel,
+        show=False,
+        groups=[x for x in ad_merge.obs[refLabel].unique() if x != "unknown"],
+    )
     sc.pl.umap(
         ad_merge,
         color=refLabel,
+        legend_loc="on data",
+        ax=ax,
         groups=[x for x in ad_merge.obs[refLabel].unique() if x != "unknown"],
     )
-    sc.pl.umap(ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data")
+
+    ax = sc.pl.umap(ad_merge, color=f"labelTransfer_scanvi_{refLabel}", show=False)
+    sc.pl.umap(ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data", ax=ax)
+
+    ax = sc.pl.umap(ad_merge, show=False)
+    _ad = ad_merge[ad_merge.obs.eval("_batch == 'query'")]
+    sc.pl.umap(_ad, color=f"labelTransfer_scanvi_{refLabel}", size=12e4 / len(ad_merge), ax=ax)
 
     # get predicted labels
     if not keyAdded:
