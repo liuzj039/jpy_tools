@@ -610,3 +610,34 @@ def getRegionRead(
 
     annoFile = _readGeneAnno(annoBedPath)
     return _filterGene
+
+def counts2tpm(ad, layer, bed_path, logScale=True):
+    import pyranges as pr
+    def counts2tpm(ad, layer, sr_geneLength):
+        gene_len = sr_geneLength.reindex(ad.var.index).to_frame()
+        sample_reads = ad.to_df(layer).T.copy()
+        rate = sample_reads.values / gene_len.values
+        tpm = rate / np.sum(rate, axis=0).reshape(1, -1) * 1e6
+        return pd.DataFrame(data=tpm, columns=ad.obs.index, index=ad.var.index).T
+
+    df_bed = pr.read_bed(bed_path, True)
+    sr_geneLength = (
+        df_bed.assign(
+            ExonLength=lambda df: df["BlockSizes"]
+            .str.split(",")
+            .str[:-1]
+            .map(lambda z: sum(int(x) for x in z)),
+            GeneName=lambda df: df["Name"].str.split("\|").str[-1],
+        )
+        .groupby("GeneName")["ExonLength"]
+        .agg("max")
+    )
+    sr_geneLength = sr_geneLength.reindex(ad.var.index)
+    df_tpm = counts2tpm(ad, 'raw', sr_geneLength)
+    if logScale:
+        df_tpm = np.log(df_tpm + 1)
+        ad.layers['tpm_log'] = df_tpm
+    else:
+        ad.layers['tpm'] = df_tpm
+
+

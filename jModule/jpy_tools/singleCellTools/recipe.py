@@ -128,6 +128,7 @@ def multiBatch(
     scale_individual=False,
     max_epochs=None,
     reduction: Literal["cca", "rpca", "rlsi"] = "cca",
+    batch_size = 512
 ) -> sc.AnnData:
     """
     sct + pca + harmony|scanorama|scvi + neighbors + umap
@@ -215,7 +216,7 @@ def multiBatch(
             scvi.settings.seed = 39
             scvi.settings.num_threads = 36
             model = scvi.model.SCVI(ad_forScvi)
-            model.train(max_epochs=max_epochs, early_stopping=True)
+            model.train(max_epochs=max_epochs, early_stopping=True, batch_size = batch_size)
             ad.obsm["X_scvi"] = model.get_latent_representation(ad_forScvi).copy()
             ad.obsm["X_integrated"] = ad.obsm["X_scvi"].copy()
         elif method == "seurat":

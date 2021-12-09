@@ -25,6 +25,7 @@ import h5py
 from tempfile import TemporaryDirectory
 
 R = ro.r
+seo = importr("SeuratObject")
 
 
 def rpy2_check(func):
@@ -99,7 +100,7 @@ def py2r(x, name=None, on_disk=None):
         on_disk = True if py2r_disk(x, check=True) else False
 
     print(f"on disk mode: {on_disk}, transfer `{objType}` to R: {name} start.", end="")
-    timeStart=time.time()
+    timeStart = time.time()
 
     if on_disk:
         x = py2r_disk(x)
@@ -117,10 +118,11 @@ def py2r(x, name=None, on_disk=None):
         ):
             x = ro.conversion.py2rpy(x)
 
-    timeEnd=time.time()
+    timeEnd = time.time()
     timePass = timeEnd - timeStart
     print(
-        "\r" + f"on disk mode: {on_disk}, transfer `{objType}` to R: {name} End. Elapsed time: {timePass:.0f}",
+        "\r"
+        + f"on disk mode: {on_disk}, transfer `{objType}` to R: {name} End. Elapsed time: {timePass:.0f}",
         flush=True,
     )
     return x
@@ -169,7 +171,9 @@ def ad2so(
     ls_obs=None,
     ls_var=None,
     dir_tmp=None,
-    R_path="/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/bin/R",
+    dataLayer=None,
+    scaleLayer=None,
+    path_R="/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/bin/R",
 ):
     """
     anndata to seuratObject.
@@ -215,7 +219,9 @@ def ad2so(
             ls_var = [ls_var]
         ad_partial.var = ad_partial.var[ls_var]
 
-    ad_partial.X = ss.csr_matrix(ad_partial.X) # workaround https://github.com/satijalab/seurat/issues/2374
+    ad_partial.X = ss.csr_matrix(
+        ad_partial.X
+    )  # workaround https://github.com/satijalab/seurat/issues/2374
     _ls = []
     for key in ad_partial.obsm:
         if not key.startswith("X_"):
@@ -239,11 +245,34 @@ def ad2so(
     ls_cmd = [
         "-q",
         "-e",
-        f"library(SeuratDisk); Convert(\'{path_h5ad}\', dest=\'h5Seurat\', overwrite=True)"
+        f"library(SeuratDisk); Convert('{path_h5ad}', dest='h5Seurat', overwrite=True)",
     ]
-    for x in sh.Command(R_path)(*ls_cmd, _err_to_out=True, _iter=True):
+    for x in sh.Command(path_R)(*ls_cmd, _err_to_out=True, _iter=True):
         print(x.rstrip())
     so = seuratDisk.LoadH5Seurat(path_h5so)
+
+    with ro.local_context() as rlc:
+        if dataLayer:
+            _ad = sc.AnnData(X=ss.csr_matrix(ad.shape), obs=ad.obs[[]], var=ad.var[[]])
+            _ad.layers["data"] = ad.layers[dataLayer].copy()
+            _se = py2r(_ad)
+            rlc["se"] = _se
+            rlc["so"] = so
+            R(
+                """so <- SetAssayData(so, slot = 'data', new.data = assay(se, 'data')) """
+            )
+            so = rlc["so"]
+        if scaleLayer:
+            _ad = sc.AnnData(X=ss.csr_matrix(ad.shape), obs=ad.obs[[]], var=ad.var[[]])
+            _ad.layers["scale"] = ad.layers[scaleLayer].copy()
+            _se = py2r(_ad)
+            rlc["se"] = _se
+            rlc["so"] = so
+            R(
+                """so <- SetAssayData(so, slot = 'scale.data', new.data = assay(se, 'scale')) """
+            )
+            so = rlc["so"]
+
     return so
 
 
@@ -266,7 +295,7 @@ def r2py(x, name=None):
         objType = "unknown type"
 
     print(f"transfer `{objType}` to python: {name} start", end="")
-    timeStart=time.time()
+    timeStart = time.time()
     try:
         with localconverter(
             ro.default_converter
@@ -280,9 +309,13 @@ def r2py(x, name=None):
     except TypeError:
         # workaround for: https://github.com/theislab/anndata2ri/issues/47
         x = anndata2ri.scipy2ri.rpy2py(x)
-    timeEnd=time.time()
+    timeEnd = time.time()
     timePass = timeEnd - timeStart
-    print("\r" + f"transfer `{objType}` to python: {name} End. Elapsed time: {timePass:.0f}", flush=True)
+    print(
+        "\r"
+        + f"transfer `{objType}` to python: {name} End. Elapsed time: {timePass:.0f}",
+        flush=True,
+    )
     return x
 
 
@@ -304,9 +337,7 @@ def so2ad(so, dir_tmp=None) -> sc.AnnData:
     for assay in ls_assays:
         ls_keys = ls_assays = h5so[f"/assays/{assay}"].keys()
         ls_slots = [x for x in ls_keys if x in ["counts", "data", "scale.data"]]
-        ls_slots = [
-            x for x in h5so[f"/assays/{assay}"] if x in ls_slots
-        ]
+        ls_slots = [x for x in h5so[f"/assays/{assay}"] if x in ls_slots]
         for slot in ls_slots:
             if slot != "scale.data":
                 h5so[f"/assays/{assay}_{slot}/data"] = h5so[f"/assays/{assay}/{slot}"]

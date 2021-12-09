@@ -485,6 +485,7 @@ def integrateBySeurat(
         ad_combined.X = ad_combined.layers["integrated_data"].copy()
         sc.pp.scale(ad_combined)
     else:
+        ad.obsm["seurat_integrated_data"] = ad_combined.to_df("integrated_data").copy()
         ad.obsm["seurat_integrated_scale.data"] = ad_combined.to_df(
             "integrated_scale.data"
         ).copy()

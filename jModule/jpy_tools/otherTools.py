@@ -343,7 +343,7 @@ def copyToIpf(inPath, ipfPath) -> str:
     sh.scp(inPath, f"172.18.6.205:{ipfPath}")
 
 
-def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, **dt_arg):
+def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, dir_path=None, **dt_arg):
     """
 
     Parameters
@@ -393,6 +393,8 @@ def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, **dt_arg)
     currentServer = ls_currentServer[0]
 
     dir_currentPkl = dt_dirPkl[currentServer]
+    if dir_path:
+        dir_currentPkl = dir_path
     if config:
         config = dt_config[config]
         writeFc = config["writeFc"]
@@ -418,7 +420,7 @@ def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, **dt_arg)
         )
 
 
-def loadPkl(name: str, readFc=None, arg_path=None, **dt_arg):
+def loadPkl(name: str, readFc=None, arg_path=None, dir_path=None, **dt_arg):
     """
 
     Parameters
@@ -448,6 +450,8 @@ def loadPkl(name: str, readFc=None, arg_path=None, **dt_arg):
         assert len(ls_currentServer) == 1, "Unknown current server"
         currentServer = ls_currentServer[0]
         dir_currentPkl = dt_dirPkl[currentServer]
+    if dir_path:
+        dir_currentPkl = dir_path
 
     if not readFc:
         with open(f"{dir_currentPkl}/{name}", "rb") as fh:
@@ -521,3 +525,4 @@ def getGoDesc(goTerm: Union[str, List[str]], retry=5) -> pd.DataFrame:
             logger.warning(f"query : {name}, target : {dt_go[name]['hitGO']}")
     df_go = pd.DataFrame.from_dict(dt_go, "index")
     return df_go
+

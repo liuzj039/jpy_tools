@@ -207,128 +207,6 @@ def detectMarkerGene(
         adata.uns[f"{key_added}_filtered"] = _adata.uns[f"{key_added}_filtered"]
 
 
-def calculateExpressionRatio(adata, clusterby):
-    """
-    逐个计算adata中每个基因在每个cluster中的表达比例
-
-    adata:
-        需要含有raw
-    clusterby:
-        adata.obs中的某个列名
-    """
-    transformadataRawToAd = lambda adata: anndata.AnnData(
-        X=adata.raw.X, obs=adata.obs, var=adata.raw.var
-    )
-    rawAd = transformadataRawToAd(adata)
-    expressionOrNotdf = (rawAd.to_df() > 0).astype(int)
-    expressionOrNotdf[clusterby] = rawAd.obs[clusterby]
-    expressionRatioDf = expressionOrNotdf.groupby(clusterby).agg(
-        "sum"
-    ) / expressionOrNotdf.groupby(clusterby).agg("count")
-    return expressionRatioDf
-
-
-def calculateGeneAverageEx(expressionMtxDf, geneDt, method="mean"):
-    """
-    根据geneDt对expressionMtxDf计算平均值或中位数
-
-    expressionMtxDf:
-        形如adata.to_df()
-
-    geneDt:
-        形如:{
-    "type1": [
-        "AT5G42235",
-        "AT4G00540",
-        ],
-    "type2": [
-        "AT1G55650",
-        "AT5G45980",
-        ],
-    }
-    method:
-        'mean|median'
-
-    """
-    averageExLs = []
-    for typeName, geneLs in geneDt.items():
-        typeAvgExpress = (
-            expressionMtxDf.reindex(geneLs, axis=1).mean(1)
-            if method == "mean"
-            else expressionMtxDf.reindex(geneLs, axis=1).median(1)
-        )
-        typeAvgExpress.name = typeName
-        averageExLs.append(typeAvgExpress)
-    averageExDf = pd.concat(averageExLs, axis=1)
-
-    return averageExDf
-
-
-def getEnrichedScore(adata, label, geneLs, threads=12, times=100):
-    """
-    获得ES值。ES值是通过对adata.obs中的label进行重排times次，然后计算原始label的zscore获得
-
-    adata:
-        必须有raw且为log-transformed
-
-    label:
-        adata.obs中的列名
-
-    geneLs:
-        需要计算的基因
-
-    threads:
-        使用核心数
-
-    times:
-        重排的次数
-    """
-
-    def __shuffleLabel(adata, label, i):
-        """
-        used for getEnrichedScore
-        """
-        shuffleAd = adata.copy()
-        shuffleAd.obs[label] = adata.obs[label].sample(frac=1, random_state=i).values
-        shuffleClusterDf = (
-            mergeadataExpress(shuffleAd, label).to_df().reset_index().assign(label=i)
-        )
-
-        return shuffleClusterDf
-
-    geneLs = geneLs[:]
-    geneLs[0:0] = [label]
-    adata = adata.copy()
-
-    allShuffleClusterExpressLs = []
-    with Mtp(threads) as mtp:
-        for time in range(1, times + 1):
-            allShuffleClusterExpressLs.append(
-                mtp.submit(__shuffleLabel, adata, label, time)
-            )
-
-    allShuffleClusterExpressLs = [x.result() for x in allShuffleClusterExpressLs]
-    originalClusterDf = (
-        mergeadataExpress(adata, label).to_df().reset_index().assign(label=0)
-    )
-    allShuffleClusterExpressLs.append(originalClusterDf)
-    allShuffleClusterExpressDf = (
-        pd.concat(allShuffleClusterExpressLs).set_index("label").reindex(geneLs, axis=1)
-    )
-    logger.info(f"start calculate z score")
-    allShuffleClusterZscoreDf = (
-        allShuffleClusterExpressDf.groupby(label)
-        .apply(lambda x: x.set_index(label, append=True).apply(zscore))
-        .reset_index(level=0, drop=True)
-    )
-    clusterZscoreDf = (
-        allShuffleClusterZscoreDf.query(f"label == 0")
-        .reset_index(level=0, drop=True)
-        .fillna(0)
-    )
-    return clusterZscoreDf
-
-
 def calculateEnrichScoreByCellex(
     adata: anndata.AnnData,
     layer: Optional[str] = None,
@@ -595,7 +473,7 @@ def getMarkerByFcCellexCellidDiffxpy(
 
     ## fc method
     if forceAllRun | (f"{groupby}_fcMarker" not in ad_sub.uns):
-        geneEnrichInfo.detectMarkerGene(
+        detectMarkerGene(
             ad_sub,
             groupby,
             f"{groupby}_fcMarker",
@@ -616,7 +494,7 @@ def getMarkerByFcCellexCellidDiffxpy(
 
     ## cellex method
     if forceAllRun | (f"{groupby}_cellexES" not in ad_sub.varm):
-        geneEnrichInfo.calculateEnrichScoreByCellex(ad_sub, f"{raw_layer}", groupby)
+        calculateEnrichScoreByCellex(ad_sub, f"{raw_layer}", groupby)
         adata.varm[f"{groupby}_cellexES"] = ad_sub.varm[f"{groupby}_cellexES"]
     dt_marker_cellex = (
         ad_sub.varm[f"{groupby}_cellexES"]
@@ -627,7 +505,7 @@ def getMarkerByFcCellexCellidDiffxpy(
 
     ## cellid method
     if forceAllRun | (f"{groupby}_cellid_marker" not in adata.uns):
-        geneEnrichInfo.getEnrichedGeneByCellId(
+        getEnrichedGeneByCellId(
             ad_sub, normalize_layer, groupby, markerCounts_CellId
         )
         adata.uns[f"{groupby}_cellid_marker"] = ad_sub.uns[f"{groupby}_cellid_marker"]

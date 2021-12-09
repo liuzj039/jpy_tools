@@ -43,6 +43,7 @@ def identifyDEGByScvi(
     threads: int = 36,
     keyAdded: Optional[str] = "marker_byScvi",
     only_train_model: bool = False,
+    batch_size = 512,
 ) -> Tuple[scvi.model.SCVI, pd.DataFrame]:
     """[summary]
 
@@ -84,7 +85,7 @@ def identifyDEGByScvi(
 
     if not path_model:
         scvi_model = scvi.model.SCVI(ad_forDE)
-        scvi_model.train(early_stopping=True)
+        scvi_model.train(early_stopping=True, batch_size = batch_size)
     else:
         if isinstance(path_model, str):
             scvi_model = scvi.model.SCVI.load(path_model, ad_forDE)
@@ -280,6 +281,7 @@ def labelTransferByScanvi(
         )
 
     elif mode == "merge":
+        sc.pp.subsample(ad_merge, fraction=1)
         scvi.data.setup_anndata(
             ad_merge,
             layer=None,

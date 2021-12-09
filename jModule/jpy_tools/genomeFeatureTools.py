@@ -103,7 +103,56 @@ def getLongestIsoform(path_bed, path_tempBed = None):
         df_bed.to_csv(path_tempBed, sep='\t', header=None, index=None)
         return path_tempBed
 
-def _getIntrons(line):
+def _getExons(line):
+    ls_tuple = []
+    for start, length in zip(
+        line.BlockStarts.split(",")[:-1], line.BlockSizes.split(",")[:-1]
+    ):
+        start = int(start)
+        length = int(length)
+        ls_tuple.append(P.closedopen(start, start + length))
+    iv_exon = P.Interval(*ls_tuple)
+    ls_exon = list(iv_exon)
+    if not bed12:
+        if line.Strand == "-":
+            ls_exon = ls_exon[::-1]
+
+        ls_exonFeature = []
+        for exonNum, iv_singleExon in zip(range(1, 1 + len(ls_exon)), ls_exon):
+            ls_intronFeature.append(
+                [
+                    f"{line.Name}_intron{intronNum}",
+                    line.Chromosome,
+                    line.Start + iv_singleIntron.lower,
+                    line.Start + iv_singleIntron.upper,
+                    line.Strand,
+                ]
+            )
+        return ls_intronFeature
+
+
+def getExonsFromBed(path_bed, longest_isoform_only = True) -> pd.DataFrame:
+    if longest_isoform_only:
+        df_bed = getLongestIsoform(path_bed)
+    else:
+        df_bed = pr.read_bed(path_bed, as_df=True)
+    ls_exons = [
+        _getExons(x)
+        for x in tqdm(
+            df_bed.itertuples(),
+            total=len(df_bed),
+        )
+    ]
+    df_exons = pd.DataFrame(
+        [y for x in ls_exons for y in x],
+        columns=["Name", "Chromosome", "Start", "End", "Strand"],
+    )
+    df_exons['Chromosome'] = df_exons['Chromosome'].astype(str)
+    df_exons = df_exons.sort_values(['Chromosome', 'Start'])
+
+    return df_exons 
+
+def _getIntrons(line, bed12):
     if int(line.BlockCount) <= 1:
         return None
 
@@ -118,38 +167,114 @@ def _getIntrons(line):
     iv_gene = P.closedopen(0, int(line.End) - int(line.Start))
     iv_intron = iv_gene - iv_exon
     ls_intron = list(iv_intron)
-    if line.Strand == "-":
-        ls_intron = ls_intron[::-1]
-    ls_intronFeature = []
-    for intronNum, iv_singleIntron in zip(range(1, 1 + len(ls_intron)), ls_intron):
-        ls_intronFeature.append(
-            [
-                f"{line.Name}_intron{intronNum}",
-                line.Chromosome,
-                line.Start + iv_singleIntron.lower,
-                line.Start + iv_singleIntron.upper,
-                line.Strand,
-            ]
-        )
-    return ls_intronFeature
+    if not bed12:
+        if line.Strand == "-":
+            ls_intron = ls_intron[::-1]
 
-def getIntronsFromBed(path_bed, longest_isoform_only = True) -> pd.DataFrame:
+        ls_intronFeature = []
+        for intronNum, iv_singleIntron in zip(range(1, 1 + len(ls_intron)), ls_intron):
+            ls_intronFeature.append(
+                [
+                    f"{line.Name}_intron{intronNum}",
+                    line.Chromosome,
+                    line.Start + iv_singleIntron.lower,
+                    line.Start + iv_singleIntron.upper,
+                    line.Strand,
+                ]
+            )
+        return ls_intronFeature
+    else:
+        Start = line.Start + ls_intron[0].lower
+        BlockStarts = ','.join([str(x.lower - ls_intron[0].lower) for x in ls_intron]) + ','
+        BlockSizes = ','.join([str(x.upper - x.lower) for x in ls_intron]) + ','
+        BlockCount = len(ls_intron)
+        End = line.Start + ls_intron[-1].upper
+        sr_intron = pd.Series(
+                dict(
+                    Chromosome=line.Chromosome,
+                    Start=Start,
+                    End=End,
+                    Name=line.Name,
+                    Score=line.Score,
+                    Strand=line.Strand,
+                    ThickStart=Start,
+                    ThickEnd=End,
+                    ItemRGB=line.ItemRGB,
+                    BlockCounts=BlockCount,
+                    BlockSizes=BlockSizes,
+                    BlockStarts=BlockStarts,
+                )
+            )
+        return sr_intron
+
+def getIntronsFromBed(path_bed, longest_isoform_only = True, bed12=False) -> pd.DataFrame:
     if longest_isoform_only:
         df_bed = getLongestIsoform(path_bed)
     else:
         df_bed = pr.read_bed(path_bed, as_df=True)
     ls_introns = [
-        _getIntrons(x)
+        _getIntrons(x, bed12)
         for x in tqdm(
             df_bed.query("BlockCount > 1").itertuples(),
             total=len(df_bed.query("BlockCount > 1")),
         )
     ]
-    df_introns = pd.DataFrame(
-        [y for x in ls_introns for y in x],
-        columns=["Name", "Chromosome", "Start", "End", "Strand"],
-    )
-    df_introns['Chromosome'] = df_introns['Chromosome'].astype(str)
-    df_introns = df_introns.sort_values(['Chromosome', 'Start'])
+    if not bed12:
+        df_introns = pd.DataFrame(
+            [y for x in ls_introns for y in x],
+            columns=["Name", "Chromosome", "Start", "End", "Strand"],
+        )
+        df_introns['Chromosome'] = df_introns['Chromosome'].astype(str)
+        df_introns = df_introns.sort_values(['Chromosome', 'Start'])
+    else:
+        df_introns = pd.DataFrame(
+            ls_introns,
+        )
+        df_introns['Chromosome'] = df_introns['Chromosome'].astype(str)
+        df_introns = df_introns.sort_values(['Chromosome', 'Start'])
+
     return df_introns
 
+NAMES = [
+    "Chromosome",
+    "Start",
+    "End",
+    "Name",
+    "Score",
+    "Strand",
+    "ThickStart",
+    "ThickEnd",
+    "ItemRGB",
+    "BlockCount",
+    "BlockSizes",
+    "BlockStarts",
+    "geneChromosome",
+    "geneStart",
+    "geneEnd",
+    "geneName",
+    "geneScore",
+    "geneStrand",
+    "geneThickStart",
+    "geneThickEnd",
+    "geneItemRGB",
+    "geneBlockCount",
+    "geneBlockSizes",
+    "geneBlockStarts",
+    "cov",
+]
+USECOLS = [
+    "Chromosome",
+    "Start",
+    "End",
+    "Name",
+    "Strand",
+    "BlockSizes",
+    "BlockStarts",
+    "geneStart",
+    "geneEnd",
+    "geneName",
+    "geneBlockCount",
+    "geneBlockSizes",
+    "geneBlockStarts",
+    "cov",
+]
