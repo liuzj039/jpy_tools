@@ -137,7 +137,7 @@ def plotClusterSankey(
     clusterNameLs: Sequence[str],
     figsize=[5, 5],
     defaultJupyter: Literal["notebook", "lab"] = "notebook",
-    **dargs
+    **dargs,
 ):
     """
     Returns
@@ -178,9 +178,9 @@ def plotGeneInDifferentBatch(
     xMax = ad.obsm["X_umap"][:, 0].max()
     yMin = ad.obsm["X_umap"][:, 1].min()
     yMax = ad.obsm["X_umap"][:, 1].max()
-    if 'size' not in dt_arg:
+    if "size" not in dt_arg:
         size = 120000 / len(ad)
-        dt_arg['size'] = size
+        dt_arg["size"] = size
 
     for gene, name in zip(ls_gene, ls_name):
         fig, axs = plt.subplots(nrows, ncols, figsize=figsize)
@@ -204,7 +204,7 @@ def plotGeneInDifferentBatch(
             plt.sca(ax)
             plt.xlim(xMin - 0.5, xMax + 0.5)
             plt.ylim(yMin - 0.5, yMax + 0.5)
-            
+
         plt.tight_layout()
         plt.show()
         plt.close()
@@ -395,4 +395,150 @@ def clustermap(
         plt.xticks([])
     plt.yticks([])
     plt.xlabel("")
+    return axs
+
+
+def heatmap_rank(
+    ad: sc.AnnData,
+    dt_gene: Mapping[str, List[str]],
+    obsAnno: Union[str, List[str]],
+    sortby: str,
+    layer: str,
+    space_obsAnnoLegend: float = 0.12,
+    figsize=(10, 10),
+    cbarPos=(0.9, 0.33, 0.1, 0.02),
+    dt_geneColor: Optional[Mapping[str, str]] = None,
+    standardScale="row",
+    cbar_kws=dict(orientation="horizontal"),
+    cmap='Spectral_r',
+    bins = None,
+    qcut=True,
+    **dt_arg,
+):
+    from ..otherTools import addColorLegendToAx
+
+    ad = ad[ad.obs[sortby].sort_values().index]
+
+    if isinstance(obsAnno, str):
+        obsAnno = [obsAnno]
+
+    df_cellAnno = ad.obs[obsAnno]
+    df_geneModule = (
+        pd.Series(dt_gene)
+        .explode()
+        .to_frame()
+        .reset_index()
+        .set_index(0)
+        .rename(columns=dict(index="module"))
+    )
+
+    for anno in obsAnno:
+        dt_color = basic.getadataColor(ad, anno)
+        df_cellAnno[anno] = df_cellAnno[anno].map(dt_color)
+
+    if not dt_geneColor:
+        from scanpy.plotting import palettes
+
+        length = len(dt_gene)
+        if length <= 20:
+            palette = palettes.default_20
+        elif length <= 28:
+            palette = palettes.default_28
+        elif length <= len(palettes.default_102):  # 103 colors
+            palette = palettes.default_102
+        else:
+            palette = ["grey" for _ in range(length)]
+        dt_geneColor = {x: y for x, y in zip(dt_gene.keys(), palette)}
+
+    df_geneModule["module"] = (
+        df_geneModule["module"]
+        .astype("category")
+        .cat.reorder_categories(dt_gene.keys())
+        .sort_values()
+    )
+
+    df_geneModuleChangeColor = df_geneModule.assign(
+        module=lambda df: df["module"].map(dt_geneColor)
+    )
+
+    # _dt = df_geneModule.groupby("module").apply(len).to_dict()
+    # dt_geneCounts = {x: _dt[x] for x in dt_gene.keys()}
+    dt_geneCounts = df_geneModule['module'].value_counts(sort=False).to_dict()
+
+    if not bins:
+        mtx = ad[:, df_geneModuleChangeColor.index].to_df(layer).T
+        axs = sns.clustermap(
+            mtx,
+            col_colors=df_cellAnno,
+            row_colors=df_geneModuleChangeColor["module"],
+            cmap=cmap,
+            row_cluster=False,
+            col_cluster=False,
+            standard_scale=standardScale,
+            figsize=figsize,
+            cbar_pos=cbarPos,
+            cbar_kws=cbar_kws,
+            **dt_arg,
+        )
+        plt.sca(axs.ax_heatmap)
+        plt.xticks([])
+        plt.yticks([])
+        plt.sca(axs.ax_col_colors)
+        plt.xticks([])
+
+        for i, anno in enumerate(obsAnno):
+            dt_color = basic.getadataColor(ad, anno)
+            addColorLegendToAx(
+                axs.ax_heatmap,
+                anno,
+                dt_color,
+                1,
+                bbox_to_anchor=(1.05 + space_obsAnnoLegend * i, 1),
+                frameon=False,
+            )
+    else:
+        if qcut:
+            sr_cutCate = pd.qcut(ad.obs[sortby], bins)
+        else:
+            sr_cutCate = pd.cut(ad.obs[sortby], bins)
+        sr_cutCate = sr_cutCate.cat.rename_categories(new_categories = lambda x:(x.left + x.right) / 2)
+        mtx = ad[:, df_geneModuleChangeColor.index].to_df(layer).groupby(sr_cutCate).agg('mean').T
+        mtx = mtx.dropna(axis=1)
+
+        axs = sns.clustermap(
+            mtx,
+            row_colors=df_geneModuleChangeColor["module"],
+            cmap=cmap,
+            row_cluster=False,
+            col_cluster=False,
+            standard_scale=standardScale,
+            figsize=figsize,
+            cbar_pos=cbarPos,
+            cbar_kws=cbar_kws,
+            **dt_arg,
+        )
+        plt.sca(axs.ax_heatmap)
+        plt.yticks([])
+        plt.xticks([])
+        plt.xlabel('')
+
+
+    plt.sca(axs.ax_row_colors)
+    pos_current = 0
+    for name, counts in dt_geneCounts.items():
+        pos_next = pos_current + counts
+        plt.text(
+            -0.2,
+            (pos_current + pos_next) / 2,
+            f"{name}",
+            va="center",
+            ha="right",
+        )
+        pos_current = pos_next
+        plt.xticks([])
+
+
+    axs.ax_cbar.set_title("Gene Expression")
+    axs.ax_cbar.tick_params(axis="x", length=10)
+
     return axs

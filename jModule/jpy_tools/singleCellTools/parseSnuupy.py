@@ -26,9 +26,183 @@ from typing import (
     Mapping,
     Callable,
 )
+from joblib import Parallel, delayed
+from statsmodels.stats.proportion import proportions_ztest, test_proportions_2indep
+from statsmodels.stats import multitest
 import collections
 from xarray import corr
+import scipy.sparse as ss
 from . import basic
+import pysam
+
+
+def addSnuupyBamTag(path_bam, path_out, tag='CB'):
+    bam_org = pysam.AlignmentFile(path_bam)
+    bam_out = pysam.AlignmentFile(path_out, mode="wb", template=bam_org)
+
+    for read in tqdm(bam_org, 'add barcode tag', total=bam_org.unmapped + bam_org.mapped):
+        readBc = read.qname.split('_')[0]
+        read.set_tag(tag, readBc)
+        bam_out.write(read)
+    
+    bam_org.close()
+    bam_out.close()
+    pysam.index(path_out)
+
+
+
+
+def getDiffSplicedPvalue(
+    ad_groupSpliceRatio, min_total=5, threads=12, method="ztest"
+) -> pd.DataFrame:
+    """
+    get pvalue for spliced vs unspliced
+
+    ad_groupSpliceRatio: result of `calcGroupUnsplicedRatio`
+    """
+    lsDf_spliceInfo = []
+    for i in range(len(ad_groupSpliceRatio)):
+        currentObsIndex = ad_groupSpliceRatio[i].obs.index[0]
+        ad_current = ad_groupSpliceRatio[i]
+        ad_others = ad_groupSpliceRatio[ad_groupSpliceRatio.obs.index != currentObsIndex]
+        df_currentUnspliced = ad_current.to_df('unspliced').sum().rename('currentUnspliced')
+        df_currentTotal = ad_current.to_df('total').sum().rename('currentTotal')
+
+        df_othersUnspliced = ad_others.to_df('unspliced').sum().rename('othersUnspliced')
+        df_othersTotal = ad_others.to_df('total').sum().rename('othersTotal')
+        
+        df_currentSpliceInfo = pd.concat(
+            [df_currentUnspliced, df_currentTotal, df_othersUnspliced, df_othersTotal], axis=1
+        ).assign(cluster = currentObsIndex)
+        lsDf_spliceInfo.append(df_currentSpliceInfo)
+    df_spliceInfo = pd.concat(lsDf_spliceInfo)
+
+    df_spliceInfo = df_spliceInfo.query("currentTotal > @min_total & othersTotal > @min_total")
+
+    fc_ztest = lambda x: proportions_ztest(
+        [x.currentUnspliced, x.othersUnspliced], [x.currentTotal, x.othersTotal]
+    )[1]
+    fc_waldtest = lambda x: test_proportions_2indep(
+        x.currentUnspliced,
+        x.currentTotal,
+        x.othersUnspliced,
+        x.othersTotal,
+        method="wald",
+        compare="diff",
+    )[1]
+    fc_test = {'ztest': fc_ztest, 'wald':fc_waldtest}[method]
+
+    ls_pvalue = Parallel(threads, batch_size=100)(
+        delayed(fc_test)(x)
+        for x in tqdm(df_spliceInfo.itertuples(), total=len(df_spliceInfo))
+    )
+
+    df_spliceInfo['pvalue'] = ls_pvalue
+    df_spliceInfo = df_spliceInfo.fillna(1)
+    df_spliceInfo['qvalue'] = multitest.fdrcorrection(df_spliceInfo['pvalue'])[1]
+    df_spliceInfo = df_spliceInfo.eval(
+        "currentUnsplicedRatio = currentUnspliced / currentTotal"
+    ).eval("othersUnsplicedRatio = othersUnspliced / othersTotal")
+    return df_spliceInfo
+
+
+
+def calcUnsplicedRatioFromSnuupyMtx(
+    ad, layer, useAmbiguousCalcUnsplicedRatio=False
+) -> sc.AnnData:
+    """
+    calculate unspliced ratio from snuupy mtx
+
+    ad:
+        mode splice
+    layer:
+        raw counts
+    """
+    ad.var = ad.var.assign(
+        gene=lambda df: df.index.str.split("_").str[:-2].str.join("_"),
+        spliceGroup=lambda df: df.index.str.split("_").str[-2],
+    )
+    ls_allGene = ad.var["gene"].unique().tolist()
+    ad_splice = sc.AnnData(
+        ss.csr_matrix((ad.shape[0], len(ls_allGene))),
+        obs=ad.obs.copy(),
+        var=pd.DataFrame(index=ls_allGene),
+    )
+    dt_name2layer = {"True": "spliced", "False": "unspliced"}
+
+    for group, ls_var in (
+        ad.var.groupby("spliceGroup").apply(lambda df: df.index.to_list()).items()
+    ):
+        layerName = dt_name2layer.get(group, group)
+        df_groupMtx = ad[:, ls_var].to_df(layer)
+        df_groupMtx = (
+            df_groupMtx.rename(columns=lambda x: "_".join(x.split("_")[:-2]))
+            .reindex(columns=ls_allGene)
+            .fillna(0)
+        )
+        ad_splice.layers[layerName] = df_groupMtx
+    if useAmbiguousCalcUnsplicedRatio:
+        ad_splice.X = ad_splice.layers["unspliced"] / (
+            ad_splice.layers["spliced"]
+            + ad_splice.layers["unspliced"]
+            + ad_splice.layers["Ambiguous"]
+        )
+    else:
+        ad_splice.X = ad_splice.layers["unspliced"] / (
+            ad_splice.layers["spliced"] + ad_splice.layers["unspliced"]
+        )
+    return ad_splice
+
+
+def calcGroupUnsplicedRatio(
+    ad: anndata.AnnData,
+    layer: str = "raw",
+    cluster="leiden",
+    useAmbiguousCalcUnsplicedRatio=False,
+    minCounts=1,
+) -> sc.AnnData:
+    """
+    calculate group unspliced ratio from snuupy mtx
+
+    ad:
+        mode splice
+    layer:
+        raw counts
+    """
+    ad_splice = calcUnsplicedRatioFromSnuupyMtx(
+        ad, layer, useAmbiguousCalcUnsplicedRatio
+    )
+    ls_cluster = ad_splice.obs[cluster].unique().tolist()
+    ad_groupSplice = sc.AnnData(
+        ss.csr_matrix((len(ls_cluster), ad_splice.shape[1])),
+        obs=pd.DataFrame(index=ls_cluster),
+        var=ad_splice.var.copy(),
+    )
+    for group in ad_splice.layers:
+        df_groupMtx = ad_splice.to_df(group)
+        df_groupMtxCluster = (
+            df_groupMtx.groupby(ad_splice.obs[cluster]).sum().reindex(ls_cluster)
+        )
+        ad_groupSplice.layers[group] = df_groupMtxCluster
+    if useAmbiguousCalcUnsplicedRatio:
+        ad_groupSplice.layers["total"] = (
+            ad_groupSplice.layers["spliced"]
+            + ad_groupSplice.layers["unspliced"]
+            + ad_groupSplice.layers["Ambiguous"]
+        )
+    else:
+        ad_groupSplice.layers["total"] = (
+            ad_groupSplice.layers["spliced"] + ad_groupSplice.layers["unspliced"]
+        )
+    ad_groupSplice.layers["unsplicedRatio"] = (
+        ad_groupSplice.layers["unspliced"] / ad_groupSplice.layers["total"]
+    )
+    ad_groupSplice.X = ad_groupSplice.layers["unsplicedRatio"].copy()
+    ad_groupSplice = ad_groupSplice[
+        :, ad_groupSplice.layers["total"].sum(0) >= minCounts
+    ]
+    return ad_groupSplice
+
 
 def createMdFromSnuupy(
     ad: anndata.AnnData, removeAmbiguous: bool = True
@@ -36,7 +210,7 @@ def createMdFromSnuupy(
     import muon as mu
     import scipy.sparse as ss
 
-    ad = parseSnuupy.updateOldMultiAd(ad)
+    ad = updateOldMultiAd(ad)
     md = mu.MuData(
         dict(
             apa=basic.getPartialLayersAdata(
@@ -192,13 +366,9 @@ def getSpliceInfoFromSnuupyAd(nanoporeAd):
             layer[unspliced, spliced]
     """
     nanoporeCountAd = nanoporeAd[:, ~nanoporeAd.var.index.str.contains("_")]
-    unsplicedAd = nanoporeAd[
-        :, nanoporeAd.var.index.str.contains("False_fullySpliced")
-    ]
+    unsplicedAd = nanoporeAd[:, nanoporeAd.var.index.str.contains("False_fullySpliced")]
     unsplicedAd.var.index = unsplicedAd.var.index.str.split("_").str[0]
-    splicedAd = nanoporeAd[
-        :, nanoporeAd.var.index.str.contains("True_fullySpliced")
-    ]
+    splicedAd = nanoporeAd[:, nanoporeAd.var.index.str.contains("True_fullySpliced")]
     splicedAd.var.index = splicedAd.var.index.str.split("_").str[0]
     useGeneLs = sorted(list(set(splicedAd.var.index) | set(unsplicedAd.var.index)))
     unsplicedDf = unsplicedAd.to_df().reindex(useGeneLs, axis=1).fillna(0)
@@ -263,9 +433,7 @@ def getDiffSplicedIntron(
             return 1.0
         resultFloat = [
             float(x)
-            for x in [
-                x.strip().split("=")[-1].strip() for x in resultStr.split("\n")
-            ]
+            for x in [x.strip().split("=")[-1].strip() for x in resultStr.split("\n")]
         ][1]
 
         return resultFloat
@@ -278,9 +446,9 @@ def getDiffSplicedIntron(
         yTotal = line.iloc[3]
         xSplice = xTotal - xUnsplice
         ySplice = yTotal - yUnsplice
-        return fisher_exact(
-            [[xUnsplice, xSplice], [yUnsplice, ySplice]], fisherMethod
-        )[1]
+        return fisher_exact([[xUnsplice, xSplice], [yUnsplice, ySplice]], fisherMethod)[
+            1
+        ]
 
     allClusterDiffDt = {}
     calcuPvalue = {"winflat": calcuPvalueByWinflat, "fisher": calcuPvalueByFisher}[
@@ -317,9 +485,9 @@ def getDiffSplicedIntron(
             "non-total",
         ]
 
-        clusterSpliceIntronInfoDf[
-            "pvalue"
-        ] = clusterSpliceIntronInfoDf.parallel_apply(calcuPvalue, axis=1)
+        clusterSpliceIntronInfoDf["pvalue"] = clusterSpliceIntronInfoDf.parallel_apply(
+            calcuPvalue, axis=1
+        )
         clusterSpliceIntronInfoDf["fdr"] = multitest.fdrcorrection(
             clusterSpliceIntronInfoDf["pvalue"], 0.05, fdrMethod
         )[1]

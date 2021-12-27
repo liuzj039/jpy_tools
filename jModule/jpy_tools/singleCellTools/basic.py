@@ -33,6 +33,19 @@ from typing import (
 import collections
 
 
+def geneFilterSampleSeparately(ad, batchKay, layer, minCells) -> List[str]:
+    ls_feature = (
+        (ad.to_df(layer) > 0)
+        .astype(int)
+        .groupby(ad.obs[batchKay])
+        .agg("sum")
+        .min()
+        .pipe(lambda x: x[x > minCells])
+        .index.to_list()
+    )
+    return ls_feature
+
+
 def getOverlap(ad_a: anndata.AnnData, ad_b: anndata.AnnData, copy=False):
     ls_geneOverlap = list(ad_a.var.index & ad_b.var.index)
     logger.info(f"Used Gene Counts: {len(ls_geneOverlap)}")
@@ -944,7 +957,7 @@ def saveAllGeneEmbedding(
     format: str = "pdf",
     cmap="Reds",
     size=None,
-    distance_from_border=1
+    distance_from_border=1,
 ):
     # def __saveSingleGene(gene):
     #     nonlocal adata
@@ -987,7 +1000,7 @@ def saveAllGeneEmbedding(
             format=format,
             cmap=cmap,
             size=size,
-            distance_from_border=distance_from_border
+            distance_from_border=distance_from_border,
         )
     else:
         Parallel(n_jobs=threads)(
@@ -1004,7 +1017,7 @@ def saveAllGeneEmbedding(
                 format=format,
                 cmap=cmap,
                 size=size,
-                distance_from_border=distance_from_border
+                distance_from_border=distance_from_border,
             )
             for i in tqdm(range(0, adata.shape[1], batchSize))
         )

@@ -281,7 +281,7 @@ def labelTransferByScanvi(
         )
 
     elif mode == "merge":
-        sc.pp.subsample(ad_merge, fraction=1)
+        sc.pp.subsample(ad_merge, fraction=1) # scvi do not shuffle adata
         scvi.data.setup_anndata(
             ad_merge,
             layer=None,

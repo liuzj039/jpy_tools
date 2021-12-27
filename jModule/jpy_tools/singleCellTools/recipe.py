@@ -163,7 +163,7 @@ def multiBatch(
         else:
             sc.pp.scale(ad, max_value=10)
     elif normalization == "sct":
-        if method != 'seurat':
+        if method != ['seurat']:
             ls_adataAfterSCT = []
             for _ad in basic.splitAdata(ad, batch):
                 normalize.normalizeBySCT(

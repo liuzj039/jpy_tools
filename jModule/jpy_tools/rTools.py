@@ -23,6 +23,7 @@ from rpy2.robjects.packages import importr
 import scanpy as sc
 import h5py
 from tempfile import TemporaryDirectory
+import sys
 
 R = ro.r
 seo = importr("SeuratObject")
@@ -173,6 +174,7 @@ def ad2so(
     dir_tmp=None,
     dataLayer=None,
     scaleLayer=None,
+    lightMode=False,
     path_R="/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/bin/R",
 ):
     """
@@ -186,12 +188,14 @@ def ad2so(
         only keep 'distances'
     varp:
         discarded
+    lightMode:
+        if True, obsm/varm/obsp info will be discarded.
 
     layer must be raw.
     """
     import sh
     import scipy.sparse as ss
-
+    # ad = ad.copy() # workaround `memoory not mapped` error
     R(
         '.libPaths("/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/lib/R/library")'
     )
@@ -202,14 +206,21 @@ def ad2so(
         dir_tmp = dir_tmp_.name
     path_h5ad = f"{dir_tmp}/temp.h5ad"
     path_h5so = f"{dir_tmp}/temp.h5seurat"
-    ad_partial = sc.AnnData(
-        ad.layers[layer].copy(),
-        obs=ad.obs,
-        var=ad.var,
-        obsm=ad.obsm,
-        varm=ad.varm,
-        obsp=ad.obsp,
-    )
+    if lightMode:
+        ad_partial = sc.AnnData(
+            ad.layers[layer].copy(),
+            obs=ad.obs,
+            var=ad.var,
+        )
+    else:
+        ad_partial = sc.AnnData(
+            ad.layers[layer].copy(),
+            obs=ad.obs,
+            var=ad.var,
+            obsm=ad.obsm,
+            varm=ad.varm,
+            obsp=ad.obsp,
+        )
     if not ls_obs is None:
         if isinstance(ls_obs, str):
             ls_obs = [ls_obs]
@@ -228,7 +239,14 @@ def ad2so(
             _ls.append(key)
     for key in _ls:
         del ad_partial.obsm[key]
+    
+    # workaround `memoory not mapped` error
+    df_var = ad_partial.var
+    ad_partial.var = ad_partial.var[[]]
     ad_partial.raw = ad_partial
+    ad_partial.var = df_var
+    
+
     sc.pp.normalize_total(ad_partial, 1e4)
     sc.pp.log1p(ad_partial)
 
@@ -247,8 +265,9 @@ def ad2so(
         "-e",
         f"library(SeuratDisk); Convert('{path_h5ad}', dest='h5Seurat', overwrite=True)",
     ]
-    for x in sh.Command(path_R)(*ls_cmd, _err_to_out=True, _iter=True):
-        print(x.rstrip())
+    sh.Command(path_R)(*ls_cmd, _err_to_out=True, _out=sys.stdout)
+    # for x in sh.Command(path_R)(*ls_cmd, _err_to_out=True, _iter=True):
+    #     print(x.rstrip())
     so = seuratDisk.LoadH5Seurat(path_h5so)
 
     with ro.local_context() as rlc:

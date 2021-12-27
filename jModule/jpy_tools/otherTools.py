@@ -400,7 +400,7 @@ def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, dir_path=
         writeFc = config["writeFc"]
         arg_path = config["arg_path"]
         dt_arg = config["dt_arg"]
-        logger.info(f"please run `loadPkl({name}, {config['readFc']})` to get object")
+        logger.info(f"please run `loadPkl('{name}', {config['readFc']})` to get object")
 
     if not writeFc:
         with open(f"{dir_currentPkl}/{name}", "wb") as fh:
@@ -517,7 +517,7 @@ def getGoDesc(goTerm: Union[str, List[str]], retry=5) -> pd.DataFrame:
         dt_singleGoFirstHit = dt_singleGo["results"][0]
         dt_go[name] = {
             "hitGO": dt_singleGoFirstHit["id"],
-            "hitName": name + ": " + dt_singleGoFirstHit["name"],
+            "hitName": dt_singleGoFirstHit["name"] + f" ({name})" ,
             "hitDefinition": dt_singleGoFirstHit["definition"]["text"],
             "hitCounts": dt_singleGo["numberOfHits"],
         }

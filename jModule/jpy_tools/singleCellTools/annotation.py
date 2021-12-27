@@ -475,7 +475,8 @@ def labelTransferBySeurat(
     kScore=30,
     dims=30,
     kWeight=100,
-    refIsIntegrated=False
+    refIsIntegrated=False,
+    renv = None
 ) -> anndata.AnnData:
     """
     annotate queryAd based on refAd annotation result.
@@ -520,6 +521,10 @@ def labelTransferBySeurat(
     seuratObject = importr("SeuratObject")
     setSeed(0)
 
+    if renv is None:
+        renv = ro.Environment()
+
+
     if not refIsIntegrated:
         ad_ref.layers['_raw'] = ad_ref.layers[refLayer].copy()
         ad_query.layers['_raw'] = ad_query.layers[queryLayer].copy()
@@ -531,8 +536,6 @@ def labelTransferBySeurat(
         so_ref = ad2so(ad_ref, refLayer, ls_obs=refLabel)
         so_query = ad2so(ad_query, queryLayer, ls_obs=[])
         lsR_features = R.c(*ls_features)
-
-        renv = ro.Environment()
 
         with ro.local_context(renv) as rlc:
             rlc["so_ref"] = so_ref
