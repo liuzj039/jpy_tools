@@ -153,7 +153,8 @@ def labelTransferByScanvi(
     queryLayer: str,
     needLoc: bool = False,
     ls_removeCateKey: Optional[List[str]] = [],
-    dt_params2Model={},
+    dt_params2SCVIModel={},
+    dt_params2SCANVIModel={},
     cutoff: float = 0.95,
     keyAdded: Optional[str] = None,
     max_epochs: int = 1000,
@@ -241,14 +242,14 @@ def labelTransferByScanvi(
             categorical_covariate_keys=ls_removeCateKey[1:],
         )
 
-        scvi_model = scvi.model.SCVI(refAd, **dt_params2Model)
+        scvi_model = scvi.model.SCVI(refAd, **dt_params2SCVIModel)
         scvi_model.train(
             max_epochs=max_epochs,
             early_stopping=early_stopping,
             batch_size=batch_size_ref,
         )
 
-        lvae = scvi.model.SCANVI.from_scvi_model(scvi_model, "unknown")
+        lvae = scvi.model.SCANVI.from_scvi_model(scvi_model, "unknown", **dt_params2SCANVIModel)
         lvae.train(max_epochs=max_epochs, batch_size=batch_size_ref)
 
         # plot result on training dataset
@@ -289,14 +290,14 @@ def labelTransferByScanvi(
             batch_key=ls_removeCateKey[0],
             categorical_covariate_keys=ls_removeCateKey[1:],
         )
-        scvi_model = scvi.model.SCVI(ad_merge, **dt_params2Model)
+        scvi_model = scvi.model.SCVI(ad_merge, **dt_params2SCVIModel)
         scvi_model.train(
             max_epochs=max_epochs,
             early_stopping=early_stopping,
             batch_size=batch_size_ref,
         )
 
-        lvae = scvi.model.SCANVI.from_scvi_model(scvi_model, "unknown")
+        lvae = scvi.model.SCANVI.from_scvi_model(scvi_model, "unknown", **dt_params2SCANVIModel)
         lvae.train(
             max_epochs=max_epochs,
             early_stopping=early_stopping,

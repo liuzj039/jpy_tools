@@ -339,7 +339,7 @@ def getMarkerFromCellexResults(
         3, "median_enrichScore", df_results.filter(like="enrichScore").median(1)
     )
     df_results = df_results.sort_values(
-        ["leiden", "median_enrichScore"], ascending=[True, False]
+        [clusterName, "median_enrichScore"], ascending=[True, False]
     )
     return df_results
 

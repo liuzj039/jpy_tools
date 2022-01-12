@@ -142,14 +142,15 @@ def py2r_disk(obj, check=False, *args, **kwargs):
         obj.obs["temp_barcodeName"] = obj.obs.index
         obj.write_h5ad(tpFile.name)
         objR = zellkonverter.readH5AD(tpFile.name, X_layer, reader="R")
-        ro.globalenv["objR"] = objR
-        R(
+        with ro.local_context() as rlc:
+            rlc["objR"] = objR
+            R(
+                """
+            objR@rowRanges@partitioning@NAMES <- rowData(objR)$temp_featureName
+            objR@colData@rownames <- colData(objR)$temp_barcodeName
             """
-        objR@rowRanges@partitioning@NAMES <- rowData(objR)$temp_featureName
-        objR@colData@rownames <- colData(objR)$temp_barcodeName
-        """
-        )
-        objR = R("objR")
+            )
+            objR = R("objR")
 
         tpFile.close()
         return objR
@@ -171,10 +172,12 @@ def ad2so(
     layer="raw",
     ls_obs=None,
     ls_var=None,
+    ls_obsm=None,
     dir_tmp=None,
     dataLayer=None,
     scaleLayer=None,
     lightMode=False,
+    renv = None,
     path_R="/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/bin/R",
 ):
     """
@@ -200,6 +203,8 @@ def ad2so(
         '.libPaths("/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/lib/R/library")'
     )
     seuratDisk = importr("SeuratDisk")
+    if renv is None:
+        renv = ro.Environment()
 
     if not dir_tmp:
         dir_tmp_ = TemporaryDirectory()
@@ -229,6 +234,15 @@ def ad2so(
         if isinstance(ls_var, str):
             ls_var = [ls_var]
         ad_partial.var = ad_partial.var[ls_var]
+    if not ls_obsm is None:
+        if isinstance(ls_obsm, str):
+            ls_obsm = [ls_obsm]
+        ls_rm = []
+        for _obsm in ad_partial.obsm.keys():
+            if not _obsm in ls_obsm:
+                ls_rm.append(_obsm)
+        for _obsm in ls_rm:
+            del(ad_partial.obsm[_obsm])
 
     ad_partial.X = ss.csr_matrix(
         ad_partial.X
@@ -270,8 +284,8 @@ def ad2so(
     #     print(x.rstrip())
     so = seuratDisk.LoadH5Seurat(path_h5so)
 
-    with ro.local_context() as rlc:
-        if dataLayer:
+    if dataLayer:
+        with ro.local_context(renv) as rlc:
             _ad = sc.AnnData(X=ss.csr_matrix(ad.shape), obs=ad.obs[[]], var=ad.var[[]])
             _ad.layers["data"] = ad.layers[dataLayer].copy()
             _se = py2r(_ad)
@@ -281,14 +295,15 @@ def ad2so(
                 """so <- SetAssayData(so, slot = 'data', new.data = assay(se, 'data')) """
             )
             so = rlc["so"]
-        if scaleLayer:
+    if scaleLayer:
+        with ro.local_context(renv) as rlc:
             _ad = sc.AnnData(X=ss.csr_matrix(ad.shape), obs=ad.obs[[]], var=ad.var[[]])
-            _ad.layers["scale"] = ad.layers[scaleLayer].copy()
+            _ad.layers["scale.data"] = ad.layers[scaleLayer].copy()
             _se = py2r(_ad)
             rlc["se"] = _se
             rlc["so"] = so
             R(
-                """so <- SetAssayData(so, slot = 'scale.data', new.data = assay(se, 'scale')) """
+                """so <- SetAssayData(so, slot = 'scale.data', new.data = assay(se, 'scale.data')) """
             )
             so = rlc["so"]
 
