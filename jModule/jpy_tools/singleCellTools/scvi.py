@@ -164,6 +164,7 @@ def labelTransferByScanvi(
     early_stopping: bool = True,
     batch_size_ref: int = 128,
     batch_size_query: int = 128,
+    hvgBatch = None
 ) -> Optional[anndata.AnnData]:
     """
     annotate queryAd based on refAd annotation result.
@@ -201,6 +202,8 @@ def labelTransferByScanvi(
     """
     scvi.settings.seed = 39
     scvi.settings.num_threads = threads
+    if not hvgBatch:
+        hvgBatch = ls_removeCateKey[0]
 
     queryAdOrg = queryAd
     refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel, *ls_removeCateKey])
@@ -218,7 +221,7 @@ def labelTransferByScanvi(
         ad_merge,
         flavor="seurat_v3",
         n_top_genes=n_top_genes,
-        batch_key="_batch",
+        batch_key=hvgBatch,
         subset=True,
     )
 
@@ -280,7 +283,7 @@ def labelTransferByScanvi(
             plan_kwargs=dict(weight_decay=0.0),
             batch_size=batch_size_query,
         )
-        
+
         ad_merge.obsm["X_scANVI"] = lvae_online.get_latent_representation(ad_merge)
         sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
         sc.tl.umap(ad_merge, min_dist=0.2)
