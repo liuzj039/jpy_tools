@@ -280,7 +280,10 @@ def labelTransferByScanvi(
             plan_kwargs=dict(weight_decay=0.0),
             batch_size=batch_size_query,
         )
-
+        
+        ad_merge.obsm["X_scANVI"] = lvae_online.get_latent_representation(ad_merge)
+        sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
+        sc.tl.umap(ad_merge, min_dist=0.2)
     elif mode == "merge":
         sc.pp.subsample(ad_merge, fraction=1) # scvi do not shuffle adata
         scvi.data.setup_anndata(
@@ -318,9 +321,7 @@ def labelTransferByScanvi(
 
     # plot result on both dataset
     ad_merge.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(ad_merge)
-    ad_merge.obsm["X_scANVI"] = lvae_online.get_latent_representation(ad_merge)
-    sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
-    sc.tl.umap(ad_merge, min_dist=0.2)
+
     dt_color = basic.getadataColor(refAd, refLabel)
     ad_merge = basic.setadataColor(
         ad_merge, f"labelTransfer_scanvi_{refLabel}", dt_color
