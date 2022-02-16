@@ -32,6 +32,18 @@ from typing import (
 )
 import collections
 
+def initLayer(ad:sc.AnnData, layer=None, total=1e4):
+    """
+    overwrite layer: `raw`, `normalize_log`, `normalize_log_scale`
+    """
+    ad.layers['raw'] = ad.X.copy() if layer == None else ad.layers[layer].copy()
+    ad.layers['normalize_log'] = ad.layers['raw'].copy()
+    sc.pp.normalize_total(ad, total, layer='normalize_log')
+    sc.pp.log1p(ad, layer='normalize_log')
+    ad.layers['normalize_log_scale'] = ad.layers['normalize_log'].copy()
+    sc.pp.scale(ad, layer='normalize_log_scale')
+    ad.X = ad.layers['normalize_log'].copy()
+
 
 def geneFilterSampleSeparately(ad, batchKay, layer, minCells) -> List[str]:
     ls_feature = (
@@ -61,6 +73,7 @@ def splitAdata(
     copy=True,
     axis: Literal[0, "cell", 1, "feature"] = 0,
     needName=False,
+    disableBar=False
 ) -> Iterator[anndata.AnnData]:
     if axis in [0, "cell"]:
         assert batchKey in adata.obs.columns, f"{batchKey} not detected in adata"
@@ -72,7 +85,7 @@ def splitAdata(
             .groupby("__group")[indexName]
             .agg(list)
         )
-        for batchObs in tqdm(batchObsLs):
+        for batchObs in tqdm(batchObsLs, disable=disableBar):
             if needName:
                 if copy:
                     yield adata[batchObs].obs.iloc[0].loc["__group"], adata[
@@ -97,7 +110,7 @@ def splitAdata(
             .agg(list)
         )
         del adata.var["__group"]
-        for batchVar in tqdm(batchVarLs):
+        for batchVar in tqdm(batchVarLs, disable=disableBar):
             if needName:
                 if copy:
                     yield adata[batchVar].var.iloc[0].loc["__group"], adata[
@@ -256,6 +269,10 @@ def setadataColor(adata, label, colorDt=None, hex=True):
             from matplotlib.colors import to_hex
 
             colorDt = {x: to_hex(y) for x, y in colorDt.items()}
+
+        _dt = getadataColor(adata, label)
+        _dt.update(colorDt)
+        colorDt = _dt
         adata.uns[f"{label}_colors"] = [
             colorDt[x] for x in adata.obs[label].cat.categories
         ]

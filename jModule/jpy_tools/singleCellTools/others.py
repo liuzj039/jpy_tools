@@ -361,6 +361,27 @@ def clusterCorrelation(
     ad_psedoBulk.obsp[f"corr_{method}"] = mtx_corr
     return ad_psedoBulk
 
+def addMetaCellLayerGroup(ad: sc.AnnData, layer: str, group: str, ls_hvgGene: List[str], n_neighbors = 50, boolConnectivity = False) -> sc.AnnData:
+    """
+    Add meta-cell layer to group.
+
+    Parameters
+    ----------
+    ad : :class:`~anndata.AnnData`
+        Annotated data matrix.
+    layer : `str`
+    group : `str`
+        Group name.
+    """
+    ad = ad.copy()
+    dt_ad = {}
+    for sample, _ad in basic.splitAdata(ad, group, needName = True):
+        _ad.var['highly_variable'] = _ad.var.index.isin(ls_hvgGene)
+        sc.tl.pca(_ad)
+        addMetaCellLayer(_ad, layer=layer, obsm='X_pca', n_neighbors=n_neighbors, boolConnectivity=boolConnectivity)
+        dt_ad[sample] = _ad
+    ad = sc.concat(dt_ad)[ad.obs.index]
+    return ad
 
 def addMetaCellLayer(ad:sc.AnnData, layer:str, obsm:str, n_neighbors = 50, obsp = None, boolConnectivity = False):
     """
@@ -376,3 +397,39 @@ def addMetaCellLayer(ad:sc.AnnData, layer:str, obsm:str, n_neighbors = 50, obsp 
         ar_connect =  np.eye(ad.shape[0]) + ad.obsp[obsp].A
         ar_neighbors = ar_connect * (1 / ar_connect.sum(0))
         ad.layers[f"{layer}_meta"] = ar_neighbors @ ad.layers[layer]
+
+def getAlignmentScore(ad, batchKey, obsm, knn = 20, plot=True, **dt_heatmapKwargs):
+    import scanorama
+    ls_sample = []
+    curSample = None
+    for x in ad.obs[batchKey]:
+        if not curSample:
+            curSample = x
+            ls_sample.append(curSample)
+        if x == curSample:
+            continue
+        else:
+            if x in ls_sample:
+                assert False, "Detected non-contiguous batches."
+            else:
+                curSample = x
+                ls_sample.append(curSample)
+    
+    dt_index = ad.obs.groupby(batchKey, sort=False).apply(lambda df:df.index.to_list()).to_dict()
+    ar_alignment, _, _ = scanorama.find_alignments_table([ad[x].obsm[obsm] for x in dt_index.values()], knn=knn, verbose=0)
+
+    ar_alignmentProcessed = np.zeros((len(dt_index), len(dt_index)))
+    for x,y in ar_alignment.keys():
+        ar_alignmentProcessed[x, y] += ar_alignment[(x, y)]
+    
+    df_alignmentProcessed = pd.DataFrame(
+        ar_alignmentProcessed + ar_alignmentProcessed.T + np.eye(len(dt_index)),
+        index=dt_index.keys(),
+        columns=dt_index.keys(),
+    )
+    if plot:
+        ax = sns.heatmap(df_alignmentProcessed, cmap='Reds', annot=True, **dt_heatmapKwargs)
+        plt.title(batchKey)
+        return df_alignmentProcessed, ax
+    else:
+        return df_alignmentProcessed

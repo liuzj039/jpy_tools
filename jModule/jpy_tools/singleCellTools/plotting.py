@@ -29,10 +29,93 @@ from typing import (
     Mapping,
     Callable,
 )
+from cool import F
 import collections
 from xarray import corr
+import matplotlib as mpl
+from more_itertools import chunked
+import patchworklib as pw
+def show_figure(fig):
+
+    dummy = plt.figure()
+    new_manager = dummy.canvas.manager
+    new_manager.canvas.figure = fig
+    fig.set_canvas(new_manager.canvas)
+    fig.show()
+    plt.show()
+pw.show = show_figure
+
+
 from . import basic
 
+def umapMultiBatch(ad, ls_gene, groups, layer, needAll=True, ncols=2, figsize=(4,3), cmap='Reds', dir_result=None, ls_title=None, size=None, horizontal=False, vmin=None, vmax=None):
+    if isinstance(ls_gene, str):
+        ls_gene = [ls_gene]
+    if not ls_title:
+        ls_title = ls_gene
+    if not groups[1]:
+        groups[1] = ad.obs[groups[0]].unique().to_list()
+    dt_adObs = ad.obs.groupby(groups[0]).apply(lambda df:df.index.to_list()).to_dict()
+    dt_ad = {x:ad[y] for x,y in dt_adObs.items() if x in groups[1]}
+    if needAll:
+        dt_ad = dict(All=ad, **dt_ad)
+    if not size:
+        size = 12e4/len(ad)
+    
+    vmin = vmin if vmin else 0
+    vmaxSpecify = vmax
+    for gene,title in zip(ls_gene, ls_title):
+        if not vmaxSpecify:
+            vmax = ad[:, gene].to_df(layer).iloc[:, 0]
+            vmax = sorted(list(vmax))
+            vmax = vmax[-2]
+            if vmax <= 1:
+                vmax = 1
+        else:
+            vmax = vmaxSpecify
+        ls_ax = []
+        for sample, _ad in dt_ad.items():
+            ax = pw.Brick(figsize=figsize)
+            sc.pl.umap(ad, ax=ax, show=False, size=size)
+            sc.pl.umap(_ad, color=gene, show=False, ax=ax, title=sample, layer=layer, cmap=cmap, vmin=vmin, vmax=vmax, size=size)
+            plt.close()
+            ls_ax.append(ax)
+        ls_ax = chunked(ls_ax, ncols) | F(list)
+        
+        _bc = pw.param["margin"]
+        pw.param["margin"] = 0.3
+        if len(ls_ax) == 1:
+            axs = pw.stack(ls_ax[0])
+        else:
+            axs = pw.stack([pw.stack(x) for x in ls_ax[:-1]], operator='/')
+            ls_name = list(axs.bricks_dict.keys())
+            for i, ax in enumerate(ls_ax[-1]):
+                axs = axs[ls_name[i]] / ax
+        
+        cmap = mpl.cm.get_cmap(cmap)
+        norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+        
+
+        if horizontal:
+            ax_cb = pw.Brick(figsize=(1, 0.01))
+            mpl.colorbar.ColorbarBase(ax_cb, cmap=cmap, norm=norm, orientation='horizontal')
+            
+            pw.param["margin"] = 0.1
+            axs = axs / ax_cb
+            pw.param["margin"] = _bc
+        else:
+            ax_cb = pw.Brick(figsize=(0.025, 1))
+            mpl.colorbar.ColorbarBase(ax_cb, cmap=cmap, norm=norm)
+            
+            pw.param["margin"] = 0.1
+            axs = axs | ax_cb
+            pw.param["margin"] = _bc
+        
+        axs.case.set_title(title, pad=10)
+        if dir_result:
+            axs.savefig(f"{dir_result}/{gene}.png")
+        else:
+            pw.show(axs.savefig())
 
 def obsmToObs(
     ad: sc.AnnData,
@@ -81,7 +164,7 @@ def plotCellScatter(
 
 
 def plotLabelPercentageInCluster(
-    adata, groupby, label, labelColor: Optional[dict] = None, needCounts=True
+    adata, groupby, label, labelColor: Optional[dict] = None, needCounts=True, ax = None
 ):
     """
     根据label在adata.obs中groupby的占比绘图
@@ -109,7 +192,9 @@ def plotLabelPercentageInCluster(
             x=groupbyWithLabelCounts_CumsumPercDf.index,
             y=groupbyWithLabelCounts_CumsumPercDf[singleLabel],
             color=labelColor[singleLabel],
+            ax = ax
         )
+        plt.sca(ax)
         legendHandleLs.append(
             plt.Rectangle((0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none")
         )
@@ -128,7 +213,9 @@ def plotLabelPercentageInCluster(
                 ha="center",
                 va="bottom",
             )
-    sns.despine(top=True, right=True)
+    # sns.despine(top=True, right=True)
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
     return ax
 
 

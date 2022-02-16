@@ -369,7 +369,7 @@ def so2ad(so, dir_tmp=None) -> sc.AnnData:
     h5so = h5py.File(path_h5so, "r+")
     ls_assays = h5so["/assays"].keys()
     for assay in ls_assays:
-        ls_keys = ls_assays = h5so[f"/assays/{assay}"].keys()
+        ls_keys = h5so[f"/assays/{assay}"].keys()
         ls_slots = [x for x in ls_keys if x in ["counts", "data", "scale.data"]]
         ls_slots = [x for x in h5so[f"/assays/{assay}"] if x in ls_slots]
         for slot in ls_slots:

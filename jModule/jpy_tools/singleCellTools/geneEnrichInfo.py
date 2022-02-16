@@ -34,6 +34,117 @@ from xarray import corr
 from . import basic, diffxpy
 
 
+def getBgGene(ad, ls_gene, layer="normalize_log", bins=50, seed=0, usePreBin:str = None, multi = 1, replacement = True):
+    "replacement: if True, ls_gene will be included in the result"
+    if not usePreBin:
+        ad.var["means_ForPickMock"] = ad.to_df(layer).mean()
+        ad.var["bins_ForPickMock"] = pd.qcut(
+            ad.var["means_ForPickMock"], bins, duplicates="drop"
+        )
+    else:
+        ad.var["bins_ForPickMock"] = ad.var[usePreBin]
+    dt_binGeneCounts = ad.var.loc[ls_gene]["bins_ForPickMock"].value_counts().to_dict()
+    if replacement:
+        ls_gene = []
+    ls_randomGene = (
+        ad.var.query("index not in @ls_gene")
+        .groupby("bins_ForPickMock", group_keys=False)
+        .apply(
+            lambda df: df.sample(
+                n=dt_binGeneCounts[df["bins_ForPickMock"].iloc[0]] * multi, random_state=seed
+            )
+        )
+        .index.to_list()
+    )
+    return ls_randomGene
+
+def getGeneModuleEnrichScore(ad, layer, ls_gene, times=100, groupby=None, targetOnly=True, disableBar=False, multi=False, **dt_paramsGetBgGene):
+    """
+    get gene module enrich score
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+    layer : 
+        normalize_log
+    ls_gene : 
+        gene list: 
+            ['a', 'b']
+    times : int, optional
+        by default 100
+    groupby : _type_, optional
+        by default None
+    targetOnly : bool, optional
+        remove shuffled gene results or not
+    """    
+        
+    ls_adGene = ad.var.index.to_list()
+    st_notInGene = set(ls_gene) - set(ls_adGene)
+    if len(st_notInGene):
+        logger.warning(f"{ls_gene} not found in adata")
+    ls_gene = [x for x in ls_gene if x in ls_adGene]
+    if not multi:
+        getBgGene(ad, ls_gene, layer=layer, **dt_paramsGetBgGene)
+    ad.layers[f"{layer}_scaled"] = ad.layers[layer].copy()
+    sc.pp.scale(ad, layer=f"{layer}_scaled")
+    ls_bgGene = [
+        getBgGene(
+            ad,
+            ls_gene,
+            layer=layer,
+            usePreBin="bins_ForPickMock",
+            seed=x,
+            **dt_paramsGetBgGene,
+        )
+        for x in tqdm(range(times), "get shuffled genes", disable=disableBar)
+    ]
+    if not groupby:
+        ad.obs["temp_forES"] = "all"
+        groupby = "temp_forES"
+    dt_scaledMeanExp = {}
+    for name, _ad in basic.splitAdata(ad, groupby, needName=True, copy=False):
+        df_scaledExp = _ad.to_df(f"{layer}_scaled")
+        dt_groupMeanExp = {"target": df_scaledExp[ls_gene].mean().mean()}
+        for i, ls_bgGeneSingle in enumerate(ls_bgGene):
+            dt_groupMeanExp[f"shuffle_{i}"] = df_scaledExp[ls_bgGeneSingle].mean().mean()
+        dt_scaledMeanExp[name] = dt_groupMeanExp
+    df_scaledMeanExp = pd.DataFrame(dt_scaledMeanExp).apply(zscore)
+    if targetOnly:
+        return df_scaledMeanExp.loc['target'].to_dict()
+    else:
+        return df_scaledMeanExp
+
+def getGeneModuleEnrichScore_multiList(ad, layer, dt_gene, times=100, groupby=None, bins=50, **dt_paramsGetBgGene):
+    """
+    get gene module enrich score
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+    layer : 
+        normalize_log
+    ls_gene : 
+        gene list: 
+            ['a', 'b']
+    times : int, optional
+        by default 100
+    groupby : _type_, optional
+        by default None
+    targetOnly : bool, optional
+        remove shuffled gene results or not
+    """    
+    ad.var["means_ForPickMock"] = ad.to_df(layer).mean()
+    ad.var["bins_ForPickMock"] = pd.qcut(
+        ad.var["means_ForPickMock"], bins, duplicates="drop"
+    )
+
+    dt_result = {}
+    for name, ls_gene in tqdm(dt_gene.items(), 'get gene module enrich score', len(dt_gene)):
+        dt_result[name] = getGeneModuleEnrichScore(
+            ad, layer, ls_gene, times, groupby, disableBar=True, multi=True, **dt_paramsGetBgGene
+        )
+    return pd.DataFrame(dt_result)
+
 def getUcellScore(
     ad: sc.AnnData,
     dt_deGene: Mapping[str, List[str]],
@@ -331,7 +442,7 @@ def getMarkerFromCellexResults(
     )
     df_results = reduce(
         lambda x, y: pd.merge(
-            x, y, left_on=("gene", clusterName), right_on=("gene", clusterName)
+            x, y, left_on=("gene", clusterName), right_on=("gene", clusterName), how='outer'
         ),
         [sr_geneCounts, *lsDf_Concat],
     ).query("counts >= @minCounts")
@@ -505,9 +616,7 @@ def getMarkerByFcCellexCellidDiffxpy(
 
     ## cellid method
     if forceAllRun | (f"{groupby}_cellid_marker" not in adata.uns):
-        getEnrichedGeneByCellId(
-            ad_sub, normalize_layer, groupby, markerCounts_CellId
-        )
+        getEnrichedGeneByCellId(ad_sub, normalize_layer, groupby, markerCounts_CellId)
         adata.uns[f"{groupby}_cellid_marker"] = ad_sub.uns[f"{groupby}_cellid_marker"]
     dt_markerCellId = {
         x: list(y)

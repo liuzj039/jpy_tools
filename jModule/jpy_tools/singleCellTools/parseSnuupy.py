@@ -34,22 +34,23 @@ from xarray import corr
 import scipy.sparse as ss
 from . import basic
 import pysam
+from collections import defaultdict
 
 
-def addSnuupyBamTag(path_bam, path_out, tag='CB'):
+def addSnuupyBamTag(path_bam, path_out, tag="CB"):
     bam_org = pysam.AlignmentFile(path_bam)
     bam_out = pysam.AlignmentFile(path_out, mode="wb", template=bam_org)
 
-    for read in tqdm(bam_org, 'add barcode tag', total=bam_org.unmapped + bam_org.mapped):
-        readBc = read.qname.split('_')[0]
+    for read in tqdm(
+        bam_org, "add barcode tag", total=bam_org.unmapped + bam_org.mapped
+    ):
+        readBc = read.qname.split("_")[0]
         read.set_tag(tag, readBc)
         bam_out.write(read)
-    
+
     bam_org.close()
     bam_out.close()
     pysam.index(path_out)
-
-
 
 
 def getDiffSplicedPvalue(
@@ -64,20 +65,29 @@ def getDiffSplicedPvalue(
     for i in range(len(ad_groupSpliceRatio)):
         currentObsIndex = ad_groupSpliceRatio[i].obs.index[0]
         ad_current = ad_groupSpliceRatio[i]
-        ad_others = ad_groupSpliceRatio[ad_groupSpliceRatio.obs.index != currentObsIndex]
-        df_currentUnspliced = ad_current.to_df('unspliced').sum().rename('currentUnspliced')
-        df_currentTotal = ad_current.to_df('total').sum().rename('currentTotal')
+        ad_others = ad_groupSpliceRatio[
+            ad_groupSpliceRatio.obs.index != currentObsIndex
+        ]
+        df_currentUnspliced = (
+            ad_current.to_df("unspliced").sum().rename("currentUnspliced")
+        )
+        df_currentTotal = ad_current.to_df("total").sum().rename("currentTotal")
 
-        df_othersUnspliced = ad_others.to_df('unspliced').sum().rename('othersUnspliced')
-        df_othersTotal = ad_others.to_df('total').sum().rename('othersTotal')
-        
+        df_othersUnspliced = (
+            ad_others.to_df("unspliced").sum().rename("othersUnspliced")
+        )
+        df_othersTotal = ad_others.to_df("total").sum().rename("othersTotal")
+
         df_currentSpliceInfo = pd.concat(
-            [df_currentUnspliced, df_currentTotal, df_othersUnspliced, df_othersTotal], axis=1
-        ).assign(cluster = currentObsIndex)
+            [df_currentUnspliced, df_currentTotal, df_othersUnspliced, df_othersTotal],
+            axis=1,
+        ).assign(cluster=currentObsIndex)
         lsDf_spliceInfo.append(df_currentSpliceInfo)
     df_spliceInfo = pd.concat(lsDf_spliceInfo)
 
-    df_spliceInfo = df_spliceInfo.query("currentTotal > @min_total & othersTotal > @min_total")
+    df_spliceInfo = df_spliceInfo.query(
+        "currentTotal > @min_total & othersTotal > @min_total"
+    )
 
     fc_ztest = lambda x: proportions_ztest(
         [x.currentUnspliced, x.othersUnspliced], [x.currentTotal, x.othersTotal]
@@ -90,21 +100,20 @@ def getDiffSplicedPvalue(
         method="wald",
         compare="diff",
     )[1]
-    fc_test = {'ztest': fc_ztest, 'wald':fc_waldtest}[method]
+    fc_test = {"ztest": fc_ztest, "wald": fc_waldtest}[method]
 
     ls_pvalue = Parallel(threads, batch_size=100)(
         delayed(fc_test)(x)
         for x in tqdm(df_spliceInfo.itertuples(), total=len(df_spliceInfo))
     )
 
-    df_spliceInfo['pvalue'] = ls_pvalue
+    df_spliceInfo["pvalue"] = ls_pvalue
     df_spliceInfo = df_spliceInfo.fillna(1)
-    df_spliceInfo['qvalue'] = multitest.fdrcorrection(df_spliceInfo['pvalue'])[1]
+    df_spliceInfo["qvalue"] = multitest.fdrcorrection(df_spliceInfo["pvalue"])[1]
     df_spliceInfo = df_spliceInfo.eval(
         "currentUnsplicedRatio = currentUnspliced / currentTotal"
     ).eval("othersUnsplicedRatio = othersUnspliced / othersTotal")
     return df_spliceInfo
-
 
 
 def calcUnsplicedRatioFromSnuupyMtx(
@@ -505,3 +514,155 @@ def getDiffSplicedIntron(
             f"group {singleCluster} processed; {len(clusterSpliceIntronInfoDf)} input; {clusterSpliceIntronInfoDf['significantDiff'].sum()} output"
         )
     return allClusterDiffDt
+
+
+class SnuupySpliceInfo(object):
+    """Snuupy splice info object"""
+    def __init__(self, df=None, path=None, suffix=None, ad=None, isor=False):
+        if df is None:
+            assert not path is None, "no path found"
+            df = pd.read_table(path)
+
+        if not isor:
+            df = df.assign(
+                barcode=lambda df: df["Name"].str.split("_").str[0],
+                readExonCounts=lambda df: df["ExonOverlapInfo"].str.count(",") + 1,
+            )
+            if suffix:
+                df["barcode"] = df["barcode"] + suffix
+        self.ad = ad
+        self.df = df
+        self.oneExonGene = (
+            df.query("GeneExonCounts == 1")["geneId"].to_list() | F(set) | F(list)
+        )
+
+    def getSpliceMtx(self, fullLength=False, dt_usedIntron=None):
+        "dt_usedIntron: {geneId: [intronIds]}: {'AT1': [0,1]}"
+        df = self.df.copy().fillna("")
+        df["IntronOverlapInfo"] = (
+            df["IntronOverlapInfo"].str.split(",").map(lambda z: [x for x in z if x])
+        )
+        dt_expSpliced = defaultdict(lambda: defaultdict(lambda: 0))
+        dt_expUnspliced = defaultdict(lambda: defaultdict(lambda: 0))
+        dt_expAmb = defaultdict(lambda: defaultdict(lambda: 0))
+        if fullLength:
+            df = df.query("readExonCounts == GeneExonCounts")
+
+        for line in tqdm(df.itertuples(), total=len(df), desc="Get Splice Mtx"):
+            if (line.readExonCounts == 1) and (len(line.IntronOverlapInfo) == 0):
+                dt_expAmb[line.barcode][line.geneId] += 1
+                continue
+            if dt_usedIntron is None:
+                if len(line.IntronOverlapInfo) == 0:
+                    dt_expSpliced[line.barcode][line.geneId] += 1
+                else:
+                    dt_expUnspliced[line.barcode][line.geneId] += 1
+            else:
+                if not line.geneId in dt_usedIntron:
+                    dt_expAmb[line.barcode][line.geneId] += 1
+                elif len(line.IntronOverlapInfo) == 0:
+                    dt_expSpliced[line.barcode][line.geneId] += 1
+                elif set(dt_usedIntron[line.geneId]) & set(line.IntronOverlapInfo):
+                    dt_expUnspliced[line.barcode][line.geneId] += 1
+                else:
+                    dt_expSpliced[line.barcode][line.geneId] += 1
+        return dt_expSpliced, dt_expUnspliced, dt_expAmb
+
+    def addSpliceInfoToAd(
+        self,
+        fullLength=False,
+        dt_usedIntron=None,
+        useAmbiguousCalcUnsplicedRatio=False,
+        layerPrefix="splice",
+    ):
+        assert self.ad, "Not Found Default Adata"
+        ad = self.ad
+        dt_expSpliced, dt_expUnspliced, dt_expAmb = self.getSpliceMtx(
+            fullLength, dt_usedIntron
+        )
+        ad.layers[f"{layerPrefix}_spliced"] = (
+            pd.DataFrame(dt_expSpliced)
+            .T.reindex(ad.obs.index)
+            .reindex(columns=ad.var.index)
+            .fillna(0)
+        )
+        ad.layers[f"{layerPrefix}_unspliced"] = (
+            pd.DataFrame(dt_expUnspliced)
+            .T.reindex(ad.obs.index)
+            .reindex(columns=ad.var.index)
+            .fillna(0)
+        )
+        ad.layers[f"{layerPrefix}_amb"] = (
+            pd.DataFrame(dt_expAmb)
+            .T.reindex(ad.obs.index)
+            .reindex(columns=ad.var.index)
+            .fillna(0)
+        )
+        if useAmbiguousCalcUnsplicedRatio:
+            ad.obs[f"{layerPrefix}_incompletelySplicedRatio"] = ad.to_df(
+                f"{layerPrefix}_unspliced"
+            ).sum(1) / (
+                ad.to_df(f"{layerPrefix}_spliced").sum(1)
+                + ad.to_df(f"{layerPrefix}_unspliced").sum(1)
+                + ad.to_df(f"{layerPrefix}_amb").sum(1)
+            )
+        else:
+            ad.obs[f"{layerPrefix}_incompletelySplicedRatio"] = ad.to_df(
+                f"{layerPrefix}_unspliced"
+            ).sum(1) / (
+                ad.to_df(f"{layerPrefix}_spliced").sum(1)
+                + ad.to_df(f"{layerPrefix}_unspliced").sum(1)
+            )
+
+    def calcGroupUnsplicedRatio(
+        self,
+        cluster,
+        layerPrefix="splice",
+        useAmbiguousCalcUnsplicedRatio=False,
+        minCounts=1,
+    ) -> sc.AnnData:
+        ad = self.ad
+
+        ls_cluster = ad.obs[cluster].unique().tolist()
+
+        ad_groupSplice = sc.AnnData(
+            ss.csr_matrix((len(ls_cluster), ad.shape[1])),
+            obs=pd.DataFrame(index=ls_cluster),
+            var=ad.var.copy(),
+        )
+        for group in [
+            f"{layerPrefix}_unspliced",
+            f"{layerPrefix}_spliced",
+            f"{layerPrefix}_amb",
+        ]:
+            df_groupMtx = ad.to_df(group)
+            df_groupMtxCluster = (
+                df_groupMtx.groupby(ad.obs[cluster]).sum().reindex(ls_cluster)
+            )
+            ad_groupSplice.layers[group] = df_groupMtxCluster
+        if useAmbiguousCalcUnsplicedRatio:
+            ad_groupSplice.layers[f"{layerPrefix}_total"] = (
+                ad_groupSplice.layers[f"{layerPrefix}_spliced"]
+                + ad_groupSplice.layers[f"{layerPrefix}_unspliced"]
+                + ad_groupSplice.layers[f"{layerPrefix}_amb"]
+            )
+        else:
+            ad_groupSplice.layers[f"{layerPrefix}_total"] = (
+                ad_groupSplice.layers[f"{layerPrefix}_spliced"]
+                + ad_groupSplice.layers[f"{layerPrefix}_unspliced"]
+            )
+        ad_groupSplice.layers[f"{layerPrefix}_incompletelySplicedRatio"] = (
+            ad_groupSplice.layers[f"{layerPrefix}_unspliced"]
+            / ad_groupSplice.layers[f"{layerPrefix}_total"]
+        )
+        ad_groupSplice.X = ad_groupSplice.layers[
+            f"{layerPrefix}_incompletelySplicedRatio"
+        ].copy()
+        ad_groupSplice = ad_groupSplice[
+            :, ad_groupSplice.layers[f"{layerPrefix}_total"].sum(0) >= minCounts
+        ]
+        return ad_groupSplice
+
+    def __or__(self, obj):
+        df = pd.concat([self.df, obj.df])
+        return SnuupySpliceInfo(df=df)
