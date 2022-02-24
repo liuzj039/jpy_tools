@@ -35,6 +35,7 @@ import scipy.sparse as ss
 from . import basic
 import pysam
 from collections import defaultdict
+from cool import F
 
 
 def addSnuupyBamTag(path_bam, path_out, tag="CB"):

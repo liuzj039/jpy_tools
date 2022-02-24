@@ -151,6 +151,7 @@ def getUcellScore(
     layer: Optional[str],
     label,
     cutoff=0.2,
+    batch = None,
 ):
     """
     use ucell calculate average expression info
@@ -179,16 +180,33 @@ def getUcellScore(
     dtR_deGene = {x: R.c(*y) for x, y in dt_deGene.items()}
     dtR_deGene = R.list(**dtR_deGene)
 
-    ss_forUcell = ad.layers[layer] if layer else ad.X
-    ssR_forUcell = py2r(ss_forUcell.T)
-    ssR_forUcell = R("`dimnames<-`")(
-        ssR_forUcell,
-        R.list(R.c(*ad.var.index), R.c(*ad.obs.index)),
-    )
+    if batch:
+        dfLs_ucellResults = []
+        for label, _ad in basic.splitAdata(ad, batch, needName=True, copy=False):
+            ss_forUcell = _ad.layers[layer] if layer else _ad.X
+            ssR_forUcell = py2r(ss_forUcell.T)
+            ssR_forUcell = R("`dimnames<-`")(
+                ssR_forUcell,
+                R.list(R.c(*_ad.var.index), R.c(*_ad.obs.index)),
+            )
 
-    r_scores = ucell.ScoreSignatures_UCell(ssR_forUcell, features=dtR_deGene)
+            r_scores = ucell.ScoreSignatures_UCell(ssR_forUcell, features=dtR_deGene)
+            dfLs_ucellResults.append(r2py(rBase.as_data_frame(r_scores)))
+        ad.obsm[f"ucell_score_{label}"] = pd.concat(dfLs_ucellResults).reindex(ad.obs.index)
 
-    ad.obsm[f"ucell_score_{label}"] = r2py(rBase.as_data_frame(r_scores))
+    else:
+        ss_forUcell = ad.layers[layer] if layer else ad.X
+        ssR_forUcell = py2r(ss_forUcell.T)
+        ssR_forUcell = R("`dimnames<-`")(
+            ssR_forUcell,
+            R.list(R.c(*ad.var.index), R.c(*ad.obs.index)),
+        )
+
+        r_scores = ucell.ScoreSignatures_UCell(ssR_forUcell, features=dtR_deGene)
+        ad.obsm[f"ucell_score_{label}"] = r2py(rBase.as_data_frame(r_scores))
+
+
+    
     ad.obs[f"ucell_celltype_{label}"] = ad.obsm[f"ucell_score_{label}"].pipe(
         lambda df: np.where(df.max(1) > cutoff, df.idxmax(1), "Unknown")
     )

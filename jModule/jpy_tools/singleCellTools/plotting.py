@@ -116,6 +116,8 @@ def umapMultiBatch(ad, ls_gene, groups, layer, needAll=True, ncols=2, figsize=(4
             axs.savefig(f"{dir_result}/{gene}.png")
         else:
             pw.show(axs.savefig())
+    if len(ls_gene) == 1:
+        return axs
 
 def obsmToObs(
     ad: sc.AnnData,
