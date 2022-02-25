@@ -78,7 +78,7 @@ def scWGCNA(
     threads: int = 1,
     softPower: Optional[int] = None,
     renv=None,
-    rawLayer = 'raw'
+    rawLayer="raw",
 ) -> sc.AnnData:
     """
     perform scWGCNA
@@ -127,19 +127,19 @@ def scWGCNA(
 
     if renv is None:
         renv = ro.Environment()
-    
+
     rlc = ro.local_context(renv)
     rlc.__enter__()
 
-    renv['minModuleSize'] = minModuleSize
-    renv['deepSplit'] = deepSplit
-    renv['mergeCutHeight'] = mergeCutHeight
-    renv['maxBlockSize'] = len(ls_hvgGene)
-    renv['jobid'] = jobid
-    renv['dir_result'] = dir_result
+    renv["minModuleSize"] = minModuleSize
+    renv["deepSplit"] = deepSplit
+    renv["mergeCutHeight"] = mergeCutHeight
+    renv["maxBlockSize"] = len(ls_hvgGene)
+    renv["jobid"] = jobid
+    renv["dir_result"] = dir_result
 
     ad_meta = ad[:, ls_hvgGene].copy()
-    ad_meta.var.index = ad_meta.var.index.map(lambda x:x.replace('_', '-'))
+    ad_meta.var.index = ad_meta.var.index.map(lambda x: x.replace("_", "-"))
     so = ad2so(
         ad_meta,
         layer=rawLayer,
@@ -148,15 +148,17 @@ def scWGCNA(
         lightMode=True,
         dataLayer=layer,
     )
-    renv['so'] = so
+    renv["so"] = so
 
-    R("""
+    R(
+        """
     datExpr <- as.data.frame(GetAssayData(so, assay='RNA', slot='data'))
     datExpr <- as.data.frame(t(datExpr))
     datExpr <- datExpr[,goodGenes(datExpr)]
 
     lsR_useGene = colnames(datExpr)
-    """)
+    """
+    )
 
     if not softPower:
         with r_inline_plot(width=768):
@@ -213,14 +215,15 @@ def scWGCNA(
             """
             )
         softPower = int(input("Soft Power"))
-    renv['softPower'] = softPower
+    renv["softPower"] = softPower
 
     if threads > 1:
         R(f"enableWGCNAThreads({threads})")
     else:
         R(f"disableWGCNAThreads()")
 
-    R("""
+    R(
+        """
     nSets = 1
     setLabels <- 'ODC'
     shortLabels <- setLabels
@@ -274,20 +277,26 @@ def scWGCNA(
     colnames(geneInfo)[1]= "GeneSymbol"
     colnames(geneInfo)[2]= "Initially.Assigned.Module.Color"
     PCvalues=MEs
-    """)
+    """
+    )
 
     with r_inline_plot(width=768):
-        R("""
+        R(
+            """
         plotDendroAndColors(consTree, moduleColors, "Module colors", dendroLabels = FALSE, hang = 0.03, addGuide = TRUE, guideHang = 0.05,
-                            main = paste0("ODC lineage gene dendrogram and module colors"))""")
+                            main = paste0("ODC lineage gene dendrogram and module colors"))"""
+        )
     with r_inline_plot(width=768):
-        R("""
+        R(
+            """
         plotEigengeneNetworks(PCvalues, "Eigengene adjacency heatmap", 
                             marDendro = c(3,3,2,4),
                             marHeatmap = c(3,4,2,2), plotDendrograms = T, 
                             xLabelsAngle = 90)
-        """)
-    R("""
+        """
+        )
+    R(
+        """
     load(paste0(dir_result, "/", jobid, "_TOM_block.1.rda"), verbose=T)
 
     probes = colnames(datExpr)
@@ -297,9 +306,10 @@ def scWGCNA(
     # cyt = exportNetworkToCytoscape(TOM,
     #             weighted = TRUE, threshold = 0.1,
     #             nodeNames = probes, nodeAttr = moduleColors)
-    """)
+    """
+    )
 
-    ad_meta = ad_meta[:, list(renv['lsR_useGene'])]
+    ad_meta = ad_meta[:, list(renv["lsR_useGene"])]
     ad_meta.obsm["eigengene"] = r2py(R("meInfo"))
     ad_meta.obsm["eigengene"].drop(columns="SampleID", inplace=True)
     ad_meta.varm["KME"] = r2py(R("geneInfo"))
@@ -342,10 +352,12 @@ def clusterCorrelation(
     from scipy.stats import mstats
 
     ad = ad.copy()
-    ad.layers['normalize'] = ad.layers[layer].copy()
-    sc.pp.normalize_total(ad, 1e4, layer='normalize')
+    ad.layers["normalize"] = ad.layers[layer].copy()
+    sc.pp.normalize_total(ad, 1e4, layer="normalize")
 
-    ad_psedoBulk = sc.AnnData(ad.to_df('normalize').groupby(ad.obs[cluster]).agg("mean"))
+    ad_psedoBulk = sc.AnnData(
+        ad.to_df("normalize").groupby(ad.obs[cluster]).agg("mean")
+    )
     sc.pp.log1p(ad_psedoBulk)
 
     ar_mtx = ad_psedoBulk.X.copy()
@@ -361,7 +373,15 @@ def clusterCorrelation(
     ad_psedoBulk.obsp[f"corr_{method}"] = mtx_corr
     return ad_psedoBulk
 
-def addMetaCellLayerGroup(ad: sc.AnnData, layer: str, group: str, ls_hvgGene: List[str], n_neighbors = 50, boolConnectivity = False) -> sc.AnnData:
+
+def addMetaCellLayerGroup(
+    ad: sc.AnnData,
+    layer: str,
+    group: str,
+    ls_hvgGene: List[str],
+    n_neighbors=50,
+    boolConnectivity=False,
+) -> sc.AnnData:
     """
     Add meta-cell layer to group.
 
@@ -375,31 +395,49 @@ def addMetaCellLayerGroup(ad: sc.AnnData, layer: str, group: str, ls_hvgGene: Li
     """
     ad = ad.copy()
     dt_ad = {}
-    for sample, _ad in basic.splitAdata(ad, group, needName = True):
-        _ad.var['highly_variable'] = _ad.var.index.isin(ls_hvgGene)
+    for sample, _ad in basic.splitAdata(ad, group, needName=True):
+        _ad.var["highly_variable"] = _ad.var.index.isin(ls_hvgGene)
         sc.tl.pca(_ad)
-        addMetaCellLayer(_ad, layer=layer, obsm='X_pca', n_neighbors=n_neighbors, boolConnectivity=boolConnectivity)
+        addMetaCellLayer(
+            _ad,
+            layer=layer,
+            obsm="X_pca",
+            n_neighbors=n_neighbors,
+            boolConnectivity=boolConnectivity,
+        )
         dt_ad[sample] = _ad
     ad = sc.concat(dt_ad)[ad.obs.index]
     return ad
 
-def addMetaCellLayer(ad:sc.AnnData, layer:str, obsm:str, n_neighbors = 50, obsp = None, boolConnectivity = False):
+
+def addMetaCellLayer(
+    ad: sc.AnnData,
+    layer: str,
+    obsm: str,
+    n_neighbors=50,
+    obsp=None,
+    boolConnectivity=False,
+):
     """
     Add meta-cell layer.
     """
     if not obsp:
-        sc.pp.neighbors(ad, n_neighbors=n_neighbors, use_rep=obsm, key_added = 'meta')
-        obsp = 'meta_connectivities'
+        sc.pp.neighbors(ad, n_neighbors=n_neighbors, use_rep=obsm, key_added="meta")
+        obsp = "meta_connectivities"
     if boolConnectivity:
         ar_neighbors = np.eye(ad.shape[0]) + (ad.obsp[obsp] > 0)
-        ad.layers[f"{layer}_meta"] = (ar_neighbors @ ad.layers[layer]) / (n_neighbors + 1)
+        ad.layers[f"{layer}_meta"] = (ar_neighbors @ ad.layers[layer]) / (
+            n_neighbors + 1
+        )
     else:
-        ar_connect =  np.eye(ad.shape[0]) + ad.obsp[obsp].A
+        ar_connect = np.eye(ad.shape[0]) + ad.obsp[obsp].A
         ar_neighbors = ar_connect * (1 / ar_connect.sum(0))
         ad.layers[f"{layer}_meta"] = ar_neighbors @ ad.layers[layer]
 
-def getAlignmentScore(ad, batchKey, obsm, knn = 20, plot=True, **dt_heatmapKwargs):
+
+def getAlignmentScore(ad, batchKey, obsm, knn=20, plot=True, **dt_heatmapKwargs):
     import scanorama
+
     ls_sample = []
     curSample = None
     for x in ad.obs[batchKey]:
@@ -414,22 +452,134 @@ def getAlignmentScore(ad, batchKey, obsm, knn = 20, plot=True, **dt_heatmapKwarg
             else:
                 curSample = x
                 ls_sample.append(curSample)
-    
-    dt_index = ad.obs.groupby(batchKey, sort=False).apply(lambda df:df.index.to_list()).to_dict()
-    ar_alignment, _, _ = scanorama.find_alignments_table([ad[x].obsm[obsm] for x in dt_index.values()], knn=knn, verbose=0)
+
+    dt_index = (
+        ad.obs.groupby(batchKey, sort=False)
+        .apply(lambda df: df.index.to_list())
+        .to_dict()
+    )
+    ar_alignment, _, _ = scanorama.find_alignments_table(
+        [ad[x].obsm[obsm] for x in dt_index.values()], knn=knn, verbose=0
+    )
 
     ar_alignmentProcessed = np.zeros((len(dt_index), len(dt_index)))
-    for x,y in ar_alignment.keys():
+    for x, y in ar_alignment.keys():
         ar_alignmentProcessed[x, y] += ar_alignment[(x, y)]
-    
+
     df_alignmentProcessed = pd.DataFrame(
         ar_alignmentProcessed + ar_alignmentProcessed.T + np.eye(len(dt_index)),
         index=dt_index.keys(),
         columns=dt_index.keys(),
     )
     if plot:
-        ax = sns.heatmap(df_alignmentProcessed, cmap='Reds', annot=True, **dt_heatmapKwargs)
+        ax = sns.heatmap(
+            df_alignmentProcessed, cmap="Reds", annot=True, **dt_heatmapKwargs
+        )
         plt.title(batchKey)
         return df_alignmentProcessed, ax
     else:
         return df_alignmentProcessed
+
+
+def getClusterRobustness_reclustering(
+    ad,
+    group,
+    fraction=0.8,
+    times=10,
+    seed=0,
+    fc_clustering=None,
+    dtFc_evaluation: Dict[str, Callable] = None,
+    ls_obsForCalcARI=None,
+    plot=True,
+) -> Union[pd.DataFrame, list]:
+    """
+    Calculate cluster robustness based on ARI.
+
+    Parameters
+    ----------
+    ad : :class:`~anndata.AnnData`
+        Annotated data matrix.
+    group : `str`
+        Group name.
+    fracion : `float`
+        Fraction of cells to use for clustering.
+    times : `int`
+        Number of times to run clustering.
+    seed : `int`
+        Random seed.
+    fc_clustering : `str`
+        clustering function. input must be anndata and output must be pd.Series.
+    lsFc_evaluation:
+        evaluation function. input must be (List, List) and output must be float.
+    ls_obsForCalcARI : `list`
+        Observation names for calculating ARI.
+
+    Returns
+    -------
+    Union[pd.DataFrame, list]
+    """
+    from sklearn import metrics
+
+    def _getClusterResult(ad):
+        ad.X = ad.layers["normalize_log"].copy()
+        sc.tl.pca(ad)
+        sc.pp.neighbors(ad)
+        sc.tl.leiden(ad)
+        return ad.obs["leiden"]
+
+    if not fc_clustering:
+        fc_clustering = _getClusterResult
+    if not ls_obsForCalcARI:
+        ls_obsForCalcARI = ad.obs.index.to_list()
+    if not dtFc_evaluation:
+        dtFc_evaluation = {
+            "ari": metrics.adjusted_rand_score,
+            "ami": metrics.adjusted_mutual_info_score,
+            "fmi": metrics.fowlkes_mallows_score,
+        }
+
+    df_clusterRes = pd.DataFrame(index=ad.obs.index)
+    for i in tqdm(range(times), desc="reclustering"):
+        _ad = sc.pp.subsample(ad, fraction=fraction, copy=True, random_state=seed + i)
+        ls_trueLabel = _ad.obs[group]
+        ls_predLabel = fc_clustering(_ad)
+
+        df_clusterRes = df_clusterRes.assign(
+            **{f"{i}_org": ls_trueLabel, f"{i}_new": ls_predLabel}
+        )
+
+        ls_trueLabel = ls_trueLabel.loc[
+            [x for x in ls_trueLabel.index if x in ls_obsForCalcARI]
+        ]
+        ls_predLabel = ls_predLabel.loc[
+            [x for x in ls_predLabel.index if x in ls_obsForCalcARI]
+        ]
+        assert (ls_trueLabel.index == ls_predLabel.index).all(), "label is not equal"
+
+    ls_ari = []
+    for i in tqdm(range(times), desc="calculating ARI"):
+        df_clusterOnce = df_clusterRes.filter(regex=rf"\b{i}_").dropna()
+        dt_clusterOnce = (
+            df_clusterOnce.groupby(f"{i}_org")[f"{i}_new"].agg(list).to_dict()
+        )
+
+        for fcName, fc_evaluation in dtFc_evaluation.items():
+            dt_ariOnce = {
+                x: fc_evaluation([x] * len(y), y) for x, y in dt_clusterOnce.items()
+            }
+            dt_ariOnce["all"] = fc_evaluation(
+                df_clusterRes.iloc[:, 0], df_clusterRes.iloc[:, 1]
+            )
+            sr_ariOnce = pd.Series(dt_ariOnce).rename(f"{i}_{fcName}")
+            ls_ari.append(sr_ariOnce)
+    df_ari = pd.DataFrame(ls_ari)
+
+    if plot:
+        df_forPlot = df_ari.stack().rename_axis(["group", "cluster"]).rename("score").reset_index().assign(
+            time=lambda df: df["group"].str.split("_").str[0], method=lambda df: df["group"].str.split("_").str[1]
+        )
+        axs = sns.FacetGrid(df_forPlot, col = 'method', col_wrap=5)
+        axs.map_dataframe(sns.boxplot, x='cluster', y='score')
+        plt.show()
+
+    return df_clusterRes, df_ari
