@@ -516,7 +516,8 @@ def getClusterRobustness_reclustering(
 
     Returns
     -------
-    Union[pd.DataFrame, list]
+    Union[pd.DataFrame, pd.DataFrame]
+        recutering results and robustness score.
     """
     from sklearn import metrics
 
