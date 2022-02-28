@@ -3,7 +3,7 @@
 1. install anndata2ri and pySCTransform
 ```bash
 pip install git+https://github.com/liuzj039/anndata2ri
-pip install git+https://github.com/saketkc/pysctransform.git@glmgp
+pip install git+https://github.com/liuzj039/pysctransform.git@glmgp
 ```
 2. install this package
 ```bash
