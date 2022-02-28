@@ -1,10 +1,8 @@
 # Install
 
 1. install anndata2ri and pySCTransform
-```bash
-pip install git+https://github.com/liuzj039/anndata2ri
-pip install git+https://github.com/liuzj039/pysctransform.git@glmgp
-```
+  - install anndata2ri from https://github.com/liuzj039/anndata2ri
+  - `pip install git+https://github.com/liuzj039/pysctransform.git@glmgp`
 2. install this package
 ```bash
 git clone https://github.com/ZhaiLab-SUSTech/Liuzj_allScripts.git
