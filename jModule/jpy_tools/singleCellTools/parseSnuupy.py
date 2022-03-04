@@ -36,6 +36,7 @@ from . import basic
 import pysam
 from collections import defaultdict
 from cool import F
+import muon
 
 
 def addSnuupyBamTag(path_bam, path_out, tag="CB"):
@@ -581,24 +582,31 @@ class SnuupySpliceInfo(object):
         dt_expSpliced, dt_expUnspliced, dt_expAmb = self.getSpliceMtx(
             fullLength, dt_usedIntron
         )
+        logger.info("Add splice matrix to adata")
         ad.layers[f"{layerPrefix}_spliced"] = (
             pd.DataFrame(dt_expSpliced)
             .T.reindex(ad.obs.index)
             .reindex(columns=ad.var.index)
             .fillna(0)
         )
+        ad.layers[f"{layerPrefix}_spliced"] = ss.csr_matrix(ad.layers[f"{layerPrefix}_spliced"])
+        logger.info("Add unsplice matrix to adata")
         ad.layers[f"{layerPrefix}_unspliced"] = (
             pd.DataFrame(dt_expUnspliced)
             .T.reindex(ad.obs.index)
             .reindex(columns=ad.var.index)
             .fillna(0)
         )
+        ad.layers[f"{layerPrefix}_unspliced"] = ss.csr_matrix(ad.layers[f"{layerPrefix}_unspliced"])
+        logger.info("Add ambiguous matrix to adata")
         ad.layers[f"{layerPrefix}_amb"] = (
             pd.DataFrame(dt_expAmb)
             .T.reindex(ad.obs.index)
             .reindex(columns=ad.var.index)
             .fillna(0)
         )
+        ad.layers[f"{layerPrefix}_amb"] = ss.csr_matrix(ad.layers[f"{layerPrefix}_amb"])
+        logger.info("Add splice ratio to adata")
         if useAmbiguousCalcUnsplicedRatio:
             ad.obs[f"{layerPrefix}_incompletelySplicedRatio"] = ad.to_df(
                 f"{layerPrefix}_unspliced"
@@ -664,6 +672,14 @@ class SnuupySpliceInfo(object):
         ]
         return ad_groupSplice
 
+    def generateMd(self, layerPrefix="splice"):
+        ls_spliceVar = [*(self.ad.var.index + '_spliced'), *(self.ad.var.index + '_unspliced')]
+        ls_spliceObs = self.obs.index.copy()
+        ar_splice = np.c_[self.ad.layers[f'{layerPrefix}_spliced'], self.ad.layers[f'{layerPrefix}_unspliced']]
+        ad_splice = sc.AnnData(ar_splice, obs=pd.DataFrame(ls_spliceObs), var=pd.DataFrame(ls_spliceVar))
+        md = muon.MuData({"illu":self.ad, "splice":ad_splice})
+        return md
+
     def __or__(self, obj):
         df = pd.concat([self.df, obj.df])
-        return SnuupySpliceInfo(df=df)
+        return SnuupySpliceInfo(df=df, isor=True)

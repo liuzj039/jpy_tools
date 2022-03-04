@@ -423,11 +423,9 @@ def clustermap(
 
     axs = sns.clustermap(
         df_mtx,
-        col_cluster=False,
         cmap="Reds",
         col_colors=df_geneModuleChangeColor,
         row_colors=df_cellAnno,
-        dendrogram_ratio=0.1,
         figsize=figsize,
         cbar_pos=cbarPos,
         **dt_arg,

@@ -12,6 +12,7 @@
 
 # from gokceneraslan
 
+from jpy_tools import settings
 import functools
 import scipy.sparse as sp
 from contextlib import contextmanager
@@ -178,7 +179,9 @@ def ad2so(
     scaleLayer=None,
     lightMode=False,
     renv = None,
-    path_R="/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/bin/R",
+    path_R=None,
+    libPath_R =None,
+    verbose=0
 ):
     """
     anndata to seuratObject.
@@ -198,10 +201,13 @@ def ad2so(
     """
     import sh
     import scipy.sparse as ss
+    if not path_R:
+        path_R = settings.seuratDisk_rPath
+    if not libPath_R:
+        libPath_R = settings.seuratDisk_rLibPath
+
     # ad = ad.copy() # workaround `memoory not mapped` error
-    R(
-        '.libPaths("/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/lib/R/library")'
-    )
+    R('.libPaths')(libPath_R)
     seuratDisk = importr("SeuratDisk")
     if renv is None:
         renv = ro.Environment()
@@ -277,9 +283,12 @@ def ad2so(
     ls_cmd = [
         "-q",
         "-e",
-        f"library(SeuratDisk); Convert('{path_h5ad}', dest='h5Seurat', overwrite=True)",
+        f".libPaths("{libPath_R}"); library(SeuratDisk); Convert('{path_h5ad}', dest='h5Seurat', overwrite=True)",
     ]
-    sh.Command(path_R)(*ls_cmd, _err_to_out=True, _out=sys.stdout)
+    if verbose:
+        sh.Command(path_R)(*ls_cmd, _err_to_out=True, _out=sys.stdout)
+    else:
+        sh.Command(path_R)(*ls_cmd, _err_to_out=True)
     # for x in sh.Command(path_R)(*ls_cmd, _err_to_out=True, _iter=True):
     #     print(x.rstrip())
     so = seuratDisk.LoadH5Seurat(path_h5so)
@@ -353,10 +362,10 @@ def r2py(x, name=None):
     return x
 
 
-def so2ad(so, dir_tmp=None) -> sc.AnnData:
-    R(
-        '.libPaths("/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/lib/R/library")'
-    )
+def so2ad(so, dir_tmp=None, libPath_R = None) -> sc.AnnData:
+    if not libPath_R:
+        libPath_R = settings.seuratDisk_rLibPath
+    R('.libPaths')(libPath_R)
     seuratDisk = importr("SeuratDisk")
     if not dir_tmp:
         dir_tmp_ = TemporaryDirectory()

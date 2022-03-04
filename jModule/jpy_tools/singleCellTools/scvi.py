@@ -43,7 +43,7 @@ def identifyDEGByScvi(
     threads: int = 36,
     keyAdded: Optional[str] = "marker_byScvi",
     only_train_model: bool = False,
-    batch_size = 512,
+    batch_size=512,
 ) -> Tuple[scvi.model.SCVI, pd.DataFrame]:
     """[summary]
 
@@ -85,7 +85,7 @@ def identifyDEGByScvi(
 
     if not path_model:
         scvi_model = scvi.model.SCVI(ad_forDE)
-        scvi_model.train(early_stopping=True, batch_size = batch_size)
+        scvi_model.train(early_stopping=True, batch_size=batch_size)
     else:
         if isinstance(path_model, str):
             scvi_model = scvi.model.SCVI.load(path_model, ad_forDE)
@@ -164,7 +164,7 @@ def labelTransferByScanvi(
     early_stopping: bool = True,
     batch_size_ref: int = 128,
     batch_size_query: int = 128,
-    hvgBatch = None
+    hvgBatch=None,
 ) -> Optional[anndata.AnnData]:
     """
     annotate queryAd based on refAd annotation result.
@@ -252,7 +252,9 @@ def labelTransferByScanvi(
             batch_size=batch_size_ref,
         )
 
-        lvae = scvi.model.SCANVI.from_scvi_model(scvi_model, "unknown", **dt_params2SCANVIModel)
+        lvae = scvi.model.SCANVI.from_scvi_model(
+            scvi_model, "unknown", **dt_params2SCANVIModel
+        )
         lvae.train(max_epochs=max_epochs, batch_size=batch_size_ref)
 
         # plot result on training dataset
@@ -288,7 +290,7 @@ def labelTransferByScanvi(
         sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
         sc.tl.umap(ad_merge, min_dist=0.2)
     elif mode == "merge":
-        sc.pp.subsample(ad_merge, fraction=1) # scvi do not shuffle adata
+        sc.pp.subsample(ad_merge, fraction=1)  # scvi do not shuffle adata
         scvi.data.setup_anndata(
             ad_merge,
             layer=None,
@@ -303,7 +305,9 @@ def labelTransferByScanvi(
             batch_size=batch_size_ref,
         )
 
-        lvae = scvi.model.SCANVI.from_scvi_model(scvi_model, "unknown", **dt_params2SCANVIModel)
+        lvae = scvi.model.SCANVI.from_scvi_model(
+            scvi_model, "unknown", **dt_params2SCANVIModel
+        )
         lvae.train(
             max_epochs=max_epochs,
             early_stopping=early_stopping,
@@ -348,11 +352,15 @@ def labelTransferByScanvi(
     )
 
     ax = sc.pl.umap(ad_merge, color=f"labelTransfer_scanvi_{refLabel}", show=False)
-    sc.pl.umap(ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data", ax=ax)
+    sc.pl.umap(
+        ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data", ax=ax
+    )
 
     ax = sc.pl.umap(ad_merge, show=False)
     _ad = ad_merge[ad_merge.obs.eval("_batch == 'query'")]
-    sc.pl.umap(_ad, color=f"labelTransfer_scanvi_{refLabel}", size=12e4 / len(ad_merge), ax=ax)
+    sc.pl.umap(
+        _ad, color=f"labelTransfer_scanvi_{refLabel}", size=12e4 / len(ad_merge), ax=ax
+    )
 
     # get predicted labels
     if not keyAdded:
