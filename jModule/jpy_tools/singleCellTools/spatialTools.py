@@ -139,7 +139,8 @@ def getClusterScoreFromScDataByDestvi(
     destviEpoch: int = 1000,
     minUmiCountsInStLayer: int = 10,
     resultKey: str = 'proportions',
-    threads: int = 24
+    threads: int = 24,
+    dt_condScviConfigs: Dict = {}
 ):          
     """
     Get cluster score from sc data by destvi.
@@ -194,7 +195,7 @@ def getClusterScoreFromScDataByDestvi(
     logger.info(f"obs number in `ad_st` after filtering: {len(ad_st.obs)}")
 
     CondSCVI.setup_anndata(ad_sc, layer=scLayer, labels_key=clusterKey)
-    model_sc = CondSCVI(ad_sc, weight_obs=True)
+    model_sc = CondSCVI(ad_sc, weight_obs=True, **dt_condScviConfigs)
     model_sc.train(max_epochs=condScviEpoch, batch_size=batchSize)
     model_sc.history["elbo_train"].plot()
     plt.yscale('log')

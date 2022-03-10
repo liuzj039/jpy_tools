@@ -366,25 +366,26 @@ def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, dir_path=
     import os
 
     dt_config = {
-        "scvi_model": {
+        "scvi.model.base._base_model.BaseModelClass": {
             "writeFc": lambda x, **dt: x.save(**dt),
             "arg_path": "dir_path",
             "dt_arg": {"overwrite": True},
             "readFc": "lambda **dt:scvi.model.SCVI.load(**dt), arg_path='dir_path', adata=ad",
         },
-        "mudata": {
+        "mudata._core.mudata.MuData": {
             "writeFc": lambda x, **dt: x.write_h5mu(**dt),
             "arg_path": "filename",
             "dt_arg": {},
             "readFc": "lambda **dt:mu.read_h5mu(**dt), arg_path='filename'",
         },
-        "anndata": {
+        "anndata._core.anndata.AnnData": {
             "writeFc": lambda x, **dt: x.write_h5ad(**dt),
             "arg_path": "filename",
             "dt_arg": {},
             "readFc": "lambda **dt:sc.read_h5ad(**dt), arg_path='filename'",
         }
     }
+
 
     dt_dirPkl = {
         "ipf": "/public/home/liuzj/tmp/python_pkl/",
@@ -401,7 +402,14 @@ def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, dir_path=
     dir_currentPkl = dt_dirPkl[currentServer]
     if dir_path:
         dir_currentPkl = dir_path
-    if config:
+    if config is None:
+        import scvi, mudata, anndata
+        for className in dt_config.keys():
+            class_obj = eval(className)
+            if isinstance(obj, class_obj):
+                config = className
+                break
+    if config is not None:
         config = dt_config[config]
         writeFc = config["writeFc"]
         arg_path = config["arg_path"]
