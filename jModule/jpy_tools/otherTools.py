@@ -378,6 +378,12 @@ def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, dir_path=
             "dt_arg": {},
             "readFc": "lambda **dt:mu.read_h5mu(**dt), arg_path='filename'",
         },
+        "anndata": {
+            "writeFc": lambda x, **dt: x.write_h5ad(**dt),
+            "arg_path": "filename",
+            "dt_arg": {},
+            "readFc": "lambda **dt:sc.read_h5ad(**dt), arg_path='filename'",
+        }
     }
 
     dt_dirPkl = {
