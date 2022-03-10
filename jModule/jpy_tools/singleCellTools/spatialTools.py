@@ -140,6 +140,7 @@ def getClusterScoreFromScDataByDestvi(
     minUmiCountsInStLayer: int = 10,
     resultKey: str = 'proportions',
     threads: int = 24,
+    mannualTraining:bool = False,
     dt_condScviConfigs: Dict = {}
 ):          
     """
@@ -201,6 +202,18 @@ def getClusterScoreFromScDataByDestvi(
     plt.yscale('log')
     plt.title("condVI")
     plt.show()
+    if mannualTraining:
+        while True:
+            contineEpoch = int(input("Continue Epochs? (int)"))
+            if contineEpoch > 0:
+                model_sc.train(max_epochs=contineEpoch, batch_size=batchSize)
+                model_sc.history["elbo_train"].plot()
+                plt.yscale('log')
+                plt.title("condVI")
+                plt.show()
+            else:
+                break
+
 
     DestVI.setup_anndata(ad_st, layer=stLayer)
     model_st = DestVI.from_rna_model(ad_st, model_sc)
@@ -209,6 +222,17 @@ def getClusterScoreFromScDataByDestvi(
     plt.yscale('log')
     plt.title("destVI")
     plt.show()
+    if mannualTraining:
+        while True:
+            contineEpoch = int(input("Continue Epochs? (int)"))
+            if contineEpoch > 0:
+                model_st.train(max_epochs=contineEpoch, batch_size=batchSize)
+                model_st.history["elbo_train"].plot()
+                plt.yscale('log')
+                plt.title("condVI")
+                plt.show()
+            else:
+                break
 
     df_result = model_st.get_proportions()
     df_resultReindex = df_result.reindex(ad_stOrg.obs.index).fillna(0).assign(keep = lambda df:df.index.isin(df_result.index.to_list()))
