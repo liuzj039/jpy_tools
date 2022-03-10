@@ -75,7 +75,7 @@ cd $PBS_O_WORKDIR
         serverContents = serverContents.strip() + "\n"
         if gpu != 0:
             serverContents = (
-                serverContents + f"#BSUB -gpu 'num={gpu}'\nmodule load cuda/10.0\n"
+                serverContents + f"#BSUB -gpu 'num={gpu}'\nmodule load cuda/11.1\n"
             )
 
     return serverContents
