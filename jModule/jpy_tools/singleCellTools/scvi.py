@@ -30,7 +30,7 @@ from typing import (
 import collections
 from xarray import corr
 from . import basic
-
+import warnings
 
 def identifyDEGByScvi(
     ad: sc.AnnData,
@@ -71,6 +71,7 @@ def identifyDEGByScvi(
     -------
     Tuple[scvi.model.SCVI, pd.DataFrame]
     """
+    warnings.warn("This function is deprecated", DeprecationWarning)
     scvi.settings.seed = 39
     scvi.settings.num_threads = threads
 
@@ -118,7 +119,8 @@ def getDEG(
     nonZeroProportion=0.1,
     markerCounts=None,
     keyAdded=None,
-):
+):  
+    warnings.warn("This function is deprecated", DeprecationWarning)
     adata.obs[groupby] = adata.obs[groupby].astype("category")
     if not groups:
         cats = list(adata.obs[groupby].cat.categories)
@@ -202,6 +204,7 @@ def labelTransferByScanvi(
     """
     scvi.settings.seed = 39
     scvi.settings.num_threads = threads
+    warnings.warn("This function is deprecated", DeprecationWarning)
     if not hvgBatch:
         hvgBatch = ls_removeCateKey[0]
 
@@ -371,3 +374,4 @@ def labelTransferByScanvi(
     )
     if needLoc:
         return ad_merge
+

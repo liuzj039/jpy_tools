@@ -35,6 +35,9 @@ from xarray import corr
 import matplotlib as mpl
 from more_itertools import chunked
 import patchworklib as pw
+import scipy.sparse as ss
+
+
 def show_figure(fig):
 
     dummy = plt.figure()
@@ -43,28 +46,46 @@ def show_figure(fig):
     fig.set_canvas(new_manager.canvas)
     fig.show()
     plt.show()
+
+
 pw.show = show_figure
 
 
 from . import basic
 
-def umapMultiBatch(ad, ls_gene, groups, layer, needAll=True, ncols=2, figsize=(4,3), cmap='Reds', dir_result=None, ls_title=None, size=None, horizontal=False, vmin=None, vmax=None):
+
+def umapMultiBatch(
+    ad,
+    ls_gene,
+    groups,
+    layer,
+    needAll=True,
+    ncols=2,
+    figsize=(4, 3),
+    cmap="Reds",
+    dir_result=None,
+    ls_title=None,
+    size=None,
+    horizontal=False,
+    vmin=None,
+    vmax=None,
+):
     if isinstance(ls_gene, str):
         ls_gene = [ls_gene]
     if not ls_title:
         ls_title = ls_gene
     if not groups[1]:
         groups[1] = ad.obs[groups[0]].unique().to_list()
-    dt_adObs = ad.obs.groupby(groups[0]).apply(lambda df:df.index.to_list()).to_dict()
-    dt_ad = {x:ad[y] for x,y in dt_adObs.items() if x in groups[1]}
+    dt_adObs = ad.obs.groupby(groups[0]).apply(lambda df: df.index.to_list()).to_dict()
+    dt_ad = {x: ad[y] for x, y in dt_adObs.items() if x in groups[1]}
     if needAll:
         dt_ad = dict(All=ad, **dt_ad)
     if not size:
-        size = 12e4/len(ad)
-    
+        size = 12e4 / len(ad)
+
     vmin = vmin if vmin else 0
     vmaxSpecify = vmax
-    for gene,title in zip(ls_gene, ls_title):
+    for gene, title in zip(ls_gene, ls_title):
         if not vmaxSpecify:
             vmax = ad[:, gene].to_df(layer).iloc[:, 0]
             vmax = sorted(list(vmax))
@@ -77,40 +98,52 @@ def umapMultiBatch(ad, ls_gene, groups, layer, needAll=True, ncols=2, figsize=(4
         for sample, _ad in dt_ad.items():
             ax = pw.Brick(figsize=figsize)
             sc.pl.umap(ad, ax=ax, show=False, size=size)
-            sc.pl.umap(_ad, color=gene, show=False, ax=ax, title=sample, layer=layer, cmap=cmap, vmin=vmin, vmax=vmax, size=size)
+            sc.pl.umap(
+                _ad,
+                color=gene,
+                show=False,
+                ax=ax,
+                title=sample,
+                layer=layer,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                size=size,
+            )
             plt.close()
             ls_ax.append(ax)
         ls_ax = chunked(ls_ax, ncols) | F(list)
-        
+
         _bc = pw.param["margin"]
         pw.param["margin"] = 0.3
         if len(ls_ax) == 1:
             axs = pw.stack(ls_ax[0])
         else:
-            axs = pw.stack([pw.stack(x) for x in ls_ax[:-1]], operator='/')
+            axs = pw.stack([pw.stack(x) for x in ls_ax[:-1]], operator="/")
             ls_name = list(axs.bricks_dict.keys())
             for i, ax in enumerate(ls_ax[-1]):
                 axs = axs[ls_name[i]] / ax
-        
+
         cmap = mpl.cm.get_cmap(cmap)
         norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
-        
 
         if horizontal:
             ax_cb = pw.Brick(figsize=(1, 0.01))
-            mpl.colorbar.ColorbarBase(ax_cb, cmap=cmap, norm=norm, orientation='horizontal')
-            
+            mpl.colorbar.ColorbarBase(
+                ax_cb, cmap=cmap, norm=norm, orientation="horizontal"
+            )
+
             pw.param["margin"] = 0.1
             axs = axs / ax_cb
             pw.param["margin"] = _bc
         else:
             ax_cb = pw.Brick(figsize=(0.025, 1))
             mpl.colorbar.ColorbarBase(ax_cb, cmap=cmap, norm=norm)
-            
+
             pw.param["margin"] = 0.1
             axs = axs | ax_cb
             pw.param["margin"] = _bc
-        
+
         axs.case.set_title(title, pad=10)
         if dir_result:
             axs.savefig(f"{dir_result}/{gene}.png")
@@ -118,6 +151,7 @@ def umapMultiBatch(ad, ls_gene, groups, layer, needAll=True, ncols=2, figsize=(4
             pw.show(axs.savefig())
     if len(ls_gene) == 1:
         return axs
+
 
 def obsmToObs(
     ad: sc.AnnData,
@@ -130,6 +164,7 @@ def obsmToObs(
     if not embedding:
         embedding = list(ad.obsm.keys())
     ad_tmp = sc.AnnData(ss.csc_matrix(ad.shape), obs=ad.obs.copy(), var=ad.var.copy())
+    ad_tmp.uns = ad.uns
     for key in embedding:
         ad_tmp.obsm[key] = ad.obsm[key].copy()
 
@@ -155,18 +190,21 @@ def plotCellScatter(
     ),
     batch=None,
 ):
-    adata.obs = adata.obs.assign(n_genes=(adata.X > 0).sum(1), n_counts=adata.X.sum(1))
+    assert ss.issparse(adata.X), "X layer must be a scipy.sparse matrix"
+    adata.obs = adata.obs.assign(
+        n_genes=(adata.X > 0).sum(1).A1, n_counts=adata.X.sum(1).A1
+    )
     # adata.var = adata.var.assign(n_cells=(adata.X > 0).sum(0))
     ctGene = func_ct(adata)
 
-    adata.obs["percent_ct"] = np.sum(adata[:, ctGene].X, axis=1) / np.sum(
-        adata.X, axis=1
+    adata.obs["percent_ct"] = (
+        np.sum(adata[:, ctGene].X, axis=1).A1 / np.sum(adata.X, axis=1).A1
     )
     sc.pl.violin(adata, plotFeature, multi_panel=True, jitter=0.4, groupby=batch)
 
 
 def plotLabelPercentageInCluster(
-    adata, groupby, label, labelColor: Optional[dict] = None, needCounts=True, ax = None
+    adata, groupby, label, labelColor: Optional[dict] = None, needCounts=True, ax=None
 ):
     """
     根据label在adata.obs中groupby的占比绘图
@@ -194,7 +232,7 @@ def plotLabelPercentageInCluster(
             x=groupbyWithLabelCounts_CumsumPercDf.index,
             y=groupbyWithLabelCounts_CumsumPercDf[singleLabel],
             color=labelColor[singleLabel],
-            ax = ax
+            ax=ax,
         )
         plt.sca(ax)
         legendHandleLs.append(
@@ -216,8 +254,8 @@ def plotLabelPercentageInCluster(
                 va="bottom",
             )
     # sns.despine(top=True, right=True)
-    ax.spines['right'].set_visible(False)
-    ax.spines['top'].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["top"].set_visible(False)
     return ax
 
 
@@ -497,8 +535,8 @@ def heatmap_rank(
     dt_geneColor: Optional[Mapping[str, str]] = None,
     standardScale="row",
     cbar_kws=dict(orientation="horizontal"),
-    cmap='Spectral_r',
-    bins = None,
+    cmap="Spectral_r",
+    bins=None,
     qcut=True,
     **dt_arg,
 ):
@@ -550,7 +588,7 @@ def heatmap_rank(
 
     # _dt = df_geneModule.groupby("module").apply(len).to_dict()
     # dt_geneCounts = {x: _dt[x] for x in dt_gene.keys()}
-    dt_geneCounts = df_geneModule['module'].value_counts(sort=False).to_dict()
+    dt_geneCounts = df_geneModule["module"].value_counts(sort=False).to_dict()
 
     if not bins:
         mtx = ad[:, df_geneModuleChangeColor.index].to_df(layer).T
@@ -588,8 +626,16 @@ def heatmap_rank(
             sr_cutCate = pd.qcut(ad.obs[sortby], bins)
         else:
             sr_cutCate = pd.cut(ad.obs[sortby], bins)
-        sr_cutCate = sr_cutCate.cat.rename_categories(new_categories = lambda x:(x.left + x.right) / 2)
-        mtx = ad[:, df_geneModuleChangeColor.index].to_df(layer).groupby(sr_cutCate).agg('mean').T
+        sr_cutCate = sr_cutCate.cat.rename_categories(
+            new_categories=lambda x: (x.left + x.right) / 2
+        )
+        mtx = (
+            ad[:, df_geneModuleChangeColor.index]
+            .to_df(layer)
+            .groupby(sr_cutCate)
+            .agg("mean")
+            .T
+        )
         mtx = mtx.dropna(axis=1)
 
         axs = sns.clustermap(
@@ -607,8 +653,7 @@ def heatmap_rank(
         plt.sca(axs.ax_heatmap)
         plt.yticks([])
         plt.xticks([])
-        plt.xlabel('')
-
+        plt.xlabel("")
 
     plt.sca(axs.ax_row_colors)
     pos_current = 0
@@ -623,7 +668,6 @@ def heatmap_rank(
         )
         pos_current = pos_next
         plt.xticks([])
-
 
     axs.ax_cbar.set_title("Gene Expression")
     axs.ax_cbar.tick_params(axis="x", length=10)

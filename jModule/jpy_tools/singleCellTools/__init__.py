@@ -9,6 +9,7 @@ FilePath: /undefined/public1/software/liuzj/scripts/jModule/jpy_tools/singleCell
 """
 single cell analysis tools wrapper
 """
+import tensorflow # if not import tensorflow first, `core dump` will occur
 from ..otherTools import setSeed
 from . import (
     basic,

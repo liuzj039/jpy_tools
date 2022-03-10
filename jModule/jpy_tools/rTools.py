@@ -283,7 +283,7 @@ def ad2so(
     ls_cmd = [
         "-q",
         "-e",
-        f".libPaths("{libPath_R}"); library(SeuratDisk); Convert('{path_h5ad}', dest='h5Seurat', overwrite=True)",
+        f".libPaths('{libPath_R}'); library(SeuratDisk); Convert('{path_h5ad}', dest='h5Seurat', overwrite=True)",
     ]
     if verbose:
         sh.Command(path_R)(*ls_cmd, _err_to_out=True, _out=sys.stdout)

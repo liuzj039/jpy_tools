@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor as MtT
 import sh
 import h5py
 from tqdm import tqdm
+import scvi
 from typing import (
     Dict,
     List,
@@ -714,3 +715,119 @@ def getMarkerByFcCellexCellidDiffxpy(
     )
     plt.sca(axs["intersections"])
     plt.yscale("log")
+
+
+def getDEGByScvi(
+    ad: sc.AnnData,
+    path_model: Optional[Union[str, scvi.model.SCVI]],
+    layer: Optional[str],
+    groupby: str,
+    batchKey: Optional[str] = None,
+    correctBatch: bool = True,
+    minCells: int = 10,
+    threads: int = 36,
+    keyAdded: Optional[str] = "marker_byScvi",
+    only_train_model: bool = False,
+    batch_size=512,
+) -> Tuple[scvi.model.SCVI, pd.DataFrame]:
+    """[summary]
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+    path_model : Optional[str]
+        stored path of trained scvi.model.SCVI or scvi.model.SCVI
+    layer : Optional[str]
+        must be raw
+    groupby : str
+        cluster key
+    batchKey : Optional[str]
+        batch key
+    correctBatch : bool, optional
+        by default True
+    minCells : int, optional
+        by default 10
+    threads : int, optional
+        by default 36
+    keyAdded : Optional[str], optional
+        if None, adata will not be updated, by default "marker_byScvi"
+
+    Returns
+    -------
+    Tuple[scvi.model.SCVI, pd.DataFrame]
+    """
+    scvi.settings.seed = 39
+    scvi.settings.num_threads = threads
+
+    layer = None if layer == "X" else layer
+    ad.X = ad.layers[layer].copy()
+    ad_forDE = sc.pp.filter_genes(ad, min_cells=minCells, copy=True)
+    scvi.model.SCVI.setup_anndata(
+        ad_forDE,
+        layer=None,
+        batch_key=batchKey,
+    )
+
+    if not path_model:
+        scvi_model = scvi.model.SCVI(ad_forDE)
+        scvi_model.train(early_stopping=True, batch_size=batch_size)
+        scvi_model.history["elbo_train"].plot()
+        plt.yscale('log')
+        plt.show()
+
+    else:
+        if isinstance(path_model, str):
+            scvi_model = scvi.model.SCVI.load(path_model, ad_forDE)
+        elif isinstance(path_model, scvi.SCVI.model):
+            scvi_model = path_model
+        else:
+            assert False, f"Unknown data type: {type(path_model)}"
+
+    if only_train_model:
+        return scvi_model, None
+
+    df_deInfo = scvi_model.differential_expression(
+        ad_forDE, groupby=groupby, batch_correction=correctBatch
+    )
+    if not keyAdded:
+        pass
+    else:
+        keyAdded = keyAdded + "_" + groupby
+        ad.uns[keyAdded] = df_deInfo
+
+    return scvi_model, df_deInfo
+
+def getDEGFromScviResult(
+    adata,
+    df_deInfo,
+    groupby,
+    groups=None,
+    bayesCutoff=3,
+    nonZeroProportion=0.1,
+    markerCounts=None,
+    keyAdded=None,
+):  
+    adata.obs[groupby] = adata.obs[groupby].astype("category")
+    if not groups:
+        cats = list(adata.obs[groupby].cat.categories)
+
+    markers = {}
+    cats = adata.obs[groupby].cat.categories
+    for i, c in enumerate(cats):
+        cid = "{} vs Rest".format(c)
+        cell_type_df = df_deInfo.loc[df_deInfo.comparison == cid]
+
+        cell_type_df = cell_type_df[cell_type_df.lfc_mean > 0]
+
+        cell_type_df = cell_type_df[cell_type_df["bayes_factor"] > bayesCutoff]
+        cell_type_df = cell_type_df[
+            cell_type_df["non_zeros_proportion1"] > nonZeroProportion
+        ]
+        if not markerCounts:
+            markers[c] = cell_type_df.index.tolist()
+        else:
+            markers[c] = cell_type_df.index.tolist()[:markerCounts]
+
+    if not keyAdded:
+        keyAdded = f"scvi_marker_{groupby}"
+    adata.uns[keyAdded] = markers
