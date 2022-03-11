@@ -187,7 +187,7 @@ def getClusterScoreFromScDataByDestvi(
     ad_sc.X = ad_sc.layers[scLayer].copy()
     ad_merge = sc.concat({'st': ad_st, 'sc': ad_sc}, label='_category', unique='-')
     sc.pp.highly_variable_genes(
-        ad_merge, n_top_genes=nFeatures, subset=True, layer=scLayer, flavor="seurat_v3", batch_key='_category'
+        ad_merge, n_top_genes=nFeatures, subset=True, layer=scLayer, flavor="seurat_v3", index_unique='_category'
     )
     # intersect = np.intersect1d(ad_st.var_names, ad_sc.var_names)
     ad_st = ad_st[:, ad_merge.var.index].copy()
