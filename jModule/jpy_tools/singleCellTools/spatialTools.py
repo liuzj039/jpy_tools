@@ -133,16 +133,16 @@ def getClusterScoreFromScDataByDestvi(
     stLayer: str = "raw",
     scLayer: str = "raw",
     nFeatures: int = 3000,
-    clusterKey: str = 'leiden',
+    clusterKey: str = "leiden",
     batchSize: int = 256,
     condScviEpoch: int = 400,
     destviEpoch: int = 1000,
     minUmiCountsInStLayer: int = 10,
-    resultKey: str = 'proportions',
+    resultKey: str = "proportions",
     threads: int = 24,
-    mannualTraining:bool = False,
-    dt_condScviConfigs: Dict = {}
-):          
+    mannualTraining: bool = False,
+    dt_condScviConfigs: Dict = {},
+):
     """
     Get cluster score from sc data by destvi.
 
@@ -168,24 +168,21 @@ def getClusterScoreFromScDataByDestvi(
         by default 10
     resultKey : str, optional
         by default 'proportions'
-    
+
     Returns
     -------
     obsm of `ad_st` will be updated
     """
     import scvi
     from scvi.model import CondSCVI, DestVI
+
     scvi.settings.seed = 39
     scvi.settings.num_threads = threads
 
     ad_stOrg = ad_st
     ad_sc = ad_sc.copy()
     sc.pp.highly_variable_genes(
-        ad_sc,
-        n_top_genes=nFeatures,
-        subset=True,
-        layer=scLayer,
-        flavor="seurat_v3"
+        ad_sc, n_top_genes=nFeatures, subset=True, layer=scLayer, flavor="seurat_v3"
     )
     intersect = np.intersect1d(ad_st.var_names, ad_sc.var_names)
     ad_st = ad_st[:, intersect].copy()
@@ -199,7 +196,7 @@ def getClusterScoreFromScDataByDestvi(
     model_sc = CondSCVI(ad_sc, weight_obs=True, **dt_condScviConfigs)
     model_sc.train(max_epochs=condScviEpoch, batch_size=batchSize)
     model_sc.history["elbo_train"].plot()
-    plt.yscale('log')
+    plt.yscale("log")
     plt.title("condVI")
     plt.show()
     if mannualTraining:
@@ -208,18 +205,17 @@ def getClusterScoreFromScDataByDestvi(
             if contineEpoch > 0:
                 model_sc.train(max_epochs=contineEpoch, batch_size=batchSize)
                 model_sc.history["elbo_train"].plot()
-                plt.yscale('log')
+                plt.yscale("log")
                 plt.title("condVI")
                 plt.show()
             else:
                 break
 
-
     DestVI.setup_anndata(ad_st, layer=stLayer)
     model_st = DestVI.from_rna_model(ad_st, model_sc)
     model_st.train(max_epochs=destviEpoch, batch_size=batchSize)
     model_st.history["elbo_train"].plot()
-    plt.yscale('log')
+    plt.yscale("log")
     plt.title("destVI")
     plt.show()
     if mannualTraining:
@@ -228,14 +224,78 @@ def getClusterScoreFromScDataByDestvi(
             if contineEpoch > 0:
                 model_st.train(max_epochs=contineEpoch, batch_size=batchSize)
                 model_st.history["elbo_train"].plot()
-                plt.yscale('log')
+                plt.yscale("log")
                 plt.title("condVI")
                 plt.show()
             else:
                 break
 
     df_result = model_st.get_proportions()
-    df_resultReindex = df_result.reindex(ad_stOrg.obs.index).fillna(0).assign(keep = lambda df:df.index.isin(df_result.index.to_list()))
+    df_resultReindex = (
+        df_result.reindex(ad_stOrg.obs.index)
+        .fillna(0)
+        .assign(keep=lambda df: df.index.isin(df_result.index.to_list()))
+    )
     ad_stOrg.obsm[resultKey] = df_resultReindex
 
 
+class SelectCellInteractive:
+    def __init__(self, ad, colName, libraryName=None, scale=None):
+        self.ad = ad
+        self.colName = colName
+        self.dt_selected = {}  # {`selectName`: [step, selector]}
+
+        if libraryName is None:
+            libraryName = list(ad.uns["spatial"].keys())[0]
+
+        ## get scale factor
+        if scale is None:
+            scale = ad.uns["spatial"][libraryName]["scalefactors"][
+                "tissue_" + "hires" + "_scalef"
+            ]
+        self.scale = scale
+        self.libraryName = libraryName
+        self.ar_image = ad.uns["spatial"][libraryName]["images"]["hires"].copy()
+
+    def polySelect(self, selectName, step=1, figsize=(9, 4)):
+        from ..otherTools import SelectByPolygon
+
+        ar_image = self.ar_image[::step, ::step].copy()
+        selector = SelectByPolygon(ar_image, figsize)
+        self.dt_selected[selectName] = [step, selector]
+        # ad_selected = self.ad[
+        #     selector.path.contains_points(self.ad.obsm["spatial"] / step)
+        # ]
+        # self.dt_selected[selectName] = ad_selected
+
+    def exportAd(self, ls_selectName: Optional[Union[List[str], str]] = None):
+        if ls_selectName is None:
+            ls_selectName = list(self.dt_selected.keys())
+        elif isinstance(ls_selectName, str):
+            ls_selectName = [ls_selectName]
+        dt_ad = {}
+        for selectName in ls_selectName:
+            selector = self.dt_selected[selectName][1]
+            step = self.dt_selected[selectName][0]
+            ad_selected = self.ad[
+                selector.path.contains_points(
+                    self.ad.obsm["spatial"] * self.scale / step
+                )
+            ]
+            dt_ad[selectName] = ad_selected
+        ad_export = sc.concat(
+            {selectName: dt_ad[selectName] for selectName in ls_selectName},
+            label=self.colName,
+            index_unique="-",
+        ).copy()
+        ad_export.uns["spatial"] = self.ad.uns["spatial"]
+        return ad_export
+
+
+# def selectCellInteractive(ad, libraryName, step=1, figsize=(8,4)) -> sc.AnnData:
+#     from ..otherTools import SelectByPolygon
+#     ar_image = ad.uns['spatial'][libraryName]['images']['hires'][::step, ::step].copy()
+#     selector = SelectByPolygon(ar_image, figsize)
+#     input("Press Enter to finish selecting cells")
+#     ad_ = ad[selector.path.contains_points(ad.obsm['spatial'] * step)].copy() # add scale?
+#     return ad_

@@ -466,10 +466,10 @@ def getMarkerFromCellexResults(
         [sr_geneCounts, *lsDf_Concat],
     ).query("counts >= @minCounts")
     df_results.insert(
-        3, "median_enrichScore", df_results.filter(like="enrichScore").median(1)
+        3, "mean_enrichScore", df_results.filter(like="enrichScore").mean(1)
     )
     df_results = df_results.sort_values(
-        [clusterName, "median_enrichScore"], ascending=[True, False]
+        [clusterName, "mean_enrichScore"], ascending=[True, False]
     )
     return df_results
 
@@ -831,3 +831,22 @@ def getDEGFromScviResult(
     if not keyAdded:
         keyAdded = f"scvi_marker_{groupby}"
     adata.uns[keyAdded] = markers
+
+def getCosgResult(ad, key="cosg") -> pd.DataFrame:
+    """
+    maybe the SOTA algorithm for one batch datasets
+    """
+    df = (
+        pd.concat(
+            [
+                pd.DataFrame(ad.uns[key]["names"]).stack().rename("name"),
+                pd.DataFrame(ad.uns[key]["scores"]).stack().rename("score"),
+            ],
+            axis=1,
+        )
+        .reset_index(level=0, drop=True)
+        .rename_axis("cluster")
+        .reset_index()
+        .sort_values(["cluster", "score"], ascending=[True, False])
+    )
+    return df

@@ -9,6 +9,7 @@ FilePath: /jpy_tools/otherTools.py
 import os
 import sh
 import pandas as pd
+import numpy as np
 from loguru import logger
 from io import StringIO
 import sys
@@ -16,6 +17,8 @@ from threading import Thread
 import matplotlib.pyplot as plt
 import seaborn as sns
 from cool import F
+from matplotlib.widgets import PolygonSelector
+from matplotlib.path import Path
 from typing import (
     List,
     Optional,
@@ -29,7 +32,6 @@ from typing import (
     Callable,
     Dict,
 )
-
 
 def setSeed(seed=0):
     import os
@@ -540,3 +542,47 @@ def getGoDesc(goTerm: Union[str, List[str]], retry=5) -> pd.DataFrame:
     df_go = pd.DataFrame.from_dict(dt_go, "index")
     return df_go
 
+from matplotlib.widgets import PolygonSelector
+from matplotlib.path import Path
+import matplotlib.pyplot as plt
+
+class SelectByPolygon:
+    def __init__(self, ar_image, figsize=(10, 4)):
+        self.ar_image = ar_image
+        self.imShape = ar_image.shape[:2]
+        self.xy = np.array([[x,y] for x in range(self.ar_image.shape[1]) for y in range(self.ar_image.shape[0])])
+        if len(ar_image.shape) == 2:
+            self.empty = 0
+        elif len(ar_image[0, 0]) == 3:
+            self.empty = np.array([0, 0, 0])
+        elif len(ar_image[0, 0]) == 4:
+            self.empty = np.array([0, 0, 0, 0])
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+        self.ax1 = ax1
+        self.ax2 = ax2
+        self.ax1.imshow(self.ar_image)
+        
+        self.selectedImage = np.zeros_like(self.ar_image)
+        self.ax2.imshow(self.selectedImage)
+        plt.subplots_adjust()
+        self.poly = PolygonSelector(self.ax1, self.onselect)
+
+        logger.warning("This function is only available in jupyter environment and you should run `%matplotlib widget` before execute this function")
+        print("Select points in the figure by enclosing them within a polygon.")
+        print("Press the 'esc' key to start a new polygon.")
+        print("Try holding the 'shift' key to move all of the vertices.")
+        print("Try holding the 'ctrl' key to move a single vertex.")
+
+
+    def onselect(self, verts):
+        path = Path(verts)
+        self.path = path
+        self.ind = path.contains_points(self.xy).reshape(self.imShape, order='F')
+        self.selectedImage = self.ar_image.copy()
+        self.selectedImage[~self.ind] = self.empty
+        self.ax2.imshow(self.selectedImage)
+        plt.subplots_adjust()
+
+    def disconnect(self):
+        self.poly.disconnect_events()
+        plt.close()
