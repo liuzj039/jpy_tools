@@ -217,6 +217,8 @@ def getClusterScoreFromScDataByDestvi(
 
     DestVI.setup_anndata(ad_st, layer=stLayer)
     model_st = DestVI.from_rna_model(ad_st, model_sc)
+    setSeed(39)
+    scvi.settings.seed = 39
     model_st.train(max_epochs=destviEpoch, batch_size=batchSize)
     model_st.history["elbo_train"].plot()
     plt.yscale("log")

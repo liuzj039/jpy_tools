@@ -19,6 +19,7 @@ import seaborn as sns
 from cool import F
 from matplotlib.widgets import PolygonSelector
 from matplotlib.path import Path
+import torch
 from typing import (
     List,
     Optional,
@@ -45,7 +46,13 @@ def setSeed(seed=0):
     os.environ["PYTHONHASHSEED"] = str(seed)
     np.random.seed(seed)
     R("set.seed")(seed)
-
+    
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed) # if you are using multi-GPU.
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.enabled = False
 
 class Capturing(list):
     "Capture std output"
