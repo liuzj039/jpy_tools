@@ -24,7 +24,7 @@ from typing import (
 import stlearn as st
 import scipy.sparse as ss
 from cool import F
-
+from ..otherTools import setSeed
 
 def loadBGI(path_gem, binSize) -> sc.AnnData:
     df_gem = pd.read_table(path_gem, comment="#")
@@ -194,6 +194,8 @@ def getClusterScoreFromScDataByDestvi(
 
     CondSCVI.setup_anndata(ad_sc, layer=scLayer, labels_key=clusterKey)
     model_sc = CondSCVI(ad_sc, weight_obs=True, **dt_condScviConfigs)
+    setSeed(39)
+    scvi.settings.seed = 39
     model_sc.train(max_epochs=condScviEpoch, batch_size=batchSize)
     model_sc.history["elbo_train"].plot()
     plt.yscale("log")
@@ -203,6 +205,8 @@ def getClusterScoreFromScDataByDestvi(
         while True:
             contineEpoch = int(input("Continue Epochs? (int)"))
             if contineEpoch > 0:
+                setSeed(39)
+                scvi.settings.seed = 39
                 model_sc.train(max_epochs=contineEpoch, batch_size=batchSize)
                 model_sc.history["elbo_train"].plot()
                 plt.yscale("log")
@@ -222,6 +226,8 @@ def getClusterScoreFromScDataByDestvi(
         while True:
             contineEpoch = int(input("Continue Epochs? (int)"))
             if contineEpoch > 0:
+                setSeed(39)
+                scvi.settings.seed = 39
                 model_st.train(max_epochs=contineEpoch, batch_size=batchSize)
                 model_st.history["elbo_train"].plot()
                 plt.yscale("log")

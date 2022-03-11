@@ -361,7 +361,8 @@ def normalizeBySCT(
         verbosity=1,
     )
     residuals = pysctransform.get_hvg_residuals(vst_out, n_top_genes, res_clip_range)
-
+    gene_attr = vst_out["gene_attr"]
+    adata.var['sct_residuals'] = gene_attr['residual_variance'].reindex(adata.var_names)
     ro.numpy2ri.deactivate()
     ro.pandas2ri.deactivate()
 
