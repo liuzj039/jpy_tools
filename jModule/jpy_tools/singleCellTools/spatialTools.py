@@ -181,14 +181,18 @@ def getClusterScoreFromScDataByDestvi(
 
     ad_stOrg = ad_st
     intersect = np.intersect1d(ad_st.var_names, ad_sc.var_names)
-    ad_st = ad_st[:, intersect].copy()
     ad_sc = ad_sc[:, intersect].copy()
+    ad_st = ad_st[:, intersect].copy()
+    ad_st.X = ad_st.layers[stLayer].copy()
+    ad_sc.X = ad_sc.layers[scLayer].copy()
+
+    ad_merge = sc.concat({'st': ad_st, 'sc': ad_sc}, label='_category', unique='-')
     sc.pp.highly_variable_genes(
-        ad_sc, n_top_genes=nFeatures, subset=True, layer=scLayer, flavor="seurat_v3"
+        ad_merge, n_top_genes=nFeatures, subset=True, flavor="seurat_v3", batch_key='_category'
     )
-    intersect = np.intersect1d(ad_st.var_names, ad_sc.var_names)
-    ad_st = ad_st[:, intersect].copy()
-    ad_sc = ad_sc[:, intersect].copy()
+    # intersect = np.intersect1d(ad_st.var_names, ad_sc.var_names)
+    ad_st = ad_st[:, ad_merge.var.index].copy()
+    ad_sc = ad_sc[:, ad_merge.var.index].copy()
 
     ad_st = ad_st[ad_st.to_df(scLayer).sum(1) > minUmiCountsInStLayer]
     logger.info(f"var number after filtering: {len(ad_st.var)}")
