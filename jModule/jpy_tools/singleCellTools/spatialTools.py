@@ -186,7 +186,7 @@ def getClusterScoreFromScDataByDestvi(
     ad_st.X = ad_st.layers[stLayer].copy()
     ad_sc.X = ad_sc.layers[scLayer].copy()
 
-    ad_merge = sc.concat({'st': ad_st, 'sc': ad_sc}, label='_category', unique='-')
+    ad_merge = sc.concat({'st': ad_st, 'sc': ad_sc}, label='_category', index_unique ='-')
     sc.pp.highly_variable_genes(
         ad_merge, n_top_genes=nFeatures, subset=True, flavor="seurat_v3", batch_key='_category'
     )
