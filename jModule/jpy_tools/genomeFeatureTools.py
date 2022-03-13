@@ -156,6 +156,7 @@ class GtfProcess(object):
             else:
                 forceTrans = True
         if forceGene:
+            df_gtf = df_gtf.query("Feature != 'gene'")
             df_geneGtf = (
                 df_gtf.query("Feature == 'exon'")
                 .groupby("gene_id", as_index=False)
@@ -163,6 +164,7 @@ class GtfProcess(object):
             )
             df_gtf = pd.concat([df_gtf, df_geneGtf])
         if forceTrans:
+            df_gtf = df_gtf.query("Feature != 'transcript'")
             df_trGtf = (
                 df_gtf.query("Feature == 'exon'")
                 .groupby("transcript_id", as_index=False)

@@ -204,7 +204,7 @@ def plotCellScatter(
 
 
 def plotLabelPercentageInCluster(
-    adata, groupby, label, labelColor: Optional[dict] = None, needCounts=True, ax=None
+    adata, groupby, label, labelColor: Optional[dict] = None, needCounts=True, ax=None, dt_kwargsForLegend={"bbox_to_anchor":[1, 1]}
 ):
     """
     根据label在adata.obs中groupby的占比绘图
@@ -240,7 +240,7 @@ def plotLabelPercentageInCluster(
         )
         legendLabelLs.append(singleLabel)
     legendHandleLs, legendLabelLs = legendHandleLs[::-1], legendLabelLs[::-1]
-    plt.legend(legendHandleLs, legendLabelLs, bbox_to_anchor=[1, 1], frameon=False)
+    plt.legend(legendHandleLs, legendLabelLs, frameon=False, **dt_kwargsForLegend)
     plt.xlabel(groupby.capitalize())
     plt.ylabel(f"Percentage")
     if needCounts:
