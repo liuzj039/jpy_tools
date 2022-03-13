@@ -142,7 +142,8 @@ def getClusterScoreFromScDataByDestvi(
     threads: int = 24,
     mannualTraining: bool = False,
     dt_condScviConfigs: Dict = {},
-    hvg_onTwoDatasets: bool = True,
+    hvgLabel: Optional[str] = None,
+    hvgScDataOnly: bool = False
 ):
     """
     Get cluster score from sc data by destvi.
@@ -169,8 +170,10 @@ def getClusterScoreFromScDataByDestvi(
         by default 10
     resultKey : str, optional
         by default 'proportions'
-    hvg_onTwoDatasets : bool, optional
-        if True, use hvg on two datasets else use hvg on sc dataset only, by default True
+    hvgLabel : Optional[str], optional
+        high variance genes label, by default None
+    hvgScDataOnly : bool
+        which means find hvgs on sc data only or not
     Returns
     -------
     obsm of `ad_st` will be updated
@@ -188,15 +191,12 @@ def getClusterScoreFromScDataByDestvi(
     ad_st.X = ad_st.layers[stLayer].copy()
     ad_sc.X = ad_sc.layers[scLayer].copy()
 
-    if hvg_onTwoDatasets:
-        ad_merge = sc.concat({'st': ad_st, 'sc': ad_sc}, label='_category', index_unique ='-')
-        sc.pp.highly_variable_genes(
-            ad_merge, n_top_genes=nFeatures, subset=True, flavor="seurat_v3", batch_key='_category'
-        )
-        ls_hvg = ad_merge.var.index.to_list()
-    else:
-        sc.pp.highly_variable_genes(ad_sc, n_top_genes=nFeatures, subset=True, flavor="seurat_v3")
-        ls_hvg = ad_sc.var.index.to_list()
+    ad_merge = ad_sc if hvgScDataOnly else sc.concat({'st': ad_st, 'sc': ad_sc}, label='_category', index_unique ='-')
+    sc.pp.highly_variable_genes(
+        ad_merge, n_top_genes=nFeatures, subset=True, flavor="seurat_v3", batch_key=hvgLabel
+    )
+    ls_hvg = ad_merge.var.index.to_list()
+
     # intersect = np.intersect1d(ad_st.var_names, ad_sc.var_names)
     ad_st = ad_st[:, ls_hvg].copy()
     ad_sc = ad_sc[:, ls_hvg].copy()
