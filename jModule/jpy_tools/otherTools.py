@@ -554,7 +554,7 @@ from matplotlib.path import Path
 import matplotlib.pyplot as plt
 
 class SelectByPolygon:
-    def __init__(self, ar_image, figsize=(10, 4)):
+    def __init__(self, ar_image, figsize=(10, 4), dt_lineprops = {}, dt_markerprops = {}):
         self.ar_image = ar_image
         self.imShape = ar_image.shape[:2]
         self.xy = np.array([[x,y] for x in range(self.ar_image.shape[1]) for y in range(self.ar_image.shape[0])])
@@ -572,7 +572,7 @@ class SelectByPolygon:
         self.selectedImage = np.zeros_like(self.ar_image)
         self.ax2.imshow(self.selectedImage)
         plt.subplots_adjust()
-        self.poly = PolygonSelector(self.ax1, self.onselect)
+        self.poly = PolygonSelector(self.ax1, self.onselect, lineprops=dt_lineprops, markerprops=dt_markerprops)
 
         logger.warning("This function is only available in jupyter environment and you should run `%matplotlib widget` before execute this function")
         print("Select points in the figure by enclosing them within a polygon.")
@@ -587,9 +587,24 @@ class SelectByPolygon:
         self.ind = path.contains_points(self.xy).reshape(self.imShape, order='F')
         self.selectedImage = self.ar_image.copy()
         self.selectedImage[~self.ind] = self.empty
+        self.ax2.clear()
         self.ax2.imshow(self.selectedImage)
         plt.subplots_adjust()
 
     def disconnect(self):
         self.poly.disconnect_events()
         plt.close()
+
+def pwStack(ls_ax, ncols=5):
+    import patchworklib as pw
+    from more_itertools import chunked
+    from cool import F
+    ls_ax = chunked(ls_ax, ncols) | F(list)
+    if len(ls_ax) == 1:
+        axs = pw.stack(ls_ax[0])
+    else:
+        axs = pw.stack([pw.stack(x) for x in ls_ax[:-1]], operator="/")
+        ls_name = list(axs.bricks_dict.keys())
+        for i, ax in enumerate(ls_ax[-1]):
+            axs = axs[ls_name[i]] / ax
+    return axs

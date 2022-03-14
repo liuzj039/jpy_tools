@@ -585,16 +585,3 @@ def getClusterRobustness_reclustering(
 
     return df_clusterRes, df_ari
 
-def pwStack(ls_ax, ncols=5):
-    import patchworklib as pw
-    from more_itertools import chunked
-    from cool import F
-    ls_ax = chunked(ls_ax, ncols) | F(list)
-    if len(ls_ax) == 1:
-        axs = pw.stack(ls_ax[0])
-    else:
-        axs = pw.stack([pw.stack(x) for x in ls_ax[:-1]], operator="/")
-        ls_name = list(axs.bricks_dict.keys())
-        for i, ax in enumerate(ls_ax[-1]):
-            axs = axs[ls_name[i]] / ax
-    return axs

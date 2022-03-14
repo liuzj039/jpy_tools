@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import scanpy as sc
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import seaborn as sns
 import anndata
 from loguru import logger
@@ -25,6 +26,7 @@ import stlearn as st
 import scipy.sparse as ss
 from cool import F
 from ..otherTools import setSeed
+import warnings
 
 def loadBGI(path_gem, binSize) -> sc.AnnData:
     df_gem = pd.read_table(path_gem, comment="#")
@@ -74,19 +76,25 @@ def addFigAsBackground(
     rowName="imagerow",
     libraryId="empty",
     backup: Optional[str] = None,
+    scale = True,
+    ls_otherQuality:List[int] = [],
 ):
     """
     Add a figure as background to the AnnData object.
     """
-    canvas = fig.canvas
-    canvas.draw()
-    data = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8)
-    image = data.reshape(canvas.get_width_height()[::-1] + (3,))
-    image = image[(image != 255).all(2).any(1)]
-    image = image[:, (image != 255).all(2).any(0)]
-    image = image / 255
+    warnings.warn("This function is highly experimental and may not work properly.", FutureWarning)
+    if isinstance(fig, mpl.figure.Figure):
+        canvas = fig.canvas
+        canvas.draw()
+        data = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8)
+        image = data.reshape(canvas.get_width_height()[::-1] + (3,))
+        image = image[(image != 255).all(2).any(1)]
+        image = image[:, (image != 255).all(2).any(0)]
+        image = image / 255
 
-    image = image[::-1, :, :]
+        image = image[::-1, :, :]
+    elif isinstance(fig, np.ndarray):
+        image = fig
 
     if backup is not None:
         ad.uns[backup] = {}
@@ -95,36 +103,63 @@ def addFigAsBackground(
 
     ad.obs["imagecol"] = ad.obs[colName]
     ad.obs["imagerow"] = ad.obs[rowName]
+    if scale:
+        ad.obs["imagecol"] = ad.obs[colName]
+        ad.obs["imagerow"] = ad.obs[rowName]
 
-    ad.obs["imagecol"] -= ad.obs["imagecol"].min()
-    ad.obs["imagerow"] -= ad.obs["imagerow"].min()
+        ad.obs["imagecol"] -= ad.obs["imagecol"].min()
+        ad.obs["imagerow"] -= ad.obs["imagerow"].min()
 
-    x_factor = ad.obs["imagecol"].max(0) / image.shape[1]
-    y_factor = ad.obs["imagerow"].max(0) / image.shape[0]
+        x_factor = ad.obs["imagecol"].max(0) / image.shape[1]
+        y_factor = ad.obs["imagerow"].max(0) / image.shape[0]
 
-    ad.obs["imagecol"] = ad.obs["imagecol"] / x_factor
-    ad.obs["imagerow"] = ad.obs["imagerow"] / y_factor
-
-    quality = "hires"
-    scale = 1
-    spot_diameter_fullres = 30
+        ad.obs["imagecol"] = ad.obs["imagecol"] / x_factor
+        ad.obs["imagerow"] = ad.obs["imagerow"] / y_factor
+        ad.obsm["spatial"] = ad.obs[["imagecol", "imagerow"]].values
 
     if backup is not None:
         ad.uns[backup]["spatial"] = ad.uns["spatial"]
     ad.uns["spatial"] = {}
     ad.uns["spatial"][libraryId] = {}
     ad.uns["spatial"][libraryId]["images"] = {}
-    ad.uns["spatial"][libraryId]["images"][quality] = image
-    ad.uns["spatial"][libraryId]["use_quality"] = quality
     ad.uns["spatial"][libraryId]["scalefactors"] = {}
-    ad.uns["spatial"][libraryId]["scalefactors"][
-        "tissue_" + quality + "_scalef"
-    ] = scale
+    ls_quality = ['hires', 'lowres']
+    ls_scale = 1, 5
+    spot_diameter_fullres = 30
+    ad.uns["spatial"][libraryId]["use_quality"] = 'lowres'
     ad.uns["spatial"][libraryId]["scalefactors"][
         "spot_diameter_fullres"
     ] = spot_diameter_fullres
-    ad.obsm["spatial"] = ad.obs[["imagecol", "imagerow"]].values
-    ad.obs[["imagecol", "imagerow"]] = ad.obsm["spatial"] * scale
+    for quality, scale in zip(ls_quality, ls_scale):
+        ad.uns["spatial"][libraryId]["images"][quality] = image[::scale, ::scale]
+        ad.uns["spatial"][libraryId]["scalefactors"][
+            "tissue_" + quality + "_scalef"
+        ] = 1 / scale
+    for scale in ls_otherQuality:
+        ad.uns["spatial"][libraryId]["images"][str(scale)] = image[::scale, ::scale]
+        ad.uns["spatial"][libraryId]["scalefactors"][
+            "tissue_" + str(scale) + "_scalef"
+        ] = 1 / scale
+    # quality = "hires"
+    # scale = 1
+    # spot_diameter_fullres = 30
+
+    # if backup is not None:
+    #     ad.uns[backup]["spatial"] = ad.uns["spatial"]
+    # ad.uns["spatial"] = {}
+    # ad.uns["spatial"][libraryId] = {}
+    # ad.uns["spatial"][libraryId]["images"] = {}
+    # ad.uns["spatial"][libraryId]["images"][quality] = image
+    # ad.uns["spatial"][libraryId]["use_quality"] = quality
+    # ad.uns["spatial"][libraryId]["scalefactors"] = {}
+    # ad.uns["spatial"][libraryId]["scalefactors"][
+    #     "tissue_" + quality + "_scalef"
+    # ] = scale
+    # ad.uns["spatial"][libraryId]["scalefactors"][
+    #     "spot_diameter_fullres"
+    # ] = spot_diameter_fullres
+    # ad.obsm["spatial"] = ad.obs[["imagecol", "imagerow"]].values
+    # ad.obs[["imagecol", "imagerow"]] = ad.obsm["spatial"] * scale
 
 
 def getClusterScoreFromScDataByDestvi(
@@ -278,11 +313,11 @@ class SelectCellInteractive:
         self.libraryName = libraryName
         self.ar_image = ad.uns["spatial"][libraryName]["images"]["hires"].copy()
 
-    def polySelect(self, selectName, step=1, figsize=(9, 4)):
+    def polySelect(self, selectName, step=1, figsize=(9, 4), dt_lineprops={}, dt_markerprops={}):
         from ..otherTools import SelectByPolygon
 
         ar_image = self.ar_image[::step, ::step].copy()
-        selector = SelectByPolygon(ar_image, figsize)
+        selector = SelectByPolygon(ar_image, figsize, dt_lineprops, dt_markerprops)
         self.dt_selected[selectName] = [step, selector]
         # ad_selected = self.ad[
         #     selector.path.contains_points(self.ad.obsm["spatial"] / step)
