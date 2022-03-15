@@ -1,12 +1,16 @@
 # Install
-
-1. install anndata2ri and pySCTransform
-  - install anndata2ri from https://github.com/liuzj039/anndata2ri
-  - `pip install git+https://github.com/liuzj039/pysctransform.git@glmgp`
-2. install this package
+0. clone this package
 ```bash
 git clone https://github.com/ZhaiLab-SUSTech/Liuzj_allScripts.git
-cd ./jModule
+cd ./Liuzj_allScripts/jModule
+```
+1. install reliable packages
+`pip install -r requirements.txt`
+2. install anndata2ri and pySCTransform
+  - install anndata2ri from https://github.com/liuzj039/anndata2ri
+  - `pip install git+https://github.com/liuzj039/pysctransform.git`
+3. install this package
+```bash
 python setup.py install
 ```
 3. install R package
@@ -16,5 +20,3 @@ python setup.py install
   - SingleCellExperiments
 - Or add Liu Zhijian's R directly to the environment variable
   - /public1/software/liuzj/softwares/anaconda3/envs/R/bin/R
-
-
