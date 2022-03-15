@@ -208,7 +208,7 @@ def multiBatch(
                 ad, "raw", [batch, *ls_remove_cateKey], ["highly_variable"]
             )
             ad_forScvi = ad_forScvi[:, ad_forScvi.var["highly_variable"]].copy()
-            scvi.data.setup_anndata(
+            scvi.model.SCVI.setup_anndata(
                 ad_forScvi,
                 batch_key=batch,
                 categorical_covariate_keys=ls_remove_cateKey,
