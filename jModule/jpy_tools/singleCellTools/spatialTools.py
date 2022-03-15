@@ -296,10 +296,10 @@ def getClusterScoreFromScDataByDestvi(
 
 
 class SelectCellInteractive:
-    def __init__(self, ad, colName, libraryName=None, scale=None):
+    def __init__(self, ad, colName, libraryName=None, scale=None, mode:Literal['keep', 'remove']='keep'):
         self.ad = ad
         self.colName = colName
-        self.dt_selected = {}  # {`selectName`: [step, selector]}
+        self.dt_selected = {}  # {`selectName`: [step, selector, 'keep|remove']}
 
         if libraryName is None:
             libraryName = list(ad.uns["spatial"].keys())[0]
@@ -312,6 +312,7 @@ class SelectCellInteractive:
         self.scale = scale
         self.libraryName = libraryName
         self.ar_image = ad.uns["spatial"][libraryName]["images"]["hires"].copy()
+        self.mode = mode
 
     def polySelect(self, selectName, step=1, figsize=(9, 4), dt_lineprops={}, dt_markerprops={}):
         from ..otherTools import SelectByPolygon
@@ -329,21 +330,32 @@ class SelectCellInteractive:
             ls_selectName = list(self.dt_selected.keys())
         elif isinstance(ls_selectName, str):
             ls_selectName = [ls_selectName]
-        dt_ad = {}
-        for selectName in ls_selectName:
-            selector = self.dt_selected[selectName][1]
-            step = self.dt_selected[selectName][0]
-            ad_selected = self.ad[
-                selector.path.contains_points(
-                    self.ad.obsm["spatial"] * self.scale / step
-                )
-            ]
-            dt_ad[selectName] = ad_selected
-        ad_export = sc.concat(
-            {selectName: dt_ad[selectName] for selectName in ls_selectName},
-            label=self.colName,
-            index_unique="-",
-        ).copy()
+        if self.mode == 'keep':
+            dt_ad = {}
+            for selectName in ls_selectName:
+                step, selector = self.dt_selected[selectName]
+                ad_selected = self.ad[
+                    selector.path.contains_points(
+                        self.ad.obsm["spatial"] * self.scale / step
+                    )
+                ]
+                dt_ad[selectName] = ad_selected
+            ad_export = sc.concat(
+                {selectName: dt_ad[selectName] for selectName in ls_selectName},
+                label=self.colName,
+                index_unique="-",
+            ).copy()
+        elif self.mode == 'remove':
+            ls_removeObs = []
+            for selectName in ls_selectName:
+                step, selector = self.dt_selected[selectName]
+                removeObs = self.ad[
+                    selector.path.contains_points(
+                        self.ad.obsm["spatial"] * self.scale / step
+                    )
+                ].obs.index.to_list()
+                ls_removeObs.extend(removeObs)
+            ad_export = self.ad[[x for x in self.ad.obs.index if x not in ls_removeObs]].copy()
         ad_export.uns["spatial"] = self.ad.uns["spatial"]
         return ad_export
 

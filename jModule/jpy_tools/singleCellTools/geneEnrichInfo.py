@@ -212,6 +212,26 @@ def getUcellScore(
         lambda df: np.where(df.max(1) > cutoff, df.idxmax(1), "Unknown")
     )
 
+def getGeneScore(ad: sc.AnnData, dt_Gene: Dict[str, List[str]], layer: Optional[str], label:str, func:Callable):
+    """
+    use gene score calculate average expression info
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+    layer : Optional[str]
+    dt_Gene : Dict[str, List[str]]
+        key is label, value is marker genes
+    label :
+        label for result.
+    func : Callable
+        calculate function
+    """
+    df_results = pd.DataFrame(index = ad.obs.index, columns = dt_Gene.keys())
+    for name, ls_gene in dt_Gene.items():
+        _sr = ad[:, ls_gene].to_df(layer).apply(func, axis = 1)
+        df_results[name] = _sr
+    ad.obsm[label] = df_results
 
 def getOverlapInfo(
     adata: anndata.AnnData,
