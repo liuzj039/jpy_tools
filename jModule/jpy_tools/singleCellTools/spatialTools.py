@@ -28,6 +28,7 @@ from cool import F
 from ..otherTools import setSeed
 import warnings
 
+
 def loadBGI(path_gem, binSize) -> sc.AnnData:
     df_gem = pd.read_table(path_gem, comment="#")
     df_gem = df_gem.pipe(
@@ -76,13 +77,15 @@ def addFigAsBackground(
     rowName="imagerow",
     libraryId="empty",
     backup: Optional[str] = None,
-    scale = True,
-    ls_otherQuality:List[int] = [],
+    scale=True,
+    ls_otherQuality: List[int] = [],
 ):
     """
     Add a figure as background to the AnnData object.
     """
-    warnings.warn("This function is highly experimental and may not work properly.", FutureWarning)
+    warnings.warn(
+        "This function is highly experimental and may not work properly.", FutureWarning
+    )
     if isinstance(fig, mpl.figure.Figure):
         canvas = fig.canvas
         canvas.draw()
@@ -123,10 +126,10 @@ def addFigAsBackground(
     ad.uns["spatial"][libraryId] = {}
     ad.uns["spatial"][libraryId]["images"] = {}
     ad.uns["spatial"][libraryId]["scalefactors"] = {}
-    ls_quality = ['hires', 'lowres']
+    ls_quality = ["hires", "lowres"]
     ls_scale = 1, 5
     spot_diameter_fullres = 30
-    ad.uns["spatial"][libraryId]["use_quality"] = 'lowres'
+    ad.uns["spatial"][libraryId]["use_quality"] = "lowres"
     ad.uns["spatial"][libraryId]["scalefactors"][
         "spot_diameter_fullres"
     ] = spot_diameter_fullres
@@ -134,12 +137,12 @@ def addFigAsBackground(
         ad.uns["spatial"][libraryId]["images"][quality] = image[::scale, ::scale]
         ad.uns["spatial"][libraryId]["scalefactors"][
             "tissue_" + quality + "_scalef"
-        ] = 1 / scale
+        ] = (1 / scale)
     for scale in ls_otherQuality:
         ad.uns["spatial"][libraryId]["images"][str(scale)] = image[::scale, ::scale]
         ad.uns["spatial"][libraryId]["scalefactors"][
             "tissue_" + str(scale) + "_scalef"
-        ] = 1 / scale
+        ] = (1 / scale)
     # quality = "hires"
     # scale = 1
     # spot_diameter_fullres = 30
@@ -178,7 +181,7 @@ def getClusterScoreFromScDataByDestvi(
     mannualTraining: bool = False,
     dt_condScviConfigs: Dict = {},
     hvgLabel: Optional[str] = None,
-    hvgScDataOnly: bool = False
+    hvgScDataOnly: bool = False,
 ):
     """
     Get cluster score from sc data by destvi.
@@ -226,9 +229,17 @@ def getClusterScoreFromScDataByDestvi(
     ad_st.X = ad_st.layers[stLayer].copy()
     ad_sc.X = ad_sc.layers[scLayer].copy()
 
-    ad_merge = ad_sc if hvgScDataOnly else sc.concat({'st': ad_st, 'sc': ad_sc}, label='_category', index_unique ='-')
+    ad_merge = (
+        ad_sc
+        if hvgScDataOnly
+        else sc.concat({"st": ad_st, "sc": ad_sc}, label="_category", index_unique="-")
+    )
     sc.pp.highly_variable_genes(
-        ad_merge, n_top_genes=nFeatures, subset=True, flavor="seurat_v3", batch_key=hvgLabel
+        ad_merge,
+        n_top_genes=nFeatures,
+        subset=True,
+        flavor="seurat_v3",
+        batch_key=hvgLabel,
     )
     ls_hvg = ad_merge.var.index.to_list()
 
@@ -296,7 +307,14 @@ def getClusterScoreFromScDataByDestvi(
 
 
 class SelectCellInteractive:
-    def __init__(self, ad, colName, libraryName=None, scale=None, mode:Literal['keep', 'remove']='keep'):
+    def __init__(
+        self,
+        ad,
+        colName,
+        libraryName=None,
+        scale=None,
+        mode: Literal["keep", "remove"] = "keep",
+    ):
         self.ad = ad
         self.colName = colName
         self.dt_selected = {}  # {`selectName`: [step, selector, 'keep|remove']}
@@ -314,7 +332,9 @@ class SelectCellInteractive:
         self.ar_image = ad.uns["spatial"][libraryName]["images"]["hires"].copy()
         self.mode = mode
 
-    def polySelect(self, selectName, step=1, figsize=(9, 4), dt_lineprops={}, dt_markerprops={}):
+    def polySelect(
+        self, selectName, step=1, figsize=(9, 4), dt_lineprops={}, dt_markerprops={}
+    ):
         from ..otherTools import SelectByPolygon
 
         ar_image = self.ar_image[::step, ::step].copy()
@@ -330,7 +350,7 @@ class SelectCellInteractive:
             ls_selectName = list(self.dt_selected.keys())
         elif isinstance(ls_selectName, str):
             ls_selectName = [ls_selectName]
-        if self.mode == 'keep':
+        if self.mode == "keep":
             dt_ad = {}
             for selectName in ls_selectName:
                 step, selector = self.dt_selected[selectName]
@@ -345,7 +365,7 @@ class SelectCellInteractive:
                 label=self.colName,
                 index_unique="-",
             ).copy()
-        elif self.mode == 'remove':
+        elif self.mode == "remove":
             ls_removeObs = []
             for selectName in ls_selectName:
                 step, selector = self.dt_selected[selectName]
@@ -355,7 +375,9 @@ class SelectCellInteractive:
                     )
                 ].obs.index.to_list()
                 ls_removeObs.extend(removeObs)
-            ad_export = self.ad[[x for x in self.ad.obs.index if x not in ls_removeObs]].copy()
+            ad_export = self.ad[
+                [x for x in self.ad.obs.index if x not in ls_removeObs]
+            ].copy()
         ad_export.uns["spatial"] = self.ad.uns["spatial"]
         return ad_export
 
@@ -368,22 +390,76 @@ class SelectCellInteractive:
 #     ad_ = ad[selector.path.contains_points(ad.obsm['spatial'] * step)].copy() # add scale?
 #     return ad_
 
-def trimBg(ad, libraryId = None):
+
+def trimBg(ad, libraryId=None):
     import copy
-    warnings.warn("This function is not compatible with stlearn anndata format now.", FutureWarning)
-    ad.uns = copy.deepcopy(ad.uns)
+
+    warnings.warn(
+        "This function is not compatible with stlearn anndata format now.",
+        FutureWarning,
+    )
+    ad.uns["spatial"] = copy.deepcopy(ad.uns["spatial"])
     if libraryId is None:
-        libraryId = list(ad.uns['spatial'].keys())[0]
-    ls_allQuality = ad.uns['spatial'][libraryId]['images'].keys()
+        libraryId = list(ad.uns["spatial"].keys())[0]
+    ls_allQuality = ad.uns["spatial"][libraryId]["images"].keys()
     for i, imageName in enumerate(ls_allQuality):
-        image = ad.uns['spatial'][libraryId]['images'][imageName]
-        scaleFactor = ad.uns['spatial'][libraryId]['scalefactors'][f"tissue_{imageName}_scalef"]
+        image = ad.uns["spatial"][libraryId]["images"][imageName]
+        scaleFactor = ad.uns["spatial"][libraryId]["scalefactors"][
+            f"tissue_{imageName}_scalef"
+        ]
         ax = sc.pl.spatial(ad, size=0.2, show=False, img_key=imageName)[0]
         plt.close()
-        left, right, top, bottom = [*ax.get_xlim(), *ax.get_ylim()] | F(map, round) # get position
+        left, right, top, bottom = [*ax.get_xlim(), *ax.get_ylim()] | F(
+            map, round
+        )  # get position
         imageTrimmed = image[bottom:top, left:right]
-        ad.uns['spatial'][libraryId]['images'][imageName] = imageTrimmed
+        ad.uns["spatial"][libraryId]["images"][imageName] = imageTrimmed
         if i == 0:
-            ad.obsm['spatial'][:, 0] = ad.obsm['spatial'][:, 0] - (left / scaleFactor)
-            ad.obsm['spatial'][:, 1] = ad.obsm['spatial'][:, 1] - (bottom / scaleFactor)
+            ad.obsm["spatial"][:, 0] = ad.obsm["spatial"][:, 0] - (left / scaleFactor)
+            ad.obsm["spatial"][:, 1] = ad.obsm["spatial"][:, 1] - (bottom / scaleFactor)
+
+
+def normalieBySME(
+    ad: sc.AnnData, layer: str = "normalize_log", dir_temp="/tmp/tiling/"
+):
+    """
+    stlearn.SME.SME_normalize wrapper
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+        requires :
+        `.obs[['array_row', 'array_col']]`
+        `.obsm['spatial']`
+        `.uns['spatial']`
+    layer : str
+        normalize_log
+    dir_temp : str
+        directory for temporary files
     
+    Returns
+    -------
+    'SME_normalized' matrix will be added into ad.layers
+    """
+    from pathlib import Path
+
+    TILE_PATH = Path(dir_temp)
+    TILE_PATH.mkdir(parents=True, exist_ok=True)
+
+    assert 'spatial' in ad.uns.keys(), "ad.uns['spatial'] is required"
+    assert 'spatial' in ad.obsm.keys(), "ad.obsm['spatial'] is required"
+    assert 'array_row' in ad.obs.columns, "ad.obs['array_row'] is required"
+    assert 'array_col' in ad.obs.columns, "ad.obs['array_col'] is required"
+    
+    adOrg = ad
+    ad = ad.copy()
+    ad = st.convert_scanpy(ad)
+    ad.X = ad.layers[layer].copy()
+    st.pp.tiling(ad, TILE_PATH)
+    st.pp.extract_feature(ad)
+
+    st.em.run_pca(ad, n_comps=50)
+    st.spatial.SME.SME_normalize(
+        ad, use_data="raw", platform="Visium"
+    )  # raw means use `.X`
+    adOrg.layers["SME_normalized"] = ad.obsm["raw_SME_normalized"].copy()
