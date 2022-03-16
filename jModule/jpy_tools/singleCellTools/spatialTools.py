@@ -28,6 +28,10 @@ from cool import F
 from ..otherTools import setSeed
 import warnings
 
+warnings.warn(
+    "Maybe I will reformat these snippets into a module in the future", ImportWarning
+)
+
 
 def loadBGI(path_gem, binSize) -> sc.AnnData:
     df_gem = pd.read_table(path_gem, comment="#")
@@ -420,7 +424,18 @@ def trimBg(ad, libraryId=None):
 
 
 def normalieBySME(
-    ad: sc.AnnData, layer: str = "normalize_log", dir_temp="/tmp/tiling/"
+    ad: sc.AnnData,
+    layer: str = "normalize_log",
+    dir_temp="/tmp/tiling/",
+    weights: Literal[
+        "weights_matrix_all",
+        "weights_matrix_pd_gd",
+        "weights_matrix_pd_md",
+        "weights_matrix_gd_md",
+        "gene_expression_correlation",
+        "physical_distance",
+        "morphological_distance",
+    ] = "weights_matrix_all",
 ):
     """
     stlearn.SME.SME_normalize wrapper
@@ -436,7 +451,7 @@ def normalieBySME(
         normalize_log
     dir_temp : str
         directory for temporary files
-    
+
     Returns
     -------
     'SME_normalized' matrix will be added into ad.layers
@@ -446,11 +461,11 @@ def normalieBySME(
     TILE_PATH = Path(dir_temp)
     TILE_PATH.mkdir(parents=True, exist_ok=True)
 
-    assert 'spatial' in ad.uns.keys(), "ad.uns['spatial'] is required"
-    assert 'spatial' in ad.obsm.keys(), "ad.obsm['spatial'] is required"
-    assert 'array_row' in ad.obs.columns, "ad.obs['array_row'] is required"
-    assert 'array_col' in ad.obs.columns, "ad.obs['array_col'] is required"
-    
+    assert "spatial" in ad.uns.keys(), "ad.uns['spatial'] is required"
+    assert "spatial" in ad.obsm.keys(), "ad.obsm['spatial'] is required"
+    assert "array_row" in ad.obs.columns, "ad.obs['array_row'] is required"
+    assert "array_col" in ad.obs.columns, "ad.obs['array_col'] is required"
+
     adOrg = ad
     ad = ad.copy()
     ad = st.convert_scanpy(ad)
@@ -460,6 +475,6 @@ def normalieBySME(
 
     st.em.run_pca(ad, n_comps=50)
     st.spatial.SME.SME_normalize(
-        ad, use_data="raw", platform="Visium"
+        ad, use_data="raw", platform="Visium", weights=weights
     )  # raw means use `.X`
     adOrg.layers["SME_normalized"] = ad.obsm["raw_SME_normalized"].copy()
