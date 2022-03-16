@@ -33,6 +33,7 @@ from typing import (
     Callable,
     Dict,
 )
+from jpy_tools import settings
 
 def setSeed(seed=0):
     import os
@@ -395,11 +396,11 @@ def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, dir_path=
         }
     }
 
-
-    dt_dirPkl = {
-        "ipf": "/public/home/liuzj/tmp/python_pkl/",
-        "scem": "/scem/work/liuzj/tmp/python_pkl/",
-    }
+    dt_dirPkl = settings.dt_dirPkl
+    # dt_dirPkl = {
+    #     "ipf": "/public/home/liuzj/tmp/python_pkl/",
+    #     "scem": "/scem/work/liuzj/tmp/python_pkl/",
+    # }
     dt_ip = {"ipf": "172.18.6.205", "scem": "172.18.5.205"}
     dt_scpConfig = {"ipf": "", "scem": "-P 2323"}
 
@@ -463,10 +464,11 @@ def loadPkl(name: str, readFc=None, arg_path=None, dir_path=None, **dt_arg):
     if name.startswith("/"):
         dir_currentPkl = ""
     else:
-        dt_dirPkl = {
-            "ipf": "/public/home/liuzj/tmp/python_pkl/",
-            "scem": "/scem/work/liuzj/tmp/python_pkl/",
-        }
+        dt_dirPkl = settings.dt_dirPkl
+        # dt_dirPkl = {
+        #     "ipf": "/public/home/liuzj/tmp/python_pkl/",
+        #     "scem": "/scem/work/liuzj/tmp/python_pkl/",
+        # }
 
         dt_currentServer = {x: os.path.exists(y) for x, y in dt_dirPkl.items()}
         ls_currentServer = [x for x, y in dt_currentServer.items() if y]

@@ -218,6 +218,7 @@ def multiBatch(
             scvi.settings.num_threads = 36
             model = scvi.model.SCVI(ad_forScvi, **dt_params2Model)
             model.train(max_epochs=max_epochs, early_stopping=True, batch_size = batch_size)
+            model.history["elbo_train"].plot()
             ad.obsm["X_scvi"] = model.get_latent_representation(ad_forScvi).copy()
             ad.obsm["X_integrated"] = ad.obsm["X_scvi"].copy()
         elif method == "seurat":
