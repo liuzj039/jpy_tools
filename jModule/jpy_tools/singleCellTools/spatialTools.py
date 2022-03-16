@@ -367,3 +367,23 @@ class SelectCellInteractive:
 #     input("Press Enter to finish selecting cells")
 #     ad_ = ad[selector.path.contains_points(ad.obsm['spatial'] * step)].copy() # add scale?
 #     return ad_
+
+def trimBg(ad, libraryId = None):
+    import copy
+    warnings.warn("This function is not compatible with stlearn anndata format now.", FutureWarning)
+    ad.uns = copy.deepcopy(ad.uns)
+    if libraryId is None:
+        libraryId = list(ad.uns['spatial'].keys())[0]
+    ls_allQuality = ad.uns['spatial'][libraryId]['images'].keys()
+    for i, imageName in enumerate(ls_allQuality):
+        image = ad.uns['spatial'][libraryId]['images'][imageName]
+        scaleFactor = ad.uns['spatial'][libraryId]['scalefactors'][f"tissue_{imageName}_scalef"]
+        ax = sc.pl.spatial(ad, size=0.2, show=False, img_key=imageName)[0]
+        plt.close()
+        left, right, top, bottom = [*ax.get_xlim(), *ax.get_ylim()] | F(map, round) # get position
+        imageTrimmed = image[bottom:top, left:right]
+        ad.uns['spatial'][libraryId]['images'][imageName] = imageTrimmed
+        if i == 0:
+            ad.obsm['spatial'][:, 0] = ad.obsm['spatial'][:, 0] - (left / scaleFactor)
+            ad.obsm['spatial'][:, 1] = ad.obsm['spatial'][:, 1] - (bottom / scaleFactor)
+    
