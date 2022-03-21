@@ -207,10 +207,10 @@ def getUcellScore(
         ad.obsm[f"ucell_score_{label}"] = r2py(rBase.as_data_frame(r_scores))
 
 
-    
-    ad.obs[f"ucell_celltype_{label}"] = ad.obsm[f"ucell_score_{label}"].pipe(
-        lambda df: np.where(df.max(1) > cutoff, df.idxmax(1), "Unknown")
-    )
+    if len(dt_deGene) > 1:
+        ad.obs[f"ucell_celltype_{label}"] = ad.obsm[f"ucell_score_{label}"].pipe(
+            lambda df: np.where(df.max(1) > cutoff, df.idxmax(1), "Unknown")
+        )
 
 def getGeneScore(ad: sc.AnnData, dt_Gene: Dict[str, List[str]], layer: Optional[str], label:str, func:Callable):
     """
@@ -485,6 +485,12 @@ def getMarkerFromCellexResults(
         ),
         [sr_geneCounts, *lsDf_Concat],
     ).query("counts >= @minCounts")
+    df_results.insert(
+        3, "mean_expressed_ratio_others", df_results.filter(like="expressed_ratio_others").mean(1)
+    )
+    df_results.insert(
+        3, "mean_expressed_ratio", df_results.filter(like="expressed_ratio").mean(1)
+    )
     df_results.insert(
         3, "mean_enrichScore", df_results.filter(like="enrichScore").mean(1)
     )
@@ -870,3 +876,67 @@ def getCosgResult(ad, key="cosg") -> pd.DataFrame:
         .sort_values(["cluster", "score"], ascending=[True, False])
     )
     return df
+
+def getAUCellScore(ad, dt_genes, layer, threads = 1, aucMaxRank = 500, label = 'AUCell', rEnv=None):
+    """
+
+    Parameters
+    ----------
+    ad : 
+    dt_genes : 
+    layer : 
+        rank based
+    label : str, optional
+        by default 'AUCell'
+    rEnv: ro.Environment
+        by default None
+    """
+    import rpy2
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
+    from ..rTools import py2r, r2py, r_inline_plot, rHelp, trl, rSet, rGet, ad2so, so2ad
+    rBase = importr('base')
+    rUtils = importr('utils')
+    dplyr = importr('dplyr')
+    R = ro.r
+
+    aucell = importr('AUCell')
+    def getThreshold(objR_name, geneCate):
+        df = r2py(R(f"as.data.frame(cells_assignment${geneCate}$aucThr$thresholds)"))
+        df = df.assign(geneCate = geneCate)
+        return df
+    if rEnv is None:
+        rEnv = ro.Environment()
+    rEnv = ro.Environment()
+    rlc = ro.local_context(rEnv)
+    rlc.__enter__()
+
+    ls_varName = ad.var.index.to_list()
+    ls_obsName = ad.obs.index.to_list()
+    mtx = ad.layers[layer].T
+
+    mtxR = py2r(mtx)
+    lsR_obsName = R.c(*ls_obsName)
+    lsR_varName = R.c(*ls_varName)
+    dtR_genes = R.list(**{x: R.c(*y) for x,y in dt_genes.items()})
+
+    rEnv['mtxR'] = mtxR
+    rEnv['lsR_obsName'] = lsR_obsName
+    rEnv['lsR_varName'] = lsR_varName
+    rEnv['dtR_genes'] = dtR_genes
+    rEnv['threads'] = threads
+    rEnv['aucMaxRank'] = aucMaxRank
+    with r_inline_plot():
+        R("""
+        rownames(mtxR) <- lsR_varName
+        colnames(mtxR) <- lsR_obsName
+        cells_rankings <- AUCell_buildRankings(mtxR, nCores=threads, plotStats=TRUE)
+        cells_AUC <- AUCell_calcAUC(dtR_genes, cells_rankings, aucMaxRank=aucMaxRank)
+        cells_assignment <- AUCell_exploreThresholds(cells_AUC) 
+        """)
+
+    df_auc = r2py(R("as.data.frame(cells_AUC@assays@data$AUC)")).T
+    df_aucThreshold = pd.concat([getThreshold('cells_assignment', x) for x in dt_genes.keys()])
+    ad.obsm[label] = df_auc.copy()
+    ad.uns[label] = df_aucThreshold.copy()
+    rlc.__exit__(None, None, None)

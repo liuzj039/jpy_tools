@@ -413,19 +413,26 @@ def clustermap(
     dt_gene: Mapping[str, List[str]],
     obsAnno: Union[str, List[str]],
     layer: str,
-    space_obsAnnoLegend: float = 0.12,
+    space_obsAnnoLegend: Union[float, List[float]] = 0.12,
     figsize=(10, 10),
     cbarPos=(0.72, 0.15, 0.01, 0.18),
     sort=True,
     dt_geneColor: Optional[Mapping[str, str]] = None,
     add_gene_name: bool = True,
     col_label: bool = False,
+    legendAlign: Literal['h', 'v'] = 'h',
+    addSplitLine = True, 
     **dt_arg,
 ):
     from ..otherTools import addColorLegendToAx
 
     if isinstance(obsAnno, str):
         obsAnno = [obsAnno]
+    if isinstance(space_obsAnnoLegend, float):
+        space_obsAnnoLegend = [space_obsAnnoLegend] * len(obsAnno)
+    if addSplitLine:
+        dt_arg["row_cluster"] = False
+        splitBasedOn = obsAnno[0]
     df_geneModule = pd.DataFrame(
         [(x, z) for x, y in dt_gene.items() for z in y], columns=["module", "gene"]
     ).set_index("gene")
@@ -458,7 +465,8 @@ def clustermap(
     df_geneModuleChangeColor = df_geneModule.assign(
         module=lambda df: df["module"].map(dt_geneColor)
     )
-
+    if len(dt_gene) == 1:
+        df_geneModuleChangeColor = None
     axs = sns.clustermap(
         df_mtx,
         cmap="Reds",
@@ -500,26 +508,48 @@ def clustermap(
             )
             pos_current = pos_next
             plt.yticks([])
-    plt.sca(axs.ax_col_colors)
-    plt.xticks([])
-    plt.yticks([])
+            
+    if len(dt_gene) > 1:
+        plt.sca(axs.ax_col_colors)
+        plt.xticks([])
+        plt.yticks([])
 
-    for i, anno in enumerate(obsAnno):
+    legendPox = [1.05, 1]
+    for i, (anno, space) in enumerate(zip(obsAnno, space_obsAnnoLegend)):
         dt_color = basic.getadataColor(ad, anno)
         addColorLegendToAx(
             axs.ax_heatmap,
             anno,
             dt_color,
             1,
-            bbox_to_anchor=(1.05 + space_obsAnnoLegend * i, 1),
+            bbox_to_anchor=legendPox,
             frameon=False,
         )
+        if legendAlign == "h":
+            legendPox = [1.05 + space, 1]
+        elif legendAlign == "v":
+            legendPox = [1.05, 1 - space]
+
 
     plt.sca(axs.ax_heatmap)
     if not col_label:
         plt.xticks([])
     plt.yticks([])
     plt.xlabel("")
+    
+    ## add split line
+    xMin, xMax = axs.ax_heatmap.get_xlim()
+    yMin, yMax = axs.ax_heatmap.get_ylim()
+    plt.axvline(xMin, color='black', lw=1, alpha=0.7)
+    plt.axvline(xMax, color='black', lw=1, alpha=0.7)
+    plt.axhline(yMin, color='black', lw=1, alpha=0.7)
+    plt.axhline(yMax, color='black', lw=1, alpha=0.7)
+    if addSplitLine:
+        dt_obsCounts = ad.obs[splitBasedOn].value_counts(sort=False)[:-1].to_dict()
+        yPos = 0
+        for i, (name, counts) in enumerate(dt_obsCounts.items()):
+            yPos = yPos + counts
+            plt.axhline(yPos, color='black', lw=1, alpha=0.7)
     return axs
 
 

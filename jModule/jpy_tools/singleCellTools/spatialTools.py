@@ -478,3 +478,4 @@ def normalieBySME(
         ad, use_data="raw", platform="Visium", weights=weights
     )  # raw means use `.X`
     adOrg.layers["SME_normalized"] = ad.obsm["raw_SME_normalized"].copy()
+    tqdm.get_lock().locks = [] # release tqdm lock; it seems is a stlearn bug
