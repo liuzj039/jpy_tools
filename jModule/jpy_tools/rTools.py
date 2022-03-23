@@ -207,8 +207,8 @@ def ad2so(
         libPath_R = settings.seuratDisk_rLibPath
 
     # ad = ad.copy() # workaround `memoory not mapped` error
-    R('.libPaths')(libPath_R)
-    seuratDisk = importr("SeuratDisk")
+    # R('.libPaths')(libPath_R)
+    # seuratDisk = importr("SeuratDisk")
     if renv is None:
         renv = ro.Environment()
 
@@ -217,6 +217,7 @@ def ad2so(
         dir_tmp = dir_tmp_.name
     path_h5ad = f"{dir_tmp}/temp.h5ad"
     path_h5so = f"{dir_tmp}/temp.h5seurat"
+    path_rds = f"{dir_tmp}/temp.rds"
     if lightMode:
         ad_partial = sc.AnnData(
             ad.layers[layer].copy(),
@@ -283,15 +284,15 @@ def ad2so(
     ls_cmd = [
         "-q",
         "-e",
-        f".libPaths('{libPath_R}'); library(SeuratDisk); Convert('{path_h5ad}', dest='h5Seurat', overwrite=True)",
+        f".libPaths('{libPath_R}'); library(SeuratDisk); Convert('{path_h5ad}', dest='h5Seurat', overwrite=T); so <- LoadH5Seurat('{path_h5so}'); saveRDS(so, '{path_rds}')",
     ]
     if verbose:
-        sh.Command(path_R)(*ls_cmd, _err_to_out=True, _out=sys.stdout)
+        sh.Command(path_R)(*ls_cmd, _err=sys.stderr, _out=sys.stdout)
     else:
         sh.Command(path_R)(*ls_cmd, _err_to_out=True)
     # for x in sh.Command(path_R)(*ls_cmd, _err_to_out=True, _iter=True):
     #     print(x.rstrip())
-    so = seuratDisk.LoadH5Seurat(path_h5so)
+    so = R.readRDS(path_rds)
 
     if dataLayer:
         with ro.local_context(renv) as rlc:
@@ -362,18 +363,33 @@ def r2py(x, name=None):
     return x
 
 
-def so2ad(so, dir_tmp=None, libPath_R = None) -> sc.AnnData:
+def so2ad(so, dir_tmp=None, libPath_R = None, path_R=None, obsReParse = True, verbose = True) -> sc.AnnData:
+    import sh
     if not libPath_R:
         libPath_R = settings.seuratDisk_rLibPath
-    R('.libPaths')(libPath_R)
-    seuratDisk = importr("SeuratDisk")
+    if not path_R:
+        path_R = settings.seuratDisk_rPath
+    # R('.libPaths')(libPath_R)
+    # seuratDisk = importr("SeuratDisk")
     if not dir_tmp:
         dir_tmp_ = TemporaryDirectory()
         dir_tmp = dir_tmp_.name
     path_h5ad = f"{dir_tmp}/temp.h5ad"
     path_h5so = f"{dir_tmp}/temp.h5seurat"
+    path_rds = f"{dir_tmp}/temp.rds"
 
-    seuratDisk.SaveH5Seurat(so, path_h5so, overwrite=True)
+    R.saveRDS(so, path_rds)
+
+    ls_cmd = [
+        "-q",
+        "-e",
+        f".libPaths('{libPath_R}'); library(SeuratDisk); so <- readRDS('{path_rds}'); SaveH5Seurat(so, '{path_h5so}')",
+    ]
+    if verbose:
+        sh.Command(path_R)(*ls_cmd, _err=sys.stderr, _out=sys.stdout)
+    else:
+        sh.Command(path_R)(*ls_cmd, _err_to_out=True)
+    # seuratDisk.SaveH5Seurat(so, path_h5so, overwrite=True)
 
     h5so = h5py.File(path_h5so, "r+")
     ls_assays = h5so["/assays"].keys()
@@ -402,11 +418,24 @@ def so2ad(so, dir_tmp=None, libPath_R = None) -> sc.AnnData:
                 ]
     h5so.close()
 
-    seuratDisk.Convert(path_h5so, dest="h5ad", overwrite=True)
+    # seuratDisk.Convert(path_h5so, dest="h5ad", overwrite=True)
+    ls_cmd = [
+        "-q",
+        "-e",
+        f".libPaths('{libPath_R}'); library(SeuratDisk); Convert('{path_h5so}', dest='h5ad', overwrite=T)",
+    ]
+    if verbose:
+        sh.Command(path_R)(*ls_cmd, _err=sys.stderr, _out=sys.stdout)
+    else:
+        sh.Command(path_R)(*ls_cmd, _err_to_out=True)
     with h5py.File(path_h5ad, "a") as h5ad:
         if "raw" in h5ad.keys():
             del h5ad["raw"]
     ad = sc.read_h5ad(path_h5ad)
+    if obsReParse:
+        df_obs = r2py(so.slots['meta.data'])
+        df_obs = df_obs.combine_first(ad.obs)
+        ad.obs = df_obs.copy()
     return ad
 
 

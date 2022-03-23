@@ -902,7 +902,7 @@ def getAUCellScore(ad, dt_genes, layer, threads = 1, aucMaxRank = 500, label = '
 
     aucell = importr('AUCell')
     def getThreshold(objR_name, geneCate):
-        df = r2py(R(f"as.data.frame(cells_assignment${geneCate}$aucThr$thresholds)"))
+        df = r2py(R(f"as.data.frame({objR_name}${geneCate}$aucThr$thresholds)"))
         df = df.assign(geneCate = geneCate)
         return df
     if rEnv is None:
