@@ -13,7 +13,7 @@ cd ./Liuzj_allScripts/jModule
 ```bash
 python setup.py install
 ```
-3. install R package
+4. install R package
 - You can install these pacakges through conda or mamba (Recommend using a discrete environment)
   - Seurat
   - Monocle3
