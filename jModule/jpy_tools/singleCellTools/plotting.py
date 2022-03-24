@@ -343,7 +343,8 @@ def plotSC3sConsensusMatrix(
     clusterResultLs: Sequence[str],
     cmap="Reds",
     metrix="cosine",
-    row_cluster=True,
+    row_cluster=False,
+    col_cluster=False,
     **clustermapParamsDt: Dict,
 ):
     import sys
@@ -370,6 +371,7 @@ def plotSC3sConsensusMatrix(
         metric=metrix,
         row_colors=colorDt,
         row_cluster=row_cluster,
+        col_cluster=col_cluster,
         cbar_pos=None,
         **clustermapParamsDt,
     )
@@ -421,7 +423,9 @@ def clustermap(
     add_gene_name: bool = True,
     col_label: bool = False,
     legendAlign: Literal['h', 'v'] = 'h',
-    addSplitLine = True, 
+    addSplitLine = True,
+    row_cluster=False,
+    col_cluster=False, 
     **dt_arg,
 ):
     from ..otherTools import addColorLegendToAx
@@ -474,6 +478,8 @@ def clustermap(
         row_colors=df_cellAnno,
         figsize=figsize,
         cbar_pos=cbarPos,
+        row_cluster=row_cluster,
+        col_cluster=col_cluster,
         **dt_arg,
     )
     _dt = df_geneModule.groupby("module").apply(len).to_dict()
@@ -545,7 +551,7 @@ def clustermap(
     plt.axhline(yMin, color='black', lw=1, alpha=0.7)
     plt.axhline(yMax, color='black', lw=1, alpha=0.7)
     if addSplitLine:
-        dt_obsCounts = ad.obs[splitBasedOn].value_counts(sort=False)[:-1].to_dict()
+        dt_obsCounts = ad.obs[splitBasedOn].value_counts(sort=False).to_dict()
         yPos = 0
         for i, (name, counts) in enumerate(dt_obsCounts.items()):
             yPos = yPos + counts

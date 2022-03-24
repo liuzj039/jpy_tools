@@ -113,6 +113,8 @@ def scWGCNA(
     from rpy2.robjects.packages import importr
     from ..rTools import py2r, r2py, r_inline_plot, rHelp, trl, rGet, rSet, ad2so, so2ad
     import os
+    import warnings
+    warnings.warn("scWGCNA is deprecated, use geneEnrichInfo's scWGCNA instead", DeprecationWarning)
 
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
 

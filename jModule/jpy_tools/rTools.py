@@ -12,6 +12,7 @@
 
 # from gokceneraslan
 
+import pandas as pd
 from jpy_tools import settings
 import functools
 import scipy.sparse as sp
@@ -28,7 +29,7 @@ import sys
 
 R = ro.r
 seo = importr("SeuratObject")
-
+# arrow = importr('arrow') # this package should be imported before pyarrow
 
 def rpy2_check(func):
     """Decorator to check whether rpy2 is installed at runtime"""
@@ -155,8 +156,30 @@ def py2r_disk(obj, check=False, *args, **kwargs):
 
         tpFile.close()
         return objR
+    
+    def _dataframe(obj):
+        arrow = importr('arrow')
+        tpFile = NamedTemporaryFile(suffix=".feather")
+        if (obj.index == obj.reset_index().index).all():
+            obj.to_feather(tpFile.name)
+            needSetIndex = False
+        else:
+            obj.rename_axis('_index_').reset_index().to_feather(tpFile.name)
+            needSetIndex = True
 
-    dt_config = {sc.AnnData: _adata}
+        dfR = arrow.read_feather(tpFile.name, as_data_frame = True)
+        if needSetIndex:
+            with ro.local_context() as rlc:
+                rlc["dfR"] = dfR
+                R("""
+                rownames(dfR) <- dfR$`_index_`
+                dfR$`_index_` <- NULL
+                """)
+                dfR = R("dfR")
+        return dfR
+
+
+    dt_config = {sc.AnnData: _adata, pd.DataFrame: _dataframe}
     if check:
         if type(obj) in dt_config:
             return True
