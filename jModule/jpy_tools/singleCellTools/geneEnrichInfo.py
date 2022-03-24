@@ -955,7 +955,7 @@ def _getMetaCells(ad, ls_obs, layer='raw', skipSmallGroup = True, target_metacel
     
         ad_sub = ad[df.index].copy()
         ad_sub.X = ad_sub.layers[layer].copy()
-        logger.info(f"ad_sub info:: {len(ad_sub)} cells, {ad_sub.X.sum()} UMIs")
+        logger.info(f"{ls_label} info:: {len(ad_sub)} cells, {ad_sub.X.sum()} UMIs")
 
         if ad_sub.X.sum() / 2 < target_metacell_size:
             if skipSmallGroup:
@@ -975,6 +975,7 @@ def _getMetaCells(ad, ls_obs, layer='raw', skipSmallGroup = True, target_metacel
         ad_subMeta.layers[layer] = ad_subMeta.X.copy()
         dtAd_meta['-'.join(ls_label)] = ad_subMeta
     ad_meta = sc.concat(dtAd_meta, index_unique='-')
+    print(ad_meta.obs[ls_obs].value_counts())
     return ad_meta
 
 def scWGCNA(
@@ -1054,8 +1055,8 @@ def scWGCNA(
     renv["jobid"] = jobid
     renv["dir_result"] = dir_result
 
-    ad_meta = _getMetaCells(ad, ls_obs, layer=layer, skipSmallGroup=skipSmallGroup, target_metacell_size=target_metacell_size, **dt_getMetaCellsKwargs)
-    ad_meta = ad[:, ls_hvgGene].copy()
+    ad_meta = _getMetaCells(ad[:, ls_hvgGene], ls_obs, layer=layer, skipSmallGroup=skipSmallGroup, target_metacell_size=target_metacell_size, **dt_getMetaCellsKwargs)
+    # ad_meta = ad[:, ls_hvgGene].copy()
     basic.initLayer(ad_meta, layer=layer)
     datExpr = py2r(ad_meta.to_df('normalize_log'))
     renv["datExpr"] = datExpr
