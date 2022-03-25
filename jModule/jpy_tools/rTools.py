@@ -29,6 +29,8 @@ import sys
 
 R = ro.r
 seo = importr("SeuratObject")
+rBase = importr("base")
+rUtils = importr("utils")
 # arrow = importr('arrow') # this package should be imported before pyarrow
 
 def rpy2_check(func):
@@ -164,18 +166,20 @@ def py2r_disk(obj, check=False, *args, **kwargs):
             obj.to_feather(tpFile.name)
             needSetIndex = False
         else:
-            obj.rename_axis('_index_').reset_index().to_feather(tpFile.name)
+            obj.rename_axis('_index_py2r_').reset_index().to_feather(tpFile.name)
             needSetIndex = True
 
         dfR = arrow.read_feather(tpFile.name, as_data_frame = True)
+        dfR = rBase.as_data_frame(dfR)
         if needSetIndex:
             with ro.local_context() as rlc:
                 rlc["dfR"] = dfR
                 R("""
-                rownames(dfR) <- dfR$`_index_`
-                dfR$`_index_` <- NULL
+                srR_index <- dfR$`_index_py2r_`
+                dfR$`_index_py2r_` <- NULL
+                rownames(dfR) <- srR_index
                 """)
-                dfR = R("dfR")
+                dfR = rlc["dfR"]
         return dfR
 
 
