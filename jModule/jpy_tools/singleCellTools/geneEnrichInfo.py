@@ -35,7 +35,16 @@ from xarray import corr
 from . import basic, diffxpy
 
 
-def getBgGene(ad, ls_gene, layer="normalize_log", bins=50, seed=0, usePreBin:str = None, multi = 1, replacement = True):
+def getBgGene(
+    ad,
+    ls_gene,
+    layer="normalize_log",
+    bins=50,
+    seed=0,
+    usePreBin: str = None,
+    multi=1,
+    replacement=True,
+):
     "replacement: if True, ls_gene will be included in the result"
     if not usePreBin:
         ad.var["means_ForPickMock"] = ad.to_df(layer).mean()
@@ -52,24 +61,36 @@ def getBgGene(ad, ls_gene, layer="normalize_log", bins=50, seed=0, usePreBin:str
         .groupby("bins_ForPickMock", group_keys=False)
         .apply(
             lambda df: df.sample(
-                n=dt_binGeneCounts[df["bins_ForPickMock"].iloc[0]] * multi, random_state=seed
+                n=dt_binGeneCounts[df["bins_ForPickMock"].iloc[0]] * multi,
+                random_state=seed,
             )
         )
         .index.to_list()
     )
     return ls_randomGene
 
-def getGeneModuleEnrichScore(ad, layer, ls_gene, times=100, groupby=None, targetOnly=True, disableBar=False, multi=False, **dt_paramsGetBgGene):
+
+def getGeneModuleEnrichScore(
+    ad,
+    layer,
+    ls_gene,
+    times=100,
+    groupby=None,
+    targetOnly=True,
+    disableBar=False,
+    multi=False,
+    **dt_paramsGetBgGene,
+):
     """
     get gene module enrich score
 
     Parameters
     ----------
     ad : sc.AnnData
-    layer : 
+    layer :
         normalize_log
-    ls_gene : 
-        gene list: 
+    ls_gene :
+        gene list:
             ['a', 'b']
     times : int, optional
         by default 100
@@ -77,8 +98,8 @@ def getGeneModuleEnrichScore(ad, layer, ls_gene, times=100, groupby=None, target
         by default None
     targetOnly : bool, optional
         remove shuffled gene results or not
-    """    
-        
+    """
+
     ls_adGene = ad.var.index.to_list()
     st_notInGene = set(ls_gene) - set(ls_adGene)
     if len(st_notInGene):
@@ -107,25 +128,30 @@ def getGeneModuleEnrichScore(ad, layer, ls_gene, times=100, groupby=None, target
         df_scaledExp = _ad.to_df(f"{layer}_scaled")
         dt_groupMeanExp = {"target": df_scaledExp[ls_gene].mean().mean()}
         for i, ls_bgGeneSingle in enumerate(ls_bgGene):
-            dt_groupMeanExp[f"shuffle_{i}"] = df_scaledExp[ls_bgGeneSingle].mean().mean()
+            dt_groupMeanExp[f"shuffle_{i}"] = (
+                df_scaledExp[ls_bgGeneSingle].mean().mean()
+            )
         dt_scaledMeanExp[name] = dt_groupMeanExp
     df_scaledMeanExp = pd.DataFrame(dt_scaledMeanExp).apply(zscore)
     if targetOnly:
-        return df_scaledMeanExp.loc['target'].to_dict()
+        return df_scaledMeanExp.loc["target"].to_dict()
     else:
         return df_scaledMeanExp
 
-def getGeneModuleEnrichScore_multiList(ad, layer, dt_gene, times=100, groupby=None, bins=50, **dt_paramsGetBgGene):
+
+def getGeneModuleEnrichScore_multiList(
+    ad, layer, dt_gene, times=100, groupby=None, bins=50, **dt_paramsGetBgGene
+):
     """
     get gene module enrich score
 
     Parameters
     ----------
     ad : sc.AnnData
-    layer : 
+    layer :
         normalize_log
-    ls_gene : 
-        gene list: 
+    ls_gene :
+        gene list:
             ['a', 'b']
     times : int, optional
         by default 100
@@ -133,18 +159,28 @@ def getGeneModuleEnrichScore_multiList(ad, layer, dt_gene, times=100, groupby=No
         by default None
     targetOnly : bool, optional
         remove shuffled gene results or not
-    """    
+    """
     ad.var["means_ForPickMock"] = ad.to_df(layer).mean()
     ad.var["bins_ForPickMock"] = pd.qcut(
         ad.var["means_ForPickMock"], bins, duplicates="drop"
     )
 
     dt_result = {}
-    for name, ls_gene in tqdm(dt_gene.items(), 'get gene module enrich score', len(dt_gene)):
+    for name, ls_gene in tqdm(
+        dt_gene.items(), "get gene module enrich score", len(dt_gene)
+    ):
         dt_result[name] = getGeneModuleEnrichScore(
-            ad, layer, ls_gene, times, groupby, disableBar=True, multi=True, **dt_paramsGetBgGene
+            ad,
+            layer,
+            ls_gene,
+            times,
+            groupby,
+            disableBar=True,
+            multi=True,
+            **dt_paramsGetBgGene,
         )
     return pd.DataFrame(dt_result)
+
 
 def getUcellScore(
     ad: sc.AnnData,
@@ -152,7 +188,7 @@ def getUcellScore(
     layer: Optional[str],
     label,
     cutoff=0.2,
-    batch = None,
+    batch=None,
 ):
     """
     use ucell calculate average expression info
@@ -193,7 +229,9 @@ def getUcellScore(
             r_scores = ucell.ScoreSignatures_UCell(ssR_forUcell, features=dtR_deGene)
             dfLs_ucellResults.append(r2py(rBase.as_data_frame(r_scores)))
         # import pdb; pdb.set_trace()
-        ad.obsm[f"ucell_score_{label}"] = pd.concat(dfLs_ucellResults).reindex(ad.obs.index)
+        ad.obsm[f"ucell_score_{label}"] = pd.concat(dfLs_ucellResults).reindex(
+            ad.obs.index
+        )
 
     else:
         ss_forUcell = ad.layers[layer] if layer else ad.X
@@ -206,13 +244,19 @@ def getUcellScore(
         r_scores = ucell.ScoreSignatures_UCell(ssR_forUcell, features=dtR_deGene)
         ad.obsm[f"ucell_score_{label}"] = r2py(rBase.as_data_frame(r_scores))
 
-
     if len(dt_deGene) > 1:
         ad.obs[f"ucell_celltype_{label}"] = ad.obsm[f"ucell_score_{label}"].pipe(
             lambda df: np.where(df.max(1) > cutoff, df.idxmax(1), "Unknown")
         )
 
-def getGeneScore(ad: sc.AnnData, dt_Gene: Dict[str, List[str]], layer: Optional[str], label:str, func:Callable):
+
+def getGeneScore(
+    ad: sc.AnnData,
+    dt_Gene: Dict[str, List[str]],
+    layer: Optional[str],
+    label: str,
+    func: Callable,
+):
     """
     use gene score calculate average expression info
 
@@ -227,11 +271,12 @@ def getGeneScore(ad: sc.AnnData, dt_Gene: Dict[str, List[str]], layer: Optional[
     func : Callable
         calculate function
     """
-    df_results = pd.DataFrame(index = ad.obs.index, columns = dt_Gene.keys())
+    df_results = pd.DataFrame(index=ad.obs.index, columns=dt_Gene.keys())
     for name, ls_gene in dt_Gene.items():
-        _sr = ad[:, ls_gene].to_df(layer).apply(func, axis = 1)
+        _sr = ad[:, ls_gene].to_df(layer).apply(func, axis=1)
         df_results[name] = _sr
     ad.obsm[label] = df_results
+
 
 def getOverlapInfo(
     adata: anndata.AnnData,
@@ -481,12 +526,18 @@ def getMarkerFromCellexResults(
     )
     df_results = reduce(
         lambda x, y: pd.merge(
-            x, y, left_on=("gene", clusterName), right_on=("gene", clusterName), how='outer'
+            x,
+            y,
+            left_on=("gene", clusterName),
+            right_on=("gene", clusterName),
+            how="outer",
         ),
         [sr_geneCounts, *lsDf_Concat],
     ).query("counts >= @minCounts")
     df_results.insert(
-        3, "mean_expressed_ratio_others", df_results.filter(like="expressed_ratio_others").mean(1)
+        3,
+        "mean_expressed_ratio_others",
+        df_results.filter(like="expressed_ratio_others").mean(1),
     )
     df_results.insert(
         3, "mean_expressed_ratio", df_results.filter(like="expressed_ratio").mean(1)
@@ -798,7 +849,7 @@ def getDEGByScvi(
         scvi_model = scvi.model.SCVI(ad_forDE)
         scvi_model.train(early_stopping=True, batch_size=batch_size)
         scvi_model.history["elbo_train"].plot()
-        plt.yscale('log')
+        plt.yscale("log")
         plt.show()
 
     else:
@@ -823,6 +874,7 @@ def getDEGByScvi(
 
     return scvi_model, df_deInfo
 
+
 def getDEGFromScviResult(
     adata,
     df_deInfo,
@@ -832,7 +884,7 @@ def getDEGFromScviResult(
     nonZeroProportion=0.1,
     markerCounts=None,
     keyAdded=None,
-):  
+):
     adata.obs[groupby] = adata.obs[groupby].astype("category")
     if not groups:
         cats = list(adata.obs[groupby].cat.categories)
@@ -858,6 +910,7 @@ def getDEGFromScviResult(
         keyAdded = f"scvi_marker_{groupby}"
     adata.uns[keyAdded] = markers
 
+
 def getCosgResult(ad, key="cosg") -> pd.DataFrame:
     """
     maybe the SOTA algorithm for one batch datasets
@@ -877,14 +930,17 @@ def getCosgResult(ad, key="cosg") -> pd.DataFrame:
     )
     return df
 
-def getAUCellScore(ad, dt_genes, layer, threads = 1, aucMaxRank = 500, label = 'AUCell', rEnv=None):
+
+def getAUCellScore(
+    ad, dt_genes, layer, threads=1, aucMaxRank=500, label="AUCell", rEnv=None
+):
     """
 
     Parameters
     ----------
-    ad : 
-    dt_genes : 
-    layer : 
+    ad :
+    dt_genes :
+    layer :
         rank based
     label : str, optional
         by default 'AUCell'
@@ -895,16 +951,19 @@ def getAUCellScore(ad, dt_genes, layer, threads = 1, aucMaxRank = 500, label = '
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
     from ..rTools import py2r, r2py, r_inline_plot, rHelp, trl, rSet, rGet, ad2so, so2ad
-    rBase = importr('base')
-    rUtils = importr('utils')
-    dplyr = importr('dplyr')
+
+    rBase = importr("base")
+    rUtils = importr("utils")
+    dplyr = importr("dplyr")
     R = ro.r
 
-    aucell = importr('AUCell')
+    aucell = importr("AUCell")
+
     def getThreshold(objR_name, geneCate):
         df = r2py(R(f"as.data.frame({objR_name}${geneCate}$aucThr$thresholds)"))
-        df = df.assign(geneCate = geneCate)
+        df = df.assign(geneCate=geneCate)
         return df
+
     if rEnv is None:
         rEnv = ro.Environment()
     rEnv = ro.Environment()
@@ -918,41 +977,53 @@ def getAUCellScore(ad, dt_genes, layer, threads = 1, aucMaxRank = 500, label = '
     mtxR = py2r(mtx)
     lsR_obsName = R.c(*ls_obsName)
     lsR_varName = R.c(*ls_varName)
-    dtR_genes = R.list(**{x: R.c(*y) for x,y in dt_genes.items()})
+    dtR_genes = R.list(**{x: R.c(*y) for x, y in dt_genes.items()})
 
-    rEnv['mtxR'] = mtxR
-    rEnv['lsR_obsName'] = lsR_obsName
-    rEnv['lsR_varName'] = lsR_varName
-    rEnv['dtR_genes'] = dtR_genes
-    rEnv['threads'] = threads
-    rEnv['aucMaxRank'] = aucMaxRank
+    rEnv["mtxR"] = mtxR
+    rEnv["lsR_obsName"] = lsR_obsName
+    rEnv["lsR_varName"] = lsR_varName
+    rEnv["dtR_genes"] = dtR_genes
+    rEnv["threads"] = threads
+    rEnv["aucMaxRank"] = aucMaxRank
     with r_inline_plot():
-        R("""
+        R(
+            """
         rownames(mtxR) <- lsR_varName
         colnames(mtxR) <- lsR_obsName
         cells_rankings <- AUCell_buildRankings(mtxR, nCores=threads, plotStats=TRUE)
         cells_AUC <- AUCell_calcAUC(dtR_genes, cells_rankings, aucMaxRank=aucMaxRank)
+        """
+        )
+    with r_inline_plot():
+        R(
+            """
         cells_assignment <- AUCell_exploreThresholds(cells_AUC) 
-        """)
-
+        """
+        )
     df_auc = r2py(R("as.data.frame(cells_AUC@assays@data$AUC)")).T
-    df_aucThreshold = pd.concat([getThreshold('cells_assignment', x) for x in dt_genes.keys()])
+    df_aucThreshold = pd.concat(
+        [getThreshold("cells_assignment", x) for x in dt_genes.keys()]
+    )
     ad.obsm[label] = df_auc.copy()
     ad.uns[label] = df_aucThreshold.copy()
     rlc.__exit__(None, None, None)
 
-def _getMetaCells(ad, ls_obs, layer='raw', skipSmallGroup = True, target_metacell_size=5e4, **kwargs):
+
+def _getMetaCells(
+    ad, ls_obs, layer="raw", skipSmallGroup=True, target_metacell_size=5e4, **kwargs
+):
     """
     get meta-cell from adata
     """
     import metacells as mc
+
     if isinstance(ls_obs, str):
         ls_obs = [ls_obs]
     dtAd_meta = {}
     for ls_label, df in ad.obs.groupby(ls_obs):
         if isinstance(ls_label, str):
             ls_label = [ls_label]
-    
+
         ad_sub = ad[df.index].copy()
         ad_sub.X = ad_sub.layers[layer].copy()
         logger.info(f"{ls_label} info:: {len(ad_sub)} cells, {ad_sub.X.sum()} UMIs")
@@ -963,20 +1034,27 @@ def _getMetaCells(ad, ls_obs, layer='raw', skipSmallGroup = True, target_metacel
                 continue
             else:
                 _target_metacell_size = ad_sub.X.sum() // 2
-                logger.warning(f"{ls_label} is too small, set target_metacell_size to {_target_metacell_size}")
-                mc.pl.divide_and_conquer_pipeline(ad_sub, target_metacell_size=_target_metacell_size, **kwargs)
+                logger.warning(
+                    f"{ls_label} is too small, set target_metacell_size to {_target_metacell_size}"
+                )
+                mc.pl.divide_and_conquer_pipeline(
+                    ad_sub, target_metacell_size=_target_metacell_size, **kwargs
+                )
         else:
-            mc.pl.divide_and_conquer_pipeline(ad_sub, target_metacell_size=target_metacell_size, **kwargs)
-        
-        ad_subMeta = mc.pl.collect_metacells(ad_sub, name='metacells')
+            mc.pl.divide_and_conquer_pipeline(
+                ad_sub, target_metacell_size=target_metacell_size, **kwargs
+            )
+
+        ad_subMeta = mc.pl.collect_metacells(ad_sub, name="metacells")
         # ad_sub.obs.index = ad_sub.obs.index.astype(str) + '-' + '-'.join(ls_label)
         for obsName, label in zip(ls_obs, ls_label):
             ad_subMeta.obs[obsName] = label
         ad_subMeta.layers[layer] = ad_subMeta.X.copy()
-        dtAd_meta['-'.join(ls_label)] = ad_subMeta
-    ad_meta = sc.concat(dtAd_meta, index_unique='-')
+        dtAd_meta["-".join(ls_label)] = ad_subMeta
+    ad_meta = sc.concat(dtAd_meta, index_unique="-")
     print(ad_meta.obs[ls_obs].value_counts())
     return ad_meta
+
 
 def scWGCNA(
     ad: sc.AnnData,
@@ -1026,10 +1104,15 @@ def scWGCNA(
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
+    from . import plotting
     from ..rTools import py2r, r2py, r_inline_plot, rHelp, trl, rGet, rSet, ad2so, so2ad
     import os
     import warnings
-    warnings.warn("scWGCNA is deprecated, use geneEnrichInfo's scWGCNA instead", DeprecationWarning)
+
+    warnings.warn(
+        "scWGCNA is deprecated, use geneEnrichInfo's scWGCNA instead",
+        DeprecationWarning,
+    )
 
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
@@ -1038,7 +1121,7 @@ def scWGCNA(
     tidyverse = importr("tidyverse")
     WGCNA = importr("WGCNA")
     seurat = importr("Seurat")
-
+    gplots = importr("gplots")
     R = ro.r
     R(f"disableWGCNAThreads()")
 
@@ -1055,12 +1138,18 @@ def scWGCNA(
     renv["jobid"] = jobid
     renv["dir_result"] = dir_result
 
-    ad_meta = _getMetaCells(ad[:, ls_hvgGene], ls_obs, layer=layer, skipSmallGroup=skipSmallGroup, target_metacell_size=target_metacell_size, **dt_getMetaCellsKwargs)
+    ad_meta = _getMetaCells(
+        ad[:, ls_hvgGene],
+        ls_obs,
+        layer=layer,
+        skipSmallGroup=skipSmallGroup,
+        target_metacell_size=target_metacell_size,
+        **dt_getMetaCellsKwargs,
+    )
     # ad_meta = ad[:, ls_hvgGene].copy()
-    basic.initLayer(ad_meta, layer=layer)
-    datExpr = py2r(ad_meta.to_df('normalize_log'))
+    basic.initLayer(ad_meta, layer=layer, total=1e6)
+    datExpr = py2r(ad_meta.to_df("normalize_log"))
     renv["datExpr"] = datExpr
-    
 
     R(
         """
@@ -1232,6 +1321,58 @@ def scWGCNA(
 
     # dt_cyt = {"node": df_node, "edge": df_edge}
     # ad_meta.uns["cyt"] = dt_cyt
+    ad_meta.uns[f"{jobid}_wgcna"] = {}
+    ls_colorName = (
+        ad_meta.varm["KME"]["Initially.Assigned.Module.Color"].unique().tolist()
+    )
+    dt_color = {x: gplots.col2hex(x)[0] for x in ls_colorName}
+    ad_meta.uns[f"{jobid}_wgcna"]["colors"] = dt_color
+
+    dt_moduleGene = (
+        ad_meta.varm["KME"]
+        .groupby("Initially.Assigned.Module.Color")
+        .apply(lambda df: df.index.to_list())
+        .to_dict()
+    )
+    ad_meta.uns[f"{jobid}_wgcna"]["genes"] = dt_moduleGene
+
+    dt_moduleGene = {x: y for x, y in dt_moduleGene.items() if x != "grey"}
+    axs = plotting.clustermap(
+        ad_meta,
+        dt_moduleGene,
+        obsAnno=ls_obs,
+        layer="normalize_log",
+        #     standard_scale=1,
+        space_obsAnnoLegend=0.3,
+        cbarPos=None,
+        dt_geneColor=dt_color,
+    )
+    plt.show()
+
+    ad_metaEigengene = sc.AnnData(
+        ad_meta.obsm["eigengene"], obs=ad_meta.obs, uns=ad_meta.uns
+    )
+    _dt = {x.split("ME")[-1]: [x] for x in ad_metaEigengene.var.index}
+    axs = plotting.clustermap(
+        ad_metaEigengene,
+        _dt,
+        obsAnno=ls_obs,
+        layer=None,
+        standard_scale=1,
+        space_obsAnnoLegend=0.3,
+        cbarPos=None,
+        dt_geneColor=dt_color,
+    )
+    plt.show()
+
+    getAUCellScore(ad, dt_moduleGene, layer, aucMaxRank=1000, label = f"{jobid}_AUCell", rEnv = renv)
+    if 'X_umap' in ad.obsm:
+        sc.pl.umap(
+            plotting.obsmToObs(ad, f"{jobid}_AUCell"),
+            color=ad.obsm[f"{jobid}_AUCell"].columns,
+            cmap="Reds",
+        )
+
 
     rlc.__exit__(None, None, None)
     ro.r.gc()

@@ -435,7 +435,7 @@ def clustermap(
     if isinstance(space_obsAnnoLegend, float):
         space_obsAnnoLegend = [space_obsAnnoLegend] * len(obsAnno)
     if addSplitLine:
-        dt_arg["row_cluster"] = False
+        row_cluster = False
         splitBasedOn = obsAnno[0]
     df_geneModule = pd.DataFrame(
         [(x, z) for x, y in dt_gene.items() for z in y], columns=["module", "gene"]

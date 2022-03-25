@@ -11,7 +11,7 @@
 ##################################################################################
 
 # from gokceneraslan
-
+import numpy as np
 import pandas as pd
 from jpy_tools import settings
 import functools
@@ -162,6 +162,7 @@ def py2r_disk(obj, check=False, *args, **kwargs):
     def _dataframe(obj):
         arrow = importr('arrow')
         tpFile = NamedTemporaryFile(suffix=".feather")
+        obj = obj.rename(columns=str)
         if (obj.index == obj.reset_index().index).all():
             obj.to_feather(tpFile.name)
             needSetIndex = False
@@ -181,16 +182,42 @@ def py2r_disk(obj, check=False, *args, **kwargs):
                 """)
                 dfR = rlc["dfR"]
         return dfR
+    
+    def _array(obj):
+        obj = pd.DataFrame(obj)
+        obj = obj.rename(columns=str)
+        dfR = py2r(obj)
+        arR = rBase.as_matrix(dfR)
+        return arR
 
-
-    dt_config = {sc.AnnData: _adata, pd.DataFrame: _dataframe}
+    dt_config = {sc.AnnData: _adata, pd.DataFrame: _dataframe, np.ndarray: _array}
     if check:
-        if type(obj) in dt_config:
-            return True
+        for _class in dt_config.keys():
+            if isinstance(obj, _class):
+                if _class == np.ndarray:  # _array only worked for 2D arrays
+                    if len(obj.shape) == 2:
+                        return True
+                    else:
+                        return False
+                else:
+                    return True
         else:
             return False
-
-    func = dt_config[type(obj)]
+        # if type(obj) in dt_config:
+        #     if type(obj) == np.asaarray:
+        #         if len(obj.shape) == 2: # _array only worked for 2D arrays
+        #             return True
+        #         else:
+        #             return False
+        #     else:
+        #         return True
+        # else:
+        #     return False
+    for _class in dt_config.keys():
+        if isinstance(obj, _class):
+            _type = _class
+            break
+    func = dt_config[_type]
     objR = func(obj, *args, **kwargs)
     return objR
 
