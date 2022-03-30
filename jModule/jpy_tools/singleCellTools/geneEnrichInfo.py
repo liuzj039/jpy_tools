@@ -1020,6 +1020,7 @@ def _getMetaCells(
     if isinstance(ls_obs, str):
         ls_obs = [ls_obs]
     dtAd_meta = {}
+    ls_changeObs = []
     for ls_label, df in ad.obs.groupby(ls_obs):
         if isinstance(ls_label, str):
             ls_label = [ls_label]
@@ -1029,6 +1030,7 @@ def _getMetaCells(
         logger.info(f"{ls_label} info:: {len(ad_sub)} cells, {ad_sub.X.sum()} UMIs")
 
         if ad_sub.X.sum() / 2 < target_metacell_size:
+            ls_changeObs.append(ls_label)
             if skipSmallGroup:
                 logger.warning(f"{ls_label} is too small, skip")
                 continue
@@ -1046,6 +1048,16 @@ def _getMetaCells(
             )
 
         ad_subMeta = mc.pl.collect_metacells(ad_sub, name="metacells")
+        dt_metaLinkWithOrg = (
+            ad_sub.obs["metacell"]
+            .groupby(ad_sub.obs["metacell"])
+            .apply(lambda sr: sr.index.to_list())
+            .to_dict()
+        )
+        ad_subMeta.obs["metacell_link"] = ad_subMeta.obs["metacell"].map(
+            dt_metaLinkWithOrg
+        )
+        dtAd_meta[ls_label] = ad_subMeta
         # ad_sub.obs.index = ad_sub.obs.index.astype(str) + '-' + '-'.join(ls_label)
         for obsName, label in zip(ls_obs, ls_label):
             ad_subMeta.obs[obsName] = label
@@ -1053,6 +1065,7 @@ def _getMetaCells(
         dtAd_meta["-".join(ls_label)] = ad_subMeta
     ad_meta = sc.concat(dtAd_meta, index_unique="-")
     print(ad_meta.obs[ls_obs].value_counts())
+    print(f"These {len(ls_changeObs)} groups are skipped or changed due to small size")
     return ad_meta
 
 
@@ -1365,14 +1378,15 @@ def scWGCNA(
     )
     plt.show()
 
-    getAUCellScore(ad, dt_moduleGene, layer, aucMaxRank=1000, label = f"{jobid}_AUCell", rEnv = renv)
-    if 'X_umap' in ad.obsm:
+    getAUCellScore(
+        ad, dt_moduleGene, layer, aucMaxRank=1000, label=f"{jobid}_AUCell", rEnv=renv
+    )
+    if "X_umap" in ad.obsm:
         sc.pl.umap(
             plotting.obsmToObs(ad, f"{jobid}_AUCell"),
             color=ad.obsm[f"{jobid}_AUCell"].columns,
             cmap="Reds",
         )
-
 
     rlc.__exit__(None, None, None)
     ro.r.gc()

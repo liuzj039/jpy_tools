@@ -545,6 +545,7 @@ def getGoDesc(goTerm: Union[str, List[str]], retry=5) -> pd.DataFrame:
             "hitName": dt_singleGoFirstHit["name"] + f" ({name})" ,
             "hitDefinition": dt_singleGoFirstHit["definition"]["text"],
             "hitCounts": dt_singleGo["numberOfHits"],
+            "aspect": dt_singleGoFirstHit["aspect"],
         }
         if name != dt_go[name]["hitGO"]:
             logger.warning(f"query : {name}, target : {dt_go[name]['hitGO']}")

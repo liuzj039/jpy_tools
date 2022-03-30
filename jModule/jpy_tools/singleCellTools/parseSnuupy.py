@@ -37,7 +37,7 @@ import pysam
 from collections import defaultdict
 from cool import F
 import muon
-
+from functools import reduce
 
 def addSnuupyBamTag(path_bam, path_out, tag="CB"):
     bam_org = pysam.AlignmentFile(path_bam)
@@ -108,10 +108,10 @@ def getDiffSplicedPvalue(
         delayed(fc_test)(x)
         for x in tqdm(df_spliceInfo.itertuples(), total=len(df_spliceInfo))
     )
-
+ 
     df_spliceInfo["pvalue"] = ls_pvalue
     df_spliceInfo = df_spliceInfo.fillna(1)
-    df_spliceInfo["qvalue"] = multitest.fdrcorrection(df_spliceInfo["pvalue"])[1]
+    df_spliceInfo["qvalue"] = df_spliceInfo.groupby('cluster')['pvalue'].transform(lambda sr:multitest.fdrcorrection(sr)[1])
     df_spliceInfo = df_spliceInfo.eval(
         "currentUnsplicedRatio = currentUnspliced / currentTotal"
     ).eval("othersUnsplicedRatio = othersUnspliced / othersTotal")
@@ -517,6 +517,21 @@ def getDiffSplicedIntron(
         )
     return allClusterDiffDt
 
+def concatMd(dtMd, label, indexUnique, mod="inner"):
+    dt_sampleMod = {x: set(list(y.mod.keys())) for x, y in dtMd.items()}
+    if mod == "inner":
+        ls_useMod = list(reduce(lambda x, y: list(set(x) & set(y)), list(dt_sampleMod.values())))
+    elif mod == 'outer':
+        ls_useMod = list(reduce(lambda x, y: list(set(x) | set(y)), list(dt_sampleMod.values())))
+    else:
+        assert False, "Unknown mod parameter"
+    dtAd_mod = {}
+    for mod in ls_useMod:
+        dtAd_singleMod = {x:y[mod] for x,y in dtMd.items() if mod in y.mod}
+        ad_mod = sc.concat(dtAd_singleMod, join='outer', label=label, index_unique=indexUnique)
+        dtAd_mod[mod] = ad_mod
+    md = mu.MuData(dtAd_mod)
+    return md
 
 class SnuupySpliceInfo(object):
     """Snuupy splice info object"""

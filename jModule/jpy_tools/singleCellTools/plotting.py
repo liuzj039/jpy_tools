@@ -248,7 +248,7 @@ def plotLabelPercentageInCluster(
             plt.text(
                 i,
                 105,
-                f"$\it{{N}}$ = {len(adata[adata.obs[groupby] == label])}",
+                f"$\it{{N}}$ = {adata[adata.obs[groupby] == label].shape[0]}",
                 rotation=90,
                 ha="center",
                 va="bottom",

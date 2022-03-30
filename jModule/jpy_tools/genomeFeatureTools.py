@@ -130,7 +130,7 @@ class GtfProcess(object):
 
         df_gtf = pr.read_gtf(path_gtf, as_df=True)
 
-        _ls = ["gene",  "transcript", "exon"]
+        _ls = ["gene", "transcript", "exon"]
         df_gtf = df_gtf.filter(
             [
                 "Chromosome",
@@ -171,8 +171,10 @@ class GtfProcess(object):
                 .apply(_mergeExon, feature="transcript")
             )
             df_gtf = pd.concat([df_gtf, df_trGtf])
-            
-        df_gtf['Feature'] = df_gtf['Feature'].astype('category').cat.reorder_categories(_ls)
+
+        df_gtf["Feature"] = (
+            df_gtf["Feature"].astype("category").cat.reorder_categories(_ls)
+        )
         df_gtf = df_gtf.sort_values(["Chromosome", "Start", "Feature"])
         df_gtf["transcript_id"] = df_gtf["transcript_id"].fillna("GENE_EMPTY")
         ls_trsOrder = df_gtf["transcript_id"].unique().tolist()
@@ -399,6 +401,27 @@ def getIntronsFromBed(path_bed, longest_isoform_only=True, bed12=False) -> pd.Da
         df_introns = df_introns.sort_values(["Chromosome", "Start"])
 
     return df_introns
+
+
+def getSeqFromBedFile(df_bed, path_genome):
+    import sh
+    from tempfile import TemporaryDirectory
+
+    dir_temp = TemporaryDirectory()
+    df_bed.to_csv(dir_temp.name + "t.bed", sep="\t", header=None, index=None)
+    sh.bedtools.getfasta(
+        fi=path_genome,
+        bed=dir_temp.name + "t.bed",
+        bedOut=True,
+        s=True,
+        _long_sep=" ",
+        _long_prefix="-",
+        _out=dir_temp.name + "t.withFa.bed",
+    )
+    df_bedSeq = pd.read_table(
+        dir_temp.name + "t.withFa.bed", names=[*df_bed.columns, "Seq"]
+    )
+    return df_bedSeq
 
 
 NAMES = [

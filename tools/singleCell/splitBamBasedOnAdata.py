@@ -3,12 +3,20 @@ import sh
 import click
 import scanpy as sc
 import pandas as pd
-from more_itertools import ichunked
 from concurrent.futures import ThreadPoolExecutor as mpT
 from collections import defaultdict
 from loguru import logger
 import typing
 
+def chunked(bam, length):
+    ls_read = []
+    for i,read in enumerate(bam):
+        ls_read.append(read)
+        if (i + 1) % length == 0:
+            yield ls_read
+            ls_read = []
+    if len(ls_read) > 0:
+        yield ls_read
 
 def readBamToContentIt(
     bamFile,
@@ -38,7 +46,7 @@ def readBamToContentIt(
     Iterator[typing.Dict[str, typing.Sequence[pysam.libcalignedsegment.AlignedSegment]]]
         Key is group name, value is a list which contains reads belong to this group.
     """
-    chunkedBamFileGenerator = ichunked(bamFile, int(1e7))
+    chunkedBamFileGenerator = chunked(bamFile, int(1e7))
     for i, singleChunkedBam in enumerate(chunkedBamFileGenerator):
         logger.info(f"read bam: {i * 1e7} reads")
         chunkedReadContentDt = defaultdict(lambda: [])
