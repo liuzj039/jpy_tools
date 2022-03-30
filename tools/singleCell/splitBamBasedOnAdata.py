@@ -87,7 +87,7 @@ def writeReadToBam(
 @click.option("--bam", "inBamPath")
 @click.option("--adata", "h5adPath")
 @click.option("-o", "outDirPath")
-@click.option("-g", "groupby", default=False)
+@click.option("-g", "groupby")
 @click.option("-s", "splitInfoLs", multiple=True, default=[])
 @click.option("--tag", "addTag")
 @click.option("--need-split-bam", "needSplitBam", is_flag=True, show_default=True)
