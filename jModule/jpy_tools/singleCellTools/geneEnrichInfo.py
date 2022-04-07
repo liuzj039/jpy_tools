@@ -228,7 +228,6 @@ def getUcellScore(
 
             r_scores = ucell.ScoreSignatures_UCell(ssR_forUcell, features=dtR_deGene)
             dfLs_ucellResults.append(r2py(rBase.as_data_frame(r_scores)))
-        # import pdb; pdb.set_trace()
         ad.obsm[f"ucell_score_{label}"] = pd.concat(dfLs_ucellResults).reindex(
             ad.obs.index
         )
@@ -1054,18 +1053,33 @@ def _getMetaCells(
             .apply(lambda sr: sr.index.to_list())
             .to_dict()
         )
-        ad_subMeta.obs["metacell_link"] = ad_subMeta.obs["metacell"].map(
-            dt_metaLinkWithOrg
+        ad_subMeta.obs["metacell_link"] = ad_subMeta.obs.index.map(
+            lambda x: dt_metaLinkWithOrg[int(x)]
         )
-        dtAd_meta[ls_label] = ad_subMeta
+
         # ad_sub.obs.index = ad_sub.obs.index.astype(str) + '-' + '-'.join(ls_label)
         for obsName, label in zip(ls_obs, ls_label):
             ad_subMeta.obs[obsName] = label
         ad_subMeta.layers[layer] = ad_subMeta.X.copy()
         dtAd_meta["-".join(ls_label)] = ad_subMeta
     ad_meta = sc.concat(dtAd_meta, index_unique="-")
+    for obsName in ls_obs:
+        if isinstance(ad.obs[obsName].dtype, pd.CategoricalDtype):
+            ad_meta.obs[obsName] = (
+                ad_meta.obs[obsName]
+                .astype("category")
+                .cat.reorder_categories(ad.obs[obsName].cat.categories)
+            )
+    ad_meta.obs['metacell_link'] = ad_meta.obs['metacell_link'].str.join(',')
     print(ad_meta.obs[ls_obs].value_counts())
-    print(f"These {len(ls_changeObs)} groups are skipped or changed due to small size")
+    print(f"These {ls_changeObs} groups are skipped or changed due to small size")
+    sns.histplot(ad_meta.to_df('raw').sum(1))
+    plt.xlabel('metacell UMI counts')
+    plt.show()
+
+    sns.histplot(ad_meta.obs['metacell_link'].map(len))
+    plt.xlabel('metacell cell counts')
+    plt.show()
     return ad_meta
 
 
@@ -1122,11 +1136,6 @@ def scWGCNA(
     import os
     import warnings
 
-    warnings.warn(
-        "scWGCNA is deprecated, use geneEnrichInfo's scWGCNA instead",
-        DeprecationWarning,
-    )
-
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
     rBase = importr("base")
@@ -1141,253 +1150,262 @@ def scWGCNA(
     if renv is None:
         renv = ro.Environment()
 
-    rlc = ro.local_context(renv)
-    rlc.__enter__()
+    # rlc = ro.local_context(renv)
+    # rlc.__enter__()
+    with ro.local_context(renv) as rlc:
+        rlc["minModuleSize"] = minModuleSize
+        rlc["deepSplit"] = deepSplit
+        rlc["mergeCutHeight"] = mergeCutHeight
+        rlc["maxBlockSize"] = len(ls_hvgGene)
+        rlc["jobid"] = jobid
+        rlc["dir_result"] = dir_result
 
-    renv["minModuleSize"] = minModuleSize
-    renv["deepSplit"] = deepSplit
-    renv["mergeCutHeight"] = mergeCutHeight
-    renv["maxBlockSize"] = len(ls_hvgGene)
-    renv["jobid"] = jobid
-    renv["dir_result"] = dir_result
-
-    ad_meta = _getMetaCells(
-        ad[:, ls_hvgGene],
-        ls_obs,
-        layer=layer,
-        skipSmallGroup=skipSmallGroup,
-        target_metacell_size=target_metacell_size,
-        **dt_getMetaCellsKwargs,
-    )
-    # ad_meta = ad[:, ls_hvgGene].copy()
-    basic.initLayer(ad_meta, layer=layer, total=1e6)
-    datExpr = py2r(ad_meta.to_df("normalize_log"))
-    renv["datExpr"] = datExpr
-
-    R(
+        ad_meta = _getMetaCells(
+            ad,
+            ls_obs,
+            layer=layer,
+            skipSmallGroup=skipSmallGroup,
+            target_metacell_size=target_metacell_size,
+            **dt_getMetaCellsKwargs,
+        )[:, ls_hvgGene]
+        # ad_meta = ad[:, ls_hvgGene].copy()
+        basic.initLayer(ad_meta, layer=layer, total=1e6)
+        datExpr = py2r(ad_meta.to_df("normalize_log"))
+        rlc["datExpr"] = datExpr
+        # import pdb; pdb.set_trace()
+        R(
+            """
+        datExpr <- datExpr[,goodGenes(datExpr)]
+        lsR_useGene = colnames(datExpr)
         """
-    # datExpr <- as.data.frame(GetAssayData(so, assay='RNA', slot='data'))
-    # datExpr <- as.data.frame(t(datExpr))
-    datExpr <- datExpr[,goodGenes(datExpr)]
-    lsR_useGene = colnames(datExpr)
-    """
-    )
+        )
 
-    if not softPower:
+        if not softPower:
+            with r_inline_plot(width=768):
+                R(
+                    """
+                powers = c(seq(1,10,by=1), seq(12,20, by=2))
+                powerTable = list(
+                data = pickSoftThreshold(
+                    datExpr,
+                    powerVector=powers,
+                    verbose = 100,
+                    networkType="signed",
+                    corFnc="bicor"
+                )[[2]]
+                )
+
+                # Plot the results:
+
+                colors = c("blue", "red","black")
+                # Will plot these columns of the returned scale free analysis tables
+                plotCols = c(2,5,6,7)
+                colNames = c("Scale Free Topology Model Fit", "Mean connectivity", "mean connectivity",
+                "Max connectivity");
+
+                # Get the minima and maxima of the plotted points
+                ylim = matrix(NA, nrow = 2, ncol = 4);
+                for (col in 1:length(plotCols)){
+                ylim[1, col] = min(ylim[1, col], powerTable$data[, plotCols[col]], na.rm = TRUE);
+                ylim[2, col] = max(ylim[2, col], powerTable$data[, plotCols[col]], na.rm = TRUE);
+                }
+
+                # Plot the quantities in the chosen columns vs. the soft thresholding power
+                par(mfcol = c(2,2));
+                par(mar = c(4.2, 4.2 , 2.2, 0.5))
+                cex1 = 0.7;
+
+                for (col in 1:length(plotCols)){
+                plot(powerTable$data[,1], -sign(powerTable$data[,3])*powerTable$data[,2],
+                xlab="Soft Threshold (power)",ylab=colNames[col],type="n", ylim = ylim[, col],
+                main = colNames[col]);
+                addGrid();
+
+                if (col==1){
+                    text(powerTable$data[,1], -sign(powerTable$data[,3])*powerTable$data[,2],
+                    labels=powers,cex=cex1,col=colors[1]);
+                } else
+                text(powerTable$data[,1], powerTable$data[,plotCols[col]],
+                labels=powers,cex=cex1,col=colors[1]);
+                if (col==1){
+                    legend("bottomright", legend = 'Metacells', col = colors, pch = 20) ;
+                } else
+                legend("topright", legend = 'Metacells', col = colors, pch = 20) ;
+                }
+                """
+                )
+            softPower = int(input("Soft Power"))
+        rlc["softPower"] = softPower
+
+        if threads > 1:
+            R(f"enableWGCNAThreads({threads})")
+        else:
+            R(f"disableWGCNAThreads()")
+
+        R(
+            """
+        nSets = 1
+        setLabels <- 'ODC'
+        shortLabels <- setLabels
+
+        multiExpr <- list()
+        multiExpr[['ODC']] <- list(data=datExpr)
+        checkSets(multiExpr) 
+
+        net <- blockwiseConsensusModules(multiExpr, blocks = NULL,
+                                                maxBlockSize = maxBlockSize, ## This should be set to a smaller size if the user has limited RAM
+                                                randomSeed = 39,
+                                                corType = "pearson",
+                                                power = softPower,
+                                                consensusQuantile = 0.3,
+                                                networkType = "signed",
+                                                TOMType = "unsigned",
+                                                TOMDenom = "min",
+                                                scaleTOMs = TRUE, scaleQuantile = 0.8,
+                                                sampleForScaling = TRUE, sampleForScalingFactor = 1000,
+                                                useDiskCache = TRUE, chunkSize = NULL,
+                                                deepSplit = deepSplit,
+                                                pamStage=FALSE,
+                                                detectCutHeight = 0.995, minModuleSize = minModuleSize,
+                                                mergeCutHeight = mergeCutHeight,
+                                                saveConsensusTOMs = TRUE,
+                                                consensusTOMFilePattern = paste0(dir_result, "/", jobid, "_TOM_block.%b.rda"))
+
+        consMEs = net$multiMEs;
+        moduleLabels = net$colors;
+
+        # Convert the numeric labels to color labels
+        moduleColors = as.character(moduleLabels)
+        consTree = net$dendrograms[[1]];
+
+        # module eigengenes
+        MEs=moduleEigengenes(multiExpr[[1]]$data, colors = moduleColors, nPC=1)$eigengenes
+        MEs=orderMEs(MEs)
+        meInfo<-data.frame(rownames(datExpr), MEs)
+        colnames(meInfo)[1]= "SampleID"
+
+        # intramodular connectivity
+        KMEs<-signedKME(datExpr, MEs,outputColumnName = "kME",corFnc = "bicor")
+
+        # compile into a module metadata table
+        geneInfo=as.data.frame(cbind(colnames(datExpr),moduleColors, KMEs))
+
+        # how many modules did we get?
+        nmodules <- length(unique(moduleColors))
+
+        # merged gene symbol column
+        colnames(geneInfo)[1]= "GeneSymbol"
+        colnames(geneInfo)[2]= "Initially.Assigned.Module.Color"
+        PCvalues=MEs
+        """
+        )
+
         with r_inline_plot(width=768):
             R(
                 """
-            powers = c(seq(1,10,by=1), seq(12,20, by=2))
-            powerTable = list(
-            data = pickSoftThreshold(
-                datExpr,
-                powerVector=powers,
-                verbose = 100,
-                networkType="signed",
-                corFnc="bicor"
-            )[[2]]
+            plotDendroAndColors(consTree, moduleColors, "Module colors", dendroLabels = FALSE, hang = 0.03, addGuide = TRUE, guideHang = 0.05,
+                                main = paste0("ODC lineage gene dendrogram and module colors"))"""
             )
-
-            # Plot the results:
-
-            colors = c("blue", "red","black")
-            # Will plot these columns of the returned scale free analysis tables
-            plotCols = c(2,5,6,7)
-            colNames = c("Scale Free Topology Model Fit", "Mean connectivity", "mean connectivity",
-            "Max connectivity");
-
-            # Get the minima and maxima of the plotted points
-            ylim = matrix(NA, nrow = 2, ncol = 4);
-            for (col in 1:length(plotCols)){
-            ylim[1, col] = min(ylim[1, col], powerTable$data[, plotCols[col]], na.rm = TRUE);
-            ylim[2, col] = max(ylim[2, col], powerTable$data[, plotCols[col]], na.rm = TRUE);
-            }
-
-            # Plot the quantities in the chosen columns vs. the soft thresholding power
-            par(mfcol = c(2,2));
-            par(mar = c(4.2, 4.2 , 2.2, 0.5))
-            cex1 = 0.7;
-
-            for (col in 1:length(plotCols)){
-            plot(powerTable$data[,1], -sign(powerTable$data[,3])*powerTable$data[,2],
-            xlab="Soft Threshold (power)",ylab=colNames[col],type="n", ylim = ylim[, col],
-            main = colNames[col]);
-            addGrid();
-
-            if (col==1){
-                text(powerTable$data[,1], -sign(powerTable$data[,3])*powerTable$data[,2],
-                labels=powers,cex=cex1,col=colors[1]);
-            } else
-            text(powerTable$data[,1], powerTable$data[,plotCols[col]],
-            labels=powers,cex=cex1,col=colors[1]);
-            if (col==1){
-                legend("bottomright", legend = 'Metacells', col = colors, pch = 20) ;
-            } else
-            legend("topright", legend = 'Metacells', col = colors, pch = 20) ;
-            }
+        with r_inline_plot(width=768):
+            R(
+                """
+            plotEigengeneNetworks(PCvalues, "Eigengene adjacency heatmap", 
+                                marDendro = c(3,3,2,4),
+                                marHeatmap = c(3,4,2,2), plotDendrograms = T, 
+                                xLabelsAngle = 90)
             """
             )
-        softPower = int(input("Soft Power"))
-    renv["softPower"] = softPower
-
-    if threads > 1:
-        R(f"enableWGCNAThreads({threads})")
-    else:
-        R(f"disableWGCNAThreads()")
-
-    R(
-        """
-    nSets = 1
-    setLabels <- 'ODC'
-    shortLabels <- setLabels
-
-    multiExpr <- list()
-    multiExpr[['ODC']] <- list(data=datExpr)
-    checkSets(multiExpr) 
-
-    net <- blockwiseConsensusModules(multiExpr, blocks = NULL,
-                                            maxBlockSize = maxBlockSize, ## This should be set to a smaller size if the user has limited RAM
-                                            randomSeed = 39,
-                                            corType = "pearson",
-                                            power = softPower,
-                                            consensusQuantile = 0.3,
-                                            networkType = "signed",
-                                            TOMType = "unsigned",
-                                            TOMDenom = "min",
-                                            scaleTOMs = TRUE, scaleQuantile = 0.8,
-                                            sampleForScaling = TRUE, sampleForScalingFactor = 1000,
-                                            useDiskCache = TRUE, chunkSize = NULL,
-                                            deepSplit = deepSplit,
-                                            pamStage=FALSE,
-                                            detectCutHeight = 0.995, minModuleSize = minModuleSize,
-                                            mergeCutHeight = mergeCutHeight,
-                                            saveConsensusTOMs = TRUE,
-                                            consensusTOMFilePattern = paste0(dir_result, "/", jobid, "_TOM_block.%b.rda"))
-
-    consMEs = net$multiMEs;
-    moduleLabels = net$colors;
-
-    # Convert the numeric labels to color labels
-    moduleColors = as.character(moduleLabels)
-    consTree = net$dendrograms[[1]];
-
-    # module eigengenes
-    MEs=moduleEigengenes(multiExpr[[1]]$data, colors = moduleColors, nPC=1)$eigengenes
-    MEs=orderMEs(MEs)
-    meInfo<-data.frame(rownames(datExpr), MEs)
-    colnames(meInfo)[1]= "SampleID"
-
-    # intramodular connectivity
-    KMEs<-signedKME(datExpr, MEs,outputColumnName = "kME",corFnc = "bicor")
-
-    # compile into a module metadata table
-    geneInfo=as.data.frame(cbind(colnames(datExpr),moduleColors, KMEs))
-
-    # how many modules did we get?
-    nmodules <- length(unique(moduleColors))
-
-    # merged gene symbol column
-    colnames(geneInfo)[1]= "GeneSymbol"
-    colnames(geneInfo)[2]= "Initially.Assigned.Module.Color"
-    PCvalues=MEs
-    """
-    )
-
-    with r_inline_plot(width=768):
         R(
             """
-        plotDendroAndColors(consTree, moduleColors, "Module colors", dendroLabels = FALSE, hang = 0.03, addGuide = TRUE, guideHang = 0.05,
-                            main = paste0("ODC lineage gene dendrogram and module colors"))"""
-        )
-    with r_inline_plot(width=768):
-        R(
-            """
-        plotEigengeneNetworks(PCvalues, "Eigengene adjacency heatmap", 
-                            marDendro = c(3,3,2,4),
-                            marHeatmap = c(3,4,2,2), plotDendrograms = T, 
-                            xLabelsAngle = 90)
+        load(paste0(dir_result, "/", jobid, "_TOM_block.1.rda"), verbose=T)
+
+        probes = colnames(datExpr)
+        TOM <- as.matrix(consTomDS)
+        dimnames(TOM) <- list(probes, probes)
+
+        # cyt = exportNetworkToCytoscape(TOM,
+        #             weighted = TRUE, threshold = 0.1,
+        #             nodeNames = probes, nodeAttr = moduleColors)
         """
         )
-    R(
-        """
-    load(paste0(dir_result, "/", jobid, "_TOM_block.1.rda"), verbose=T)
 
-    probes = colnames(datExpr)
-    TOM <- as.matrix(consTomDS)
-    dimnames(TOM) <- list(probes, probes)
+        ad_meta = ad_meta[:, list(rlc["lsR_useGene"])]
+        ad_meta.obsm["eigengene"] = r2py(R("meInfo"))
+        ad_meta.obsm["eigengene"].drop(columns="SampleID", inplace=True)
+        ad_meta.varm["KME"] = r2py(R("geneInfo"))
+        ad_meta.varp["TOM"] = r2py(R("TOM"))
 
-    # cyt = exportNetworkToCytoscape(TOM,
-    #             weighted = TRUE, threshold = 0.1,
-    #             nodeNames = probes, nodeAttr = moduleColors)
-    """
-    )
+        # cyt = R("cyt")
+        # df_edge = r2py(rGet(cyt, "$edgeData"))
+        # df_node = r2py(rGet(cyt, "$nodeData"))
 
-    ad_meta = ad_meta[:, list(renv["lsR_useGene"])]
-    ad_meta.obsm["eigengene"] = r2py(R("meInfo"))
-    ad_meta.obsm["eigengene"].drop(columns="SampleID", inplace=True)
-    ad_meta.varm["KME"] = r2py(R("geneInfo"))
-    ad_meta.varp["TOM"] = r2py(R("TOM"))
-
-    # cyt = R("cyt")
-    # df_edge = r2py(rGet(cyt, "$edgeData"))
-    # df_node = r2py(rGet(cyt, "$nodeData"))
-
-    # dt_cyt = {"node": df_node, "edge": df_edge}
-    # ad_meta.uns["cyt"] = dt_cyt
-    ad_meta.uns[f"{jobid}_wgcna"] = {}
-    ls_colorName = (
-        ad_meta.varm["KME"]["Initially.Assigned.Module.Color"].unique().tolist()
-    )
-    dt_color = {x: gplots.col2hex(x)[0] for x in ls_colorName}
-    ad_meta.uns[f"{jobid}_wgcna"]["colors"] = dt_color
-
-    dt_moduleGene = (
-        ad_meta.varm["KME"]
-        .groupby("Initially.Assigned.Module.Color")
-        .apply(lambda df: df.index.to_list())
-        .to_dict()
-    )
-    ad_meta.uns[f"{jobid}_wgcna"]["genes"] = dt_moduleGene
-
-    dt_moduleGene = {x: y for x, y in dt_moduleGene.items() if x != "grey"}
-    axs = plotting.clustermap(
-        ad_meta,
-        dt_moduleGene,
-        obsAnno=ls_obs,
-        layer="normalize_log",
-        #     standard_scale=1,
-        space_obsAnnoLegend=0.3,
-        cbarPos=None,
-        dt_geneColor=dt_color,
-    )
-    plt.show()
-
-    ad_metaEigengene = sc.AnnData(
-        ad_meta.obsm["eigengene"], obs=ad_meta.obs, uns=ad_meta.uns
-    )
-    _dt = {x.split("ME")[-1]: [x] for x in ad_metaEigengene.var.index}
-    axs = plotting.clustermap(
-        ad_metaEigengene,
-        _dt,
-        obsAnno=ls_obs,
-        layer=None,
-        standard_scale=1,
-        space_obsAnnoLegend=0.3,
-        cbarPos=None,
-        dt_geneColor=dt_color,
-    )
-    plt.show()
-
-    getAUCellScore(
-        ad, dt_moduleGene, layer, aucMaxRank=1000, label=f"{jobid}_AUCell", rEnv=renv
-    )
-    if "X_umap" in ad.obsm:
-        sc.pl.umap(
-            plotting.obsmToObs(ad, f"{jobid}_AUCell"),
-            color=ad.obsm[f"{jobid}_AUCell"].columns,
-            cmap="Reds",
+        # dt_cyt = {"node": df_node, "edge": df_edge}
+        # ad_meta.uns["cyt"] = dt_cyt
+        ad_meta.uns[f"{jobid}_wgcna"] = {}
+        ls_colorName = (
+            ad_meta.varm["KME"]["Initially.Assigned.Module.Color"].unique().tolist()
         )
+        dt_color = {x: gplots.col2hex(x)[0] for x in ls_colorName}
+        ad_meta.uns[f"{jobid}_wgcna"]["colors"] = dt_color
 
-    rlc.__exit__(None, None, None)
+        dt_moduleGene = (
+            ad_meta.varm["KME"]
+            .groupby("Initially.Assigned.Module.Color")
+            .apply(lambda df: df.index.to_list())
+            .to_dict()
+        )
+        ad_meta.uns[f"{jobid}_wgcna"]["genes"] = dt_moduleGene
+
+        dt_moduleGene = {x: y for x, y in dt_moduleGene.items() if x != "grey"}
+        axs = plotting.clustermap(
+            ad_meta,
+            dt_moduleGene,
+            obsAnno=ls_obs,
+            layer="normalize_log",
+            #     standard_scale=1,
+            space_obsAnnoLegend=0.3,
+            cbarPos=None,
+            dt_geneColor=dt_color,
+        )
+        plt.show()
+
+        ad_metaEigengene = sc.AnnData(
+            ad_meta.obsm["eigengene"], obs=ad_meta.obs, uns=ad_meta.uns
+        )
+        _dt = {x.split("ME")[-1]: [x] for x in ad_metaEigengene.var.index}
+        axs = plotting.clustermap(
+            ad_metaEigengene,
+            _dt,
+            obsAnno=ls_obs,
+            layer=None,
+            standard_scale=1,
+            space_obsAnnoLegend=0.3,
+            cbarPos=None,
+            dt_geneColor=dt_color,
+        )
+        plt.show()
+
+        getAUCellScore(
+            ad,
+            dt_moduleGene,
+            layer,
+            aucMaxRank=1000,
+            label=f"{jobid}_AUCell",
+            rEnv=renv,
+        )
+        if "X_umap" in ad.obsm:
+            sc.pl.umap(
+                plotting.obsmToObs(ad, f"{jobid}_AUCell"),
+                color=ad.obsm[f"{jobid}_AUCell"].columns,
+                cmap="Reds",
+            )
+
+        ad_meta.varm["KME"] = ad_meta.varm["KME"].assign(
+            kME=lambda df: df.apply(
+                lambda x: x.at["kME" + x.at["Initially.Assigned.Module.Color"]], axis=1
+            ),
+            module = lambda df: df['Initially.Assigned.Module.Color']
+        )
+    # rlc.__exit__(None, None, None)
     ro.r.gc()
     return ad_meta

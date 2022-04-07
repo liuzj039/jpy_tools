@@ -426,6 +426,8 @@ def clustermap(
     addSplitLine = True,
     row_cluster=False,
     col_cluster=False, 
+    addObsLegend=True,
+    forceShowModuleColor=False,
     **dt_arg,
 ):
     from ..otherTools import addColorLegendToAx
@@ -469,7 +471,7 @@ def clustermap(
     df_geneModuleChangeColor = df_geneModule.assign(
         module=lambda df: df["module"].map(dt_geneColor)
     )
-    if len(dt_gene) == 1:
+    if (len(dt_gene) == 1) & (not forceShowModuleColor):
         df_geneModuleChangeColor = None
     axs = sns.clustermap(
         df_mtx,
@@ -515,26 +517,26 @@ def clustermap(
             pos_current = pos_next
             plt.yticks([])
             
-    if len(dt_gene) > 1:
+    if not ((len(dt_gene) == 1) & (not forceShowModuleColor)):
         plt.sca(axs.ax_col_colors)
         plt.xticks([])
         plt.yticks([])
-
-    legendPox = [1.05, 1]
-    for i, (anno, space) in enumerate(zip(obsAnno, space_obsAnnoLegend)):
-        dt_color = basic.getadataColor(ad, anno)
-        addColorLegendToAx(
-            axs.ax_heatmap,
-            anno,
-            dt_color,
-            1,
-            bbox_to_anchor=legendPox,
-            frameon=False,
-        )
-        if legendAlign == "h":
-            legendPox = [1.05 + space, 1]
-        elif legendAlign == "v":
-            legendPox = [1.05, 1 - space]
+    if addObsLegend:
+        legendPox = [1.05, 1]
+        for i, (anno, space) in enumerate(zip(obsAnno, space_obsAnnoLegend)):
+            dt_color = basic.getadataColor(ad, anno)
+            addColorLegendToAx(
+                axs.ax_heatmap,
+                anno,
+                dt_color,
+                1,
+                bbox_to_anchor=legendPox,
+                frameon=False,
+            )
+            if legendAlign == "h":
+                legendPox = [1.05 + space, 1]
+            elif legendAlign == "v":
+                legendPox = [1.05, 1 - space]
 
 
     plt.sca(axs.ax_heatmap)

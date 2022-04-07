@@ -38,6 +38,7 @@ from collections import defaultdict
 from cool import F
 import muon
 from functools import reduce
+import muon as mu
 
 def addSnuupyBamTag(path_bam, path_out, tag="CB"):
     bam_org = pysam.AlignmentFile(path_bam)
@@ -56,7 +57,7 @@ def addSnuupyBamTag(path_bam, path_out, tag="CB"):
 
 
 def getDiffSplicedPvalue(
-    ad_groupSpliceRatio, min_total=5, threads=12, method="ztest"
+    ad_groupSpliceRatio, min_total=5, threads=12, method="ztest", unsplicedLayer = 'unspliced', totalLayer = 'total'
 ) -> pd.DataFrame:
     """
     get pvalue for spliced vs unspliced
@@ -71,14 +72,14 @@ def getDiffSplicedPvalue(
             ad_groupSpliceRatio.obs.index != currentObsIndex
         ]
         df_currentUnspliced = (
-            ad_current.to_df("unspliced").sum().rename("currentUnspliced")
+            ad_current.to_df(unsplicedLayer).sum().rename("currentUnspliced")
         )
-        df_currentTotal = ad_current.to_df("total").sum().rename("currentTotal")
+        df_currentTotal = ad_current.to_df(totalLayer).sum().rename("currentTotal")
 
         df_othersUnspliced = (
-            ad_others.to_df("unspliced").sum().rename("othersUnspliced")
+            ad_others.to_df(unsplicedLayer).sum().rename("othersUnspliced")
         )
-        df_othersTotal = ad_others.to_df("total").sum().rename("othersTotal")
+        df_othersTotal = ad_others.to_df(totalLayer).sum().rename("othersTotal")
 
         df_currentSpliceInfo = pd.concat(
             [df_currentUnspliced, df_currentTotal, df_othersUnspliced, df_othersTotal],
@@ -291,15 +292,17 @@ def getSpliceInfoOnIntronLevel(irInfoPath, useIntronPath=None):
     # 输入 0base
     # 输出 1base
     allLinesCounts = len(irInfoDf)
-    for i, line in enumerate(irInfoDf.itertuples()):
+    for i, line in tqdm(enumerate(irInfoDf.itertuples()), total=allLinesCounts):
         barcode = line.Name.split("_")[0]
         lineCountMtxDt = intronCountMtxDt.get(barcode, {})
         lineRetenMtxDt = intronRetenMtxDt.get(barcode, {})
-
-        exonOverlapInfo = [int(x) for x in line.ExonOverlapInfo.split(",")]
-        minIntron = min(exonOverlapInfo)
-        maxIntron = max(exonOverlapInfo)
-        intronCov = list(range(minIntron, maxIntron))
+        if pd.isna(line.ExonOverlapInfo):
+            intronCov = []
+        else:
+            exonOverlapInfo = [int(x) for x in line.ExonOverlapInfo.split(",")]
+            minIntron = min(exonOverlapInfo)
+            maxIntron = max(exonOverlapInfo)
+            intronCov = list(range(minIntron, maxIntron))
 
         if pd.isna(line.IntronOverlapInfo):
             intronOverlapInfo = []
@@ -320,8 +323,7 @@ def getSpliceInfoOnIntronLevel(irInfoPath, useIntronPath=None):
 
         intronCountMtxDt[barcode] = lineCountMtxDt
         intronRetenMtxDt[barcode] = lineRetenMtxDt
-        if i % 1e5 == 0:
-            logger.info(f"{i}/{allLinesCounts}")
+
     intronCountMtxDf = pd.DataFrame.from_dict(intronCountMtxDt, "index")
     intronRetenMtxDf = pd.DataFrame.from_dict(intronRetenMtxDt, "index")
     if useIntronPath:
@@ -339,32 +341,45 @@ def getSpliceInfoOnIntronLevel(irInfoPath, useIntronPath=None):
         ]
     intronCountMtxDf.index = intronCountMtxDf.index + "-1"
     intronRetenMtxDf.index = intronRetenMtxDf.index + "-1"
-    intronRetenMtxDf = intronRetenMtxDf.fillna(0)
-    intronCountMtxDf = intronCountMtxDf.fillna(0)
-    intronCountMtxAd = basic.creatAnndataFromDf(intronCountMtxDf)
-    intronRetenMtxAd = basic.creatAnndataFromDf(intronRetenMtxDf)
 
-    useIntronLs = list(intronRetenMtxAd.var.index | intronCountMtxAd.var.index)
-    useCellLs = list(intronRetenMtxAd.obs.index | intronCountMtxAd.obs.index)
+    ls_var = list(intronCountMtxDf.columns | intronRetenMtxDf.columns)
+    ls_obs = list(intronCountMtxDf.index | intronRetenMtxDf.index)
+    intronRetenMtxDf = intronRetenMtxDf.reindex(index = ls_obs).reindex(columns = ls_var).fillna(0)
+    intronCountMtxDf = intronCountMtxDf.reindex(index = ls_obs).reindex(columns = ls_var).fillna(0)
 
-    intronRetenMtxDf = (
-        intronRetenMtxAd.to_df()
-        .reindex(useIntronLs, axis=1)
-        .reindex(useCellLs)
-        .fillna(0)
-    )
-    intronCountMtxDf = (
-        intronCountMtxAd.to_df()
-        .reindex(useIntronLs, axis=1)
-        .reindex(useCellLs)
-        .fillna(0)
-    )
+    ad_final = sc.AnnData(X = ss.csr_matrix(intronCountMtxDf.values), obs = pd.DataFrame(index = ls_obs), var = pd.DataFrame(index = ls_var))
+    ad_final.layers['unspliced'] = ss.csr_matrix(intronRetenMtxDf.values)
+    ad_final.layers['total'] = ad_final.X.copy()
+    ad_final.layers['spliced'] = ad_final.X - ad_final.layers['unspliced']
 
-    return basic.creatAnndataFromDf(
-        intronCountMtxDf,
-        unspliced=intronRetenMtxDf,
-        spliced=intronCountMtxDf - intronRetenMtxDf,
+    # intronCountMtxAd = basic.creatAnndataFromDf(intronCountMtxDf)
+    # intronCountMtxAd.X = ss.csr_matrix(intronCountMtxAd.X)
+    # intronRetenMtxAd = basic.creatAnndataFromDf(intronRetenMtxDf)
+    # intronRetenMtxAd.X = ss.csr_matrix(intronRetenMtxAd.X)
+
+    # useIntronLs = list(intronRetenMtxAd.var.index | intronCountMtxAd.var.index)
+    # useCellLs = list(intronRetenMtxAd.obs.index | intronCountMtxAd.obs.index)
+
+    # intronRetenMtxAd = intronRetenMtxAd[useCellLs, useIntronLs].copy()
+    # intronCountMtxAd = intronCountMtxAd[useCellLs, useIntronLs].copy()
+
+    # intronCountMtxAd.layers['total'] = intronCountMtxAd.X.copy()
+    # intronCountMtxAd.layers['unspliced'] = intronRetenMtxAd.X
+    # intronCountMtxAd.layers['spliced'] = intronCountMtxAd.X - intronRetenMtxAd.X
+
+    return ad_final
+
+def addIntronSplicedAdToMd(md: mu.MuData, dt_spliceInfoPath: Mapping[str, str], indexUnique:str, modName = 'splice_intron', threads=4):
+    md.update()
+    lsAd = Parallel(threads)(
+        delayed(getSpliceInfoOnIntronLevel)(x) for x in dt_spliceInfoPath.values()
     )
+    ad_spliceIntronLevel = sc.concat(
+        {x: y for x, y in zip(dt_spliceInfoPath.keys(), lsAd)}, index_unique=indexUnique, join='outer'
+    )
+    ad_spliceIntronLevel = ad_spliceIntronLevel[ad_spliceIntronLevel.obs.eval('index in @md.obs.index')].copy()
+    md.mod[modName] = ad_spliceIntronLevel
+    md.update()
 
 
 def getSpliceInfoFromSnuupyAd(nanoporeAd):

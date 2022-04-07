@@ -341,9 +341,9 @@ def ad2so(
         f".libPaths('{libPath_R}'); library(SeuratDisk); Convert('{path_h5ad}', dest='h5Seurat', overwrite=T); so <- LoadH5Seurat('{path_h5so}'); saveRDS(so, '{path_rds}')",
     ]
     if verbose:
-        sh.Command(path_R)(*ls_cmd, _err=sys.stderr, _out=sys.stdout)
+        cmd = sh.Command(path_R)(*ls_cmd, _err=sys.stderr, _out=sys.stdout)
     else:
-        sh.Command(path_R)(*ls_cmd, _err_to_out=True)
+        cmd = sh.Command(path_R)(*ls_cmd, _err_to_out=True)
     # for x in sh.Command(path_R)(*ls_cmd, _err_to_out=True, _iter=True):
     #     print(x.rstrip())
     so = R.readRDS(path_rds)

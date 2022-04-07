@@ -168,25 +168,29 @@ def addColorLegendToAx(
     **legendParamsDt,
 ):
     from matplotlib.legend import Legend
-
+    ax = ax.twinx()
+    ax.get_yaxis().set_visible(False)
     artistLs = []
     for label, color in colorDt.items():
         artistLs.append(ax.bar(0, 0, color=color, label=label, linewidth=0))
-    leg = Legend(
-        ax,
-        artistLs,
-        list(colorDt.keys()),
-        title=title,
-        loc=loc,
-        ncol=ncol,
-        bbox_to_anchor=bbox_to_anchor,
-        **legendParamsDt,
-    )
-    leg._legend_box.align = "left"
-    ax.add_artist(leg)
+    # leg = Legend(
+    #     ax,
+    #     artistLs,
+    #     list(colorDt.keys()),
+    #     title=title,
+    #     loc=loc,
+    #     ncol=ncol,
+    #     bbox_to_anchor=bbox_to_anchor,
+    #     **legendParamsDt,
+    # )
+    # leg._legend_box.align = "left"
+    # ax.add_artist(leg)    
+    plt.sca(ax)
+    ax.legend(handles=artistLs, labels=list(colorDt.keys()), title=title, loc=loc, ncol=ncol, bbox_to_anchor=bbox_to_anchor, **legendParamsDt)
+    
 
     # leg = ax.legend(title=title, loc=loc, ncol=ncol, bbox_to_anchor=bbox_to_anchor)
-    return leg
+    return ax.legend
 
 
 def sankeyPlotByPyechart(
@@ -611,3 +615,26 @@ def pwStack(ls_ax, ncols=5):
         for i, ax in enumerate(ls_ax[-1]):
             axs = axs[ls_name[i]] / ax
     return axs
+
+def pwRecoverSeaborn():
+    ls_seabornParams = [
+        # sns.axisgrid.Grid._figure,
+        sns.axisgrid.Grid.add_legend,
+        sns.axisgrid.FacetGrid.__init__,
+        sns.axisgrid.FacetGrid.despine,
+        sns.axisgrid.PairGrid.__init__,
+        sns.axisgrid.JointGrid.__init__,
+        sns.matrix.ClusterGrid.__setattr__
+    ]
+    def _recoverSeaborn():
+        (
+            # sns.axisgrid.Grid._figure,
+            sns.axisgrid.Grid.add_legend,
+            sns.axisgrid.FacetGrid.__init__,
+            sns.axisgrid.FacetGrid.despine,
+            sns.axisgrid.PairGrid.__init__,
+            sns.axisgrid.JointGrid.__init__,
+            sns.matrix.ClusterGrid.__setattr__,
+        ) = ls_seabornParams
+        del(sns.axisgrid.Grid._figure)
+    return _recoverSeaborn
