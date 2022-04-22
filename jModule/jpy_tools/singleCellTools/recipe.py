@@ -171,7 +171,7 @@ def multiBatch(
                     _ad,
                     layer="raw",
                     n_top_genes=n_top_genes,
-                    n_genes=n_top_genes,
+                    n_genes=int(min((max(2 * n_top_genes, 0.5 * _ad.shape[1])), ad.shape[1])),
                     log_scale_correct=True,
                 )
                 ls_adataAfterSCT.append(_ad)

@@ -434,7 +434,7 @@ def integrateBySeurat(
     )  # seurat always use dash to separate gene names
     lsR_features = R.c(*ls_features)
 
-    so = ad2so(ad, layer=layer)
+    so = ad2so(ad, layer=layer, ls_obs=[batch_key])
 
     renv = ro.Environment()
     with ro.local_context(renv) as rlc:

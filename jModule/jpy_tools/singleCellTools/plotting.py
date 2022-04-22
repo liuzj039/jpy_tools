@@ -172,6 +172,7 @@ def obsmToObs(
     ad_tmp.obs = ad_tmp.obs.rename(
         columns={x: f"{prefix}{x}" for x in ad.obsm[key_obsm].columns}
     )
+    ad_tmp.uns["plot_obsm"] = ad_tmp.obsm[key_obsm].columns
     return ad_tmp
 
 
@@ -204,7 +205,13 @@ def plotCellScatter(
 
 
 def plotLabelPercentageInCluster(
-    adata, groupby, label, labelColor: Optional[dict] = None, needCounts=True, ax=None, dt_kwargsForLegend={"bbox_to_anchor":[1, 1]}
+    adata,
+    groupby,
+    label,
+    labelColor: Optional[dict] = None,
+    needCounts=True,
+    ax=None,
+    dt_kwargsForLegend={"bbox_to_anchor": [1, 1]},
 ):
     """
     根据label在adata.obs中groupby的占比绘图
@@ -422,10 +429,10 @@ def clustermap(
     dt_geneColor: Optional[Mapping[str, str]] = None,
     add_gene_name: bool = True,
     col_label: bool = False,
-    legendAlign: Literal['h', 'v'] = 'h',
-    addSplitLine = True,
+    legendAlign: Literal["h", "v"] = "h",
+    addSplitLine=True,
     row_cluster=False,
-    col_cluster=False, 
+    col_cluster=False,
     addObsLegend=True,
     forceShowModuleColor=False,
     **dt_arg,
@@ -516,7 +523,7 @@ def clustermap(
             )
             pos_current = pos_next
             plt.yticks([])
-            
+
     if not ((len(dt_gene) == 1) & (not forceShowModuleColor)):
         plt.sca(axs.ax_col_colors)
         plt.xticks([])
@@ -538,26 +545,25 @@ def clustermap(
             elif legendAlign == "v":
                 legendPox = [1.05, 1 - space]
 
-
     plt.sca(axs.ax_heatmap)
     if not col_label:
         plt.xticks([])
     plt.yticks([])
     plt.xlabel("")
-    
+
     ## add split line
     xMin, xMax = axs.ax_heatmap.get_xlim()
     yMin, yMax = axs.ax_heatmap.get_ylim()
-    plt.axvline(xMin, color='black', lw=1, alpha=0.7)
-    plt.axvline(xMax, color='black', lw=1, alpha=0.7)
-    plt.axhline(yMin, color='black', lw=1, alpha=0.7)
-    plt.axhline(yMax, color='black', lw=1, alpha=0.7)
+    plt.axvline(xMin, color="black", lw=1, alpha=0.7)
+    plt.axvline(xMax, color="black", lw=1, alpha=0.7)
+    plt.axhline(yMin, color="black", lw=1, alpha=0.7)
+    plt.axhline(yMax, color="black", lw=1, alpha=0.7)
     if addSplitLine:
         dt_obsCounts = ad.obs[splitBasedOn].value_counts(sort=False).to_dict()
         yPos = 0
         for i, (name, counts) in enumerate(dt_obsCounts.items()):
             yPos = yPos + counts
-            plt.axhline(yPos, color='black', lw=1, alpha=0.7)
+            plt.axhline(yPos, color="black", lw=1, alpha=0.7)
     return axs
 
 
@@ -711,3 +717,67 @@ def heatmap_rank(
     axs.ax_cbar.tick_params(axis="x", length=10)
 
     return axs
+
+
+def plotGeneModuleByNetworkx(
+    df_adjacency: pd.DataFrame,
+    cutoff: Optional[float] = None,
+    ls_hubGenes: Optional[List[str]] = None,
+    dt_needLabelNodes: Optional[Dict[str, str]] = None,
+    dt_baseOptions: Dict[str, str] = {
+        "node_color": "black",
+        "node_size": 200,
+        "width": 0.3,
+    },
+    dt_hubOptions: Dict[str, str] = {
+        "node_color": "red",
+        "node_size": 200,
+        "width": 0.3,
+    },
+    dt_labelOptions: Dict[str, str] = {"font_size":12, 'bbox' : {"ec": "k", "fc": "white", "alpha": 0.7}},
+    ax = None
+):
+    '''This function plots a gene module using networkx
+    
+    Parameters
+    ----------
+    df_adjacency : pd.DataFrame
+        a pandas dataframe with the gene names as the index and the column names. The values in the dataframe are the weights of the edges.
+    cutoff : Optional[float]
+        float, optional
+    ls_hubGenes : Optional[List[str]]
+        a list of hub genes.
+    dt_needLabelNodes : Optional[Dict[str, str]]
+        a dictionary of nodes that need to be labeled.
+    dt_baseOptions : Dict[str, str]
+        the default options for all nodes
+    dt_hubOptions : Dict[str, str]
+    dt_labelOptions : Dict[str, str]
+    
+    '''
+    import networkx as nx
+    if ax is None:
+        fig, ax = plt.subplots()
+    if cutoff is None:
+        cutoff = df_adjacency.max().min()
+
+    df_adjacency = (
+        df_adjacency.stack()
+        .reset_index()
+        .rename(columns={"level_0": "source", "level_1": "target", 0: "connectivity"})
+    )
+    G = nx.from_pandas_edgelist(
+        df_adjacency.query("connectivity > @cutoff"), edge_attr="connectivity"
+    )
+    pos = nx.drawing.layout.kamada_kawai_layout(G)
+    nx.draw(G, pos, ax=ax, **dt_baseOptions)
+    if not ls_hubGenes is None:
+        ls_hubGenes = [x for x in ls_hubGenes if x in G.nodes()]
+        nx.draw(G, pos, nodelist=ls_hubGenes, ax=ax, **dt_hubOptions)
+    if not dt_needLabelNodes is None:
+        dt_needLabelNodes = {x: dt_needLabelNodes[x] for x in dt_needLabelNodes.keys() if x in G.nodes()}
+        nx.draw_networkx_labels(G, pos, dt_needLabelNodes,ax = ax, **dt_labelOptions)
+    ax = plt.gca()
+    return ax
+
+

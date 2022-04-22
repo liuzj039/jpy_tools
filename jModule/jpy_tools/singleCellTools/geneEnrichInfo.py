@@ -407,6 +407,7 @@ def calculateEnrichScoreByCellex(
     clusterName: str = "leiden",
     batchKey: Optional[str] = None,
     copy: bool = False,
+    dt_kwargsForCellex: dict = {},
 ) -> Optional[anndata.AnnData]:
     """
     calculateEnrichScoreByCellex
@@ -427,10 +428,10 @@ def calculateEnrichScoreByCellex(
     """
     import cellex
 
-    def _singleBatch(adata, layer, clusterName):
+    def _singleBatch(adata, layer, clusterName, dt_kwargsForCellex):
         df_mtx = adata.to_df(layer).T if layer else adata.to_df().T
         df_meta = adata.obs[[clusterName]].rename({clusterName: "cell_type"}, axis=1)
-        eso = cellex.ESObject(data=df_mtx, annotation=df_meta)
+        eso = cellex.ESObject(data=df_mtx, annotation=df_meta, **dt_kwargsForCellex)
         eso.compute()
         mtx_enrichScore = eso.results["esmu"].reindex(adata.var.index).fillna(0)
         adata.varm[f"{clusterName}_cellexES"] = mtx_enrichScore
@@ -487,12 +488,12 @@ def calculateEnrichScoreByCellex(
     if layer == "X":
         layer = None
     if batchKey is None:
-        _singleBatch(adata, layer, clusterName)
+        _singleBatch(adata, layer, clusterName, dt_kwargsForCellex)
     else:
         ls_batchAd = basic.splitAdata(adata, batchKey, needName=True)
         adata.uns[f"{clusterName}_cellexES"] = {}
         for sample, ad_batch in ls_batchAd:
-            _singleBatch(ad_batch, layer, clusterName)
+            _singleBatch(ad_batch, layer, clusterName, dt_kwargsForCellex)
             adata.uns[f"{clusterName}_cellexES"][sample] = ad_batch.uns[
                 f"{clusterName}_cellexES"
             ]
@@ -959,13 +960,13 @@ def getAUCellScore(
     aucell = importr("AUCell")
 
     def getThreshold(objR_name, geneCate):
-        df = r2py(R(f"as.data.frame({objR_name}${geneCate}$aucThr$thresholds)"))
+        # print(f"as.data.frame({objR_name}${geneCate}$aucThr$thresholds)")
+        df = r2py(R(f"as.data.frame({objR_name}$`{geneCate}`$aucThr$thresholds)"))
         df = df.assign(geneCate=geneCate)
         return df
 
     if rEnv is None:
         rEnv = ro.Environment()
-    rEnv = ro.Environment()
     rlc = ro.local_context(rEnv)
     rlc.__enter__()
 
@@ -1073,11 +1074,11 @@ def _getMetaCells(
     ad_meta.obs['metacell_link'] = ad_meta.obs['metacell_link'].str.join(',')
     print(ad_meta.obs[ls_obs].value_counts())
     print(f"These {ls_changeObs} groups are skipped or changed due to small size")
-    sns.histplot(ad_meta.to_df('raw').sum(1))
+    sns.histplot(ad_meta.to_df(layer).sum(1))
     plt.xlabel('metacell UMI counts')
     plt.show()
 
-    sns.histplot(ad_meta.obs['metacell_link'].map(len))
+    sns.histplot(ad_meta.obs['metacell_link'].str.split(',').map(len))
     plt.xlabel('metacell cell counts')
     plt.show()
     return ad_meta
@@ -1107,7 +1108,7 @@ def scWGCNA(
     ----------
     ad : sc.AnnData
     layer : str
-        must be meta log-normalized
+        must be 'raw'
     dir_result : str
         store `blockwiseConsensusModules` results
     jobid : str
@@ -1159,13 +1160,14 @@ def scWGCNA(
         rlc["maxBlockSize"] = len(ls_hvgGene)
         rlc["jobid"] = jobid
         rlc["dir_result"] = dir_result
-
+        ls_removeGene = [x for x in ad.var.index.to_list() if x not in ls_hvgGene]
         ad_meta = _getMetaCells(
             ad,
             ls_obs,
             layer=layer,
             skipSmallGroup=skipSmallGroup,
             target_metacell_size=target_metacell_size,
+            forbidden_gene_names=ls_removeGene,
             **dt_getMetaCellsKwargs,
         )[:, ls_hvgGene]
         # ad_meta = ad[:, ls_hvgGene].copy()
