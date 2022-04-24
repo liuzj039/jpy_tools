@@ -40,6 +40,7 @@ import muon
 from functools import reduce
 import muon as mu
 
+
 def addSnuupyBamTag(path_bam, path_out, tag="CB"):
     bam_org = pysam.AlignmentFile(path_bam)
     bam_out = pysam.AlignmentFile(path_out, mode="wb", template=bam_org)
@@ -57,7 +58,12 @@ def addSnuupyBamTag(path_bam, path_out, tag="CB"):
 
 
 def getDiffSplicedPvalue(
-    ad_groupSpliceRatio, min_total=5, threads=12, method="ztest", unsplicedLayer = 'unspliced', totalLayer = 'total'
+    ad_groupSpliceRatio,
+    min_total=5,
+    threads=12,
+    method="ztest",
+    unsplicedLayer="unspliced",
+    totalLayer="total",
 ) -> pd.DataFrame:
     """
     get pvalue for spliced vs unspliced
@@ -109,10 +115,12 @@ def getDiffSplicedPvalue(
         delayed(fc_test)(x)
         for x in tqdm(df_spliceInfo.itertuples(), total=len(df_spliceInfo))
     )
- 
+
     df_spliceInfo["pvalue"] = ls_pvalue
     df_spliceInfo = df_spliceInfo.fillna(1)
-    df_spliceInfo["qvalue"] = df_spliceInfo.groupby('cluster')['pvalue'].transform(lambda sr:multitest.fdrcorrection(sr)[1])
+    df_spliceInfo["qvalue"] = df_spliceInfo.groupby("cluster")["pvalue"].transform(
+        lambda sr: multitest.fdrcorrection(sr)[1]
+    )
     df_spliceInfo = df_spliceInfo.eval(
         "currentUnsplicedRatio = currentUnspliced / currentTotal"
     ).eval("othersUnsplicedRatio = othersUnspliced / othersTotal")
@@ -120,7 +128,7 @@ def getDiffSplicedPvalue(
 
 
 def calcUnsplicedRatioFromSnuupyMtx(
-    ad, layer, useAmbiguousCalcUnsplicedRatio=False
+    ad, layer, useAmbiguousCalcUnsplicedRatio=False, onlyGetCount=True
 ) -> sc.AnnData:
     """
     calculate unspliced ratio from snuupy mtx
@@ -134,36 +142,54 @@ def calcUnsplicedRatioFromSnuupyMtx(
         gene=lambda df: df.index.str.split("_").str[:-2].str.join("_"),
         spliceGroup=lambda df: df.index.str.split("_").str[-2],
     )
-    ls_allGene = ad.var["gene"].unique().tolist()
+    ls_gene = ad.var["gene"].astype("category").cat.categories.to_list()
+    ls_geneIdx = ad.var["gene"].astype("category").cat.codes.to_list()
+    ls_featureIdx = list(range(ad.shape[1]))
     ad_splice = sc.AnnData(
-        ss.csr_matrix((ad.shape[0], len(ls_allGene))),
+        ss.csr_matrix((ad.shape[0], len(ls_gene))),
         obs=ad.obs.copy(),
-        var=pd.DataFrame(index=ls_allGene),
+        var=pd.DataFrame(index=ls_gene),
     )
-    dt_name2layer = {"True": "spliced", "False": "unspliced"}
-
-    for group, ls_var in (
-        ad.var.groupby("spliceGroup").apply(lambda df: df.index.to_list()).items()
+    for featureCategory, featureName in zip(
+        ["unspliced", "spliced", "Ambiguous"], ["False", "True", "Ambiguous"]
     ):
-        layerName = dt_name2layer.get(group, group)
-        df_groupMtx = ad[:, ls_var].to_df(layer)
-        df_groupMtx = (
-            df_groupMtx.rename(columns=lambda x: "_".join(x.split("_")[:-2]))
-            .reindex(columns=ls_allGene)
-            .fillna(0)
+        ss_geneFeature = ss.coo_matrix(
+            (
+                np.where(ad.var["spliceGroup"] == featureName, 1, 0),
+                (ls_geneIdx, ls_featureIdx),
+            ),
+            shape=[len(ls_gene), ad.shape[1]],
         )
-        ad_splice.layers[layerName] = df_groupMtx
-    if useAmbiguousCalcUnsplicedRatio:
-        ad_splice.X = ad_splice.layers["unspliced"] / (
-            ad_splice.layers["spliced"]
-            + ad_splice.layers["unspliced"]
-            + ad_splice.layers["Ambiguous"]
+        ad_splice.layers[featureCategory] = (
+            ad.layers[layer] @ ss.csc_matrix(ss_geneFeature).T
         )
+    # dt_name2layer = {"True": "spliced", "False": "unspliced"}
+
+    # for group, ls_var in (
+    #     ad.var.groupby("spliceGroup").apply(lambda df: df.index.to_list()).items()
+    # ):
+    #     layerName = dt_name2layer.get(group, group)
+    #     df_groupMtx = ad[:, ls_var].to_df(layer)
+    #     df_groupMtx = (
+    #         df_groupMtx.rename(columns=lambda x: "_".join(x.split("_")[:-2]))
+    #         .reindex(columns=ls_allGene)
+    #         .fillna(0)
+    #     )
+    #     ad_splice.layers[layerName] = df_groupMtx
+    if onlyGetCount:
+        return ad_splice
     else:
-        ad_splice.X = ad_splice.layers["unspliced"] / (
-            ad_splice.layers["spliced"] + ad_splice.layers["unspliced"]
-        )
-    return ad_splice
+        if useAmbiguousCalcUnsplicedRatio:
+            ad_splice.X = ad_splice.layers["unspliced"] / (
+                ad_splice.layers["spliced"]
+                + ad_splice.layers["unspliced"]
+                + ad_splice.layers["Ambiguous"]
+            )
+        else:
+            ad_splice.X = ad_splice.layers["unspliced"] / (
+                ad_splice.layers["spliced"] + ad_splice.layers["unspliced"]
+            )
+        return ad_splice
 
 
 def calcGroupUnsplicedRatio(
@@ -344,13 +370,21 @@ def getSpliceInfoOnIntronLevel(irInfoPath, useIntronPath=None):
 
     ls_var = list(intronCountMtxDf.columns | intronRetenMtxDf.columns)
     ls_obs = list(intronCountMtxDf.index | intronRetenMtxDf.index)
-    intronRetenMtxDf = intronRetenMtxDf.reindex(index = ls_obs).reindex(columns = ls_var).fillna(0)
-    intronCountMtxDf = intronCountMtxDf.reindex(index = ls_obs).reindex(columns = ls_var).fillna(0)
+    intronRetenMtxDf = (
+        intronRetenMtxDf.reindex(index=ls_obs).reindex(columns=ls_var).fillna(0)
+    )
+    intronCountMtxDf = (
+        intronCountMtxDf.reindex(index=ls_obs).reindex(columns=ls_var).fillna(0)
+    )
 
-    ad_final = sc.AnnData(X = ss.csr_matrix(intronCountMtxDf.values), obs = pd.DataFrame(index = ls_obs), var = pd.DataFrame(index = ls_var))
-    ad_final.layers['unspliced'] = ss.csr_matrix(intronRetenMtxDf.values)
-    ad_final.layers['total'] = ad_final.X.copy()
-    ad_final.layers['spliced'] = ad_final.X - ad_final.layers['unspliced']
+    ad_final = sc.AnnData(
+        X=ss.csr_matrix(intronCountMtxDf.values),
+        obs=pd.DataFrame(index=ls_obs),
+        var=pd.DataFrame(index=ls_var),
+    )
+    ad_final.layers["unspliced"] = ss.csr_matrix(intronRetenMtxDf.values)
+    ad_final.layers["total"] = ad_final.X.copy()
+    ad_final.layers["spliced"] = ad_final.X - ad_final.layers["unspliced"]
 
     # intronCountMtxAd = basic.creatAnndataFromDf(intronCountMtxDf)
     # intronCountMtxAd.X = ss.csr_matrix(intronCountMtxAd.X)
@@ -369,15 +403,26 @@ def getSpliceInfoOnIntronLevel(irInfoPath, useIntronPath=None):
 
     return ad_final
 
-def addIntronSplicedAdToMd(md: mu.MuData, dt_spliceInfoPath: Mapping[str, str], indexUnique:str, modName = 'splice_intron', threads=4):
+
+def addIntronSplicedAdToMd(
+    md: mu.MuData,
+    dt_spliceInfoPath: Mapping[str, str],
+    indexUnique: str,
+    modName="splice_intron",
+    threads=4,
+):
     md.update()
     lsAd = Parallel(threads)(
         delayed(getSpliceInfoOnIntronLevel)(x) for x in dt_spliceInfoPath.values()
     )
     ad_spliceIntronLevel = sc.concat(
-        {x: y for x, y in zip(dt_spliceInfoPath.keys(), lsAd)}, index_unique=indexUnique, join='outer'
+        {x: y for x, y in zip(dt_spliceInfoPath.keys(), lsAd)},
+        index_unique=indexUnique,
+        join="outer",
     )
-    ad_spliceIntronLevel = ad_spliceIntronLevel[ad_spliceIntronLevel.obs.eval('index in @md.obs.index')].copy()
+    ad_spliceIntronLevel = ad_spliceIntronLevel[
+        ad_spliceIntronLevel.obs.eval("index in @md.obs.index")
+    ].copy()
     md.mod[modName] = ad_spliceIntronLevel
     md.update()
 
@@ -532,24 +577,33 @@ def getDiffSplicedIntron(
         )
     return allClusterDiffDt
 
+
 def concatMd(dtMd, label, indexUnique, mod="inner"):
     dt_sampleMod = {x: set(list(y.mod.keys())) for x, y in dtMd.items()}
     if mod == "inner":
-        ls_useMod = list(reduce(lambda x, y: list(set(x) & set(y)), list(dt_sampleMod.values())))
-    elif mod == 'outer':
-        ls_useMod = list(reduce(lambda x, y: list(set(x) | set(y)), list(dt_sampleMod.values())))
+        ls_useMod = list(
+            reduce(lambda x, y: list(set(x) & set(y)), list(dt_sampleMod.values()))
+        )
+    elif mod == "outer":
+        ls_useMod = list(
+            reduce(lambda x, y: list(set(x) | set(y)), list(dt_sampleMod.values()))
+        )
     else:
         assert False, "Unknown mod parameter"
     dtAd_mod = {}
     for mod in ls_useMod:
-        dtAd_singleMod = {x:y[mod] for x,y in dtMd.items() if mod in y.mod}
-        ad_mod = sc.concat(dtAd_singleMod, join='outer', label=label, index_unique=indexUnique)
+        dtAd_singleMod = {x: y[mod] for x, y in dtMd.items() if mod in y.mod}
+        ad_mod = sc.concat(
+            dtAd_singleMod, join="outer", label=label, index_unique=indexUnique
+        )
         dtAd_mod[mod] = ad_mod
     md = mu.MuData(dtAd_mod)
     return md
 
+
 class SnuupySpliceInfo(object):
     """Snuupy splice info object"""
+
     def __init__(self, df=None, path=None, suffix=None, ad=None, isor=False):
         if df is None:
             assert not path is None, "no path found"
@@ -619,7 +673,9 @@ class SnuupySpliceInfo(object):
             .reindex(columns=ad.var.index)
             .fillna(0)
         )
-        ad.layers[f"{layerPrefix}_spliced"] = ss.csr_matrix(ad.layers[f"{layerPrefix}_spliced"])
+        ad.layers[f"{layerPrefix}_spliced"] = ss.csr_matrix(
+            ad.layers[f"{layerPrefix}_spliced"]
+        )
         logger.info("Add unsplice matrix to adata")
         ad.layers[f"{layerPrefix}_unspliced"] = (
             pd.DataFrame(dt_expUnspliced)
@@ -627,7 +683,9 @@ class SnuupySpliceInfo(object):
             .reindex(columns=ad.var.index)
             .fillna(0)
         )
-        ad.layers[f"{layerPrefix}_unspliced"] = ss.csr_matrix(ad.layers[f"{layerPrefix}_unspliced"])
+        ad.layers[f"{layerPrefix}_unspliced"] = ss.csr_matrix(
+            ad.layers[f"{layerPrefix}_unspliced"]
+        )
         logger.info("Add ambiguous matrix to adata")
         ad.layers[f"{layerPrefix}_amb"] = (
             pd.DataFrame(dt_expAmb)
@@ -703,11 +761,19 @@ class SnuupySpliceInfo(object):
         return ad_groupSplice
 
     def generateMd(self, layerPrefix="splice"):
-        ls_spliceVar = [*(self.ad.var.index + '_spliced'), *(self.ad.var.index + '_unspliced')]
+        ls_spliceVar = [
+            *(self.ad.var.index + "_spliced"),
+            *(self.ad.var.index + "_unspliced"),
+        ]
         ls_spliceObs = self.obs.index.copy()
-        ar_splice = np.c_[self.ad.layers[f'{layerPrefix}_spliced'], self.ad.layers[f'{layerPrefix}_unspliced']]
-        ad_splice = sc.AnnData(ar_splice, obs=pd.DataFrame(ls_spliceObs), var=pd.DataFrame(ls_spliceVar))
-        md = muon.MuData({"illu":self.ad, "splice":ad_splice})
+        ar_splice = np.c_[
+            self.ad.layers[f"{layerPrefix}_spliced"],
+            self.ad.layers[f"{layerPrefix}_unspliced"],
+        ]
+        ad_splice = sc.AnnData(
+            ar_splice, obs=pd.DataFrame(ls_spliceObs), var=pd.DataFrame(ls_spliceVar)
+        )
+        md = muon.MuData({"illu": self.ad, "splice": ad_splice})
         return md
 
     def __or__(self, obj):
