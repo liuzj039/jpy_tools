@@ -932,7 +932,7 @@ def getCosgResult(ad, key="cosg") -> pd.DataFrame:
 
 
 def getAUCellScore(
-    ad, dt_genes, layer, threads=1, aucMaxRank=500, label="AUCell", rEnv=None
+    ad, dt_genes, layer, threads=1, aucMaxRank=500, label="AUCell", thresholdsHistCol = 3, rEnv=None
 ):
     """
 
@@ -947,6 +947,7 @@ def getAUCellScore(
     rEnv: ro.Environment
         by default None
     """
+    from math import ceil
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
@@ -970,6 +971,7 @@ def getAUCellScore(
     rlc = ro.local_context(rEnv)
     rlc.__enter__()
 
+    thresholdsHistRow = ceil(len(dt_genes) / thresholdsHistCol)
     ls_varName = ad.var.index.to_list()
     ls_obsName = ad.obs.index.to_list()
     mtx = ad.layers[layer].T
@@ -985,6 +987,8 @@ def getAUCellScore(
     rEnv["dtR_genes"] = dtR_genes
     rEnv["threads"] = threads
     rEnv["aucMaxRank"] = aucMaxRank
+    rEnv["thresholdsHistCol"] = thresholdsHistCol
+    rEnv["thresholdsHistRow"] = thresholdsHistRow
     with r_inline_plot():
         R(
             """
@@ -994,10 +998,11 @@ def getAUCellScore(
         cells_AUC <- AUCell_calcAUC(dtR_genes, cells_rankings, aucMaxRank=aucMaxRank)
         """
         )
-    with r_inline_plot():
+    with r_inline_plot(width=512):
         R(
-            """
-        cells_assignment <- AUCell_exploreThresholds(cells_AUC) 
+        """
+        par(mfrow=c(thresholdsHistRow, thresholdsHistCol)) 
+        cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=T) 
         """
         )
     df_auc = r2py(R("as.data.frame(cells_AUC@assays@data$AUC)")).T
@@ -1097,38 +1102,53 @@ def scWGCNA(
     deepSplit: float = 4,
     mergeCutHeight: float = 0.2,
     threads: int = 1,
-    softPower: Optional[int] = None,
+    softPower: Optional[Union[int, Literal['auto']]] = None,
     renv=None,
     dt_getMetaCellsKwargs: dict = {},
+    fc_autoPickSoftPower = lambda x:x['SFT.R.sq'] >= 0.8,
+    calcAucell = True
 ) -> sc.AnnData:
-    """
-    perform scWGCNA
-
+    '''`scWGCNA` is a function that takes in a single cell RNA-seq dataset, and returns a single cell
+    RNA-seq dataset with metacells
+    
     Parameters
     ----------
     ad : sc.AnnData
+        sc.AnnData
     layer : str
-        must be 'raw'
+        str， 'raw'
+    ls_obs : List
+    skipSmallGroup : bool
+        if True, skip the small groups in metacell construction step
+    target_metacell_size : int
+        the target size of metacells.
     dir_result : str
-        store `blockwiseConsensusModules` results
+        str, store `blockwiseConsensusModules` results
     jobid : str
-        determine path used for storing results of `blockwiseConsensusModules`
+        str
+    ls_hvgGene : List[str]
+        List[str]
     minModuleSize : int, optional
-        by default 50
-    deepSplit: float
-        a larger `deepSplit` with a larger number of modules, by default 4
-    mergeCutHeight: float
-        a smaller `mergeCutHeight` with a larger number of modules, by default 0.2
+        minimum number of genes in a module
+    deepSplit : float, optional
+        the number of times to split the dendrogram.
+    mergeCutHeight : float
+        the height of the merge cut.
     threads : int, optional
-        by default 1
-    softPower : Optional[int], optional
-        by default None
-
-    Returns
-    -------
+        number of threads to use
+    softPower : Optional[Union[int, Literal['auto']]]
+        The soft power parameter for WGCNA. If None, it will be manually picked; if 'auto', it will be automatically picked.
+    renv
+        R environment to use. If None, will use the default R environment.
+    dt_getMetaCellsKwargs : dict
+        dict = {}
+    fc_autoPickSoftPower
+        function to pick the soft power. columns: ['SFT.R.sq', 'mean.k.']. By default, it will pick the soft power if the 'SFT.R.sq' is greater than 0.8 (lambda x:x['SFT.R.sq'] >= 0.8).
+    
+    ---
     sc.AnnData
         with WGCNA results
-    """
+    '''
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
@@ -1182,7 +1202,7 @@ def scWGCNA(
         """
         )
 
-        if not softPower:
+        if (softPower is None) | (softPower == 'auto'):
             with r_inline_plot(width=768):
                 R(
                     """
@@ -1202,7 +1222,7 @@ def scWGCNA(
                 colors = c("blue", "red","black")
                 # Will plot these columns of the returned scale free analysis tables
                 plotCols = c(2,5,6,7)
-                colNames = c("Scale Free Topology Model Fit", "Mean connectivity", "mean connectivity",
+                colNames = c("Scale Free Topology Model Fit", "Mean connectivity", "Median connectivity",
                 "Max connectivity");
 
                 # Get the minima and maxima of the plotted points
@@ -1211,32 +1231,40 @@ def scWGCNA(
                 ylim[1, col] = min(ylim[1, col], powerTable$data[, plotCols[col]], na.rm = TRUE);
                 ylim[2, col] = max(ylim[2, col], powerTable$data[, plotCols[col]], na.rm = TRUE);
                 }
-
+                """)
                 # Plot the quantities in the chosen columns vs. the soft thresholding power
+                R("""
                 par(mfcol = c(2,2));
                 par(mar = c(4.2, 4.2 , 2.2, 0.5))
                 cex1 = 0.7;
 
                 for (col in 1:length(plotCols)){
-                plot(powerTable$data[,1], -sign(powerTable$data[,3])*powerTable$data[,2],
-                xlab="Soft Threshold (power)",ylab=colNames[col],type="n", ylim = ylim[, col],
-                main = colNames[col]);
-                addGrid();
+                    plot(powerTable$data[,1], -sign(powerTable$data[,3])*powerTable$data[,2],
+                    xlab="Soft Threshold (power)",ylab=colNames[col],type="n", ylim = ylim[, col],
+                    main = colNames[col]);
+                    addGrid();
 
-                if (col==1){
-                    text(powerTable$data[,1], -sign(powerTable$data[,3])*powerTable$data[,2],
+                    if (col==1){
+                        text(powerTable$data[,1], -sign(powerTable$data[,3])*powerTable$data[,2],
+                        labels=powers,cex=cex1,col=colors[1]);
+                    } else
+                    text(powerTable$data[,1], powerTable$data[,plotCols[col]],
                     labels=powers,cex=cex1,col=colors[1]);
-                } else
-                text(powerTable$data[,1], powerTable$data[,plotCols[col]],
-                labels=powers,cex=cex1,col=colors[1]);
-                if (col==1){
-                    legend("bottomright", legend = 'Metacells', col = colors, pch = 20) ;
-                } else
-                legend("topright", legend = 'Metacells', col = colors, pch = 20) ;
+                    if (col==1){
+                        legend("bottomright", legend = 'Metacells', col = colors, pch = 20) ;
+                    } else
+                    legend("topright", legend = 'Metacells', col = colors, pch = 20) ;
                 }
                 """
                 )
-            softPower = int(input("Soft Power"))
+            if softPower == 'auto':
+                df_powerTable = r2py(R("powerTable$data"))
+                df_powerTable['Power'] = df_powerTable['Power'].astype(int)
+                df_powerTable = df_powerTable.loc[fc_autoPickSoftPower]
+                softPower = df_powerTable['Power'].min()
+                logger.info(f"Soft Power: {softPower}")
+            else:
+                softPower = int(input("Soft Power"))
         rlc["softPower"] = softPower
 
         if threads > 1:
@@ -1387,27 +1415,28 @@ def scWGCNA(
         )
         plt.show()
 
-        getAUCellScore(
-            ad,
-            dt_moduleGene,
-            layer,
-            aucMaxRank=1000,
-            label=f"{jobid}_AUCell",
-            rEnv=renv,
-        )
-        if "X_umap" in ad.obsm:
-            sc.pl.umap(
-                plotting.obsmToObs(ad, f"{jobid}_AUCell"),
-                color=ad.obsm[f"{jobid}_AUCell"].columns,
-                cmap="Reds",
-            )
-
         ad_meta.varm["KME"] = ad_meta.varm["KME"].assign(
             kME=lambda df: df.apply(
                 lambda x: x.at["kME" + x.at["Initially.Assigned.Module.Color"]], axis=1
             ),
             module = lambda df: df['Initially.Assigned.Module.Color']
         )
+
+        if calcAucell:
+            getAUCellScore(
+                ad,
+                dt_moduleGene,
+                layer,
+                aucMaxRank=1000,
+                label=f"{jobid}_AUCell",
+                rEnv=renv,
+            )
+            if "X_umap" in ad.obsm:
+                sc.pl.umap(
+                    plotting.obsmToObs(ad, f"{jobid}_AUCell"),
+                    color=ad.obsm[f"{jobid}_AUCell"].columns,
+                    cmap="Reds",
+                )
     # rlc.__exit__(None, None, None)
     ro.r.gc()
     return ad_meta

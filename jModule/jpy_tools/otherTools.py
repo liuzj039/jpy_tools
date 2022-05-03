@@ -609,6 +609,8 @@ def pwStack(ls_ax, ncols=5):
     ls_ax = chunked(ls_ax, ncols) | F(list)
     if len(ls_ax) == 1:
         axs = pw.stack(ls_ax[0])
+    elif len(ls_ax) % ncols == 0:
+        axs = pw.stack([pw.stack(x) for x in ls_ax], operator="/")
     else:
         axs = pw.stack([pw.stack(x) for x in ls_ax[:-1]], operator="/")
         ls_name = list(axs.bricks_dict.keys())
@@ -638,3 +640,14 @@ def pwRecoverSeaborn():
         ) = ls_seabornParams
         del(sns.axisgrid.Grid._figure)
     return _recoverSeaborn
+
+
+def mergePdf(dir_inputPath, path_mergedPdf):
+    import glob
+    from PyPDF2 import PdfFileMerger
+
+    ls_pdfPath = glob.glob(f"{dir_inputPath}/*.pdf")
+    pdfMerger = PdfFileMerger()
+    [pdfMerger.append(x) for x in ls_pdfPath]
+    pdfMerger.write(path_mergedPdf)
+    pdfMerger.close()

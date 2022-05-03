@@ -36,7 +36,7 @@ import matplotlib as mpl
 from more_itertools import chunked
 import patchworklib as pw
 import scipy.sparse as ss
-
+from joblib import Parallel, delayed
 
 def show_figure(fig):
 
@@ -69,15 +69,24 @@ def umapMultiBatch(
     horizontal=False,
     vmin=None,
     vmax=None,
+    format='png',
+    dpi = 'figure',
+    fileNameIsTitle = False,
+    show=True,
 ):
     if isinstance(ls_gene, str):
         ls_gene = [ls_gene]
     if not ls_title:
         ls_title = ls_gene
-    if not groups[1]:
+    if isinstance(ls_title, str):
+        ls_title = [ls_title]
+    if len(ls_gene) <= 1:
+        disableProgressBar = True
+    if groups[1] is None:
         groups[1] = ad.obs[groups[0]].unique().to_list()
     dt_adObs = ad.obs.groupby(groups[0]).apply(lambda df: df.index.to_list()).to_dict()
-    dt_ad = {x: ad[y] for x, y in dt_adObs.items() if x in groups[1]}
+    dt_adObs = {x: dt_adObs[x] for x in groups[1]}
+    dt_ad = {x: ad[y] for x, y in dt_adObs.items()}
     if needAll:
         dt_ad = dict(All=ad, **dt_ad)
     if not size:
@@ -85,7 +94,7 @@ def umapMultiBatch(
 
     vmin = vmin if vmin else 0
     vmaxSpecify = vmax
-    for gene, title in zip(ls_gene, ls_title):
+    for gene, title in tqdm(zip(ls_gene, ls_title), total=len(ls_gene), disable=disableProgressBar):
         if not vmaxSpecify:
             vmax = ad[:, gene].to_df(layer).iloc[:, 0]
             vmax = sorted(list(vmax))
@@ -144,14 +153,39 @@ def umapMultiBatch(
             axs = axs | ax_cb
             pw.param["margin"] = _bc
 
-        axs.case.set_title(title, pad=10)
+        axs.case.set_title(title, pad=10, size=16)
         if dir_result:
-            axs.savefig(f"{dir_result}/{gene}.png")
-        else:
+            if fileNameIsTitle:
+                fileName = title.replace('\n', '_').replace('/', '_')
+            else:
+                fileName = gene
+            axs.savefig(f"{dir_result}/{fileName}.{format}", dpi=dpi)
+        elif show:
             pw.show(axs.savefig())
+        else:
+            pass
     if len(ls_gene) == 1:
         return axs
 
+def saveUmapMultiBatch(ad, threads, batchSize, ls_gene, ls_title, layer, **dt_kwargs):
+    from more_itertools import chunked
+    def _iterAd(ad, batchSize, ls_gene, ls_title, layer):
+        _ad = ad[:, ls_gene]
+        ad = sc.AnnData(_ad.X, obs=_ad.obs, var=_ad.var, obsm = {'X_umap': ad.obsm['X_umap']}, layers={layer: _ad.layers[layer]})
+        for ls_chunkGene, ls_chunkTitle in zip(chunked(ls_gene, batchSize), chunked(ls_title, batchSize)):
+            yield ad[:, ls_chunkGene].copy(), ls_chunkGene, ls_chunkTitle
+
+    if not ls_title:
+        ls_title = ls_gene
+    ls_batchGene = []
+    ls_batchTitle = []
+    ls_batchAd = []
+    for ad, ls_chunkGene, ls_chunkTitle in _iterAd(ad, batchSize, ls_gene, ls_title, layer):
+        ls_batchGene.append(ls_chunkGene)
+        ls_batchTitle.append(ls_chunkTitle)
+        ls_batchAd.append(ad)
+    Parallel(n_jobs=threads)(delayed(umapMultiBatch)(_ad, ls_gene=ls_gene, ls_title=ls_title, layer=layer, **dt_kwargs) for _ad, ls_gene, ls_title in zip(ls_batchAd, ls_batchGene, ls_batchTitle))
+    
 
 def obsmToObs(
     ad: sc.AnnData,
