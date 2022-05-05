@@ -1,4 +1,5 @@
 from logging import log
+from sqlite3 import adapt
 import pandas as pd
 import numpy as np
 import scanpy as sc
@@ -423,10 +424,65 @@ def trimBg(ad, libraryId=None):
             ad.obsm["spatial"][:, 1] = ad.obsm["spatial"][:, 1] - (bottom / scaleFactor)
 
 
-def rotateBgAndObsm(ad, angle, libraryId, imgKey):
-    '''This function takes in an angle, a libraryId, and an imageKey, and rotates the background and
-    obstacle images in the library with the given libraryId by the given angle.
+def sliceStAd(ad, ls_removeRange, axis: Literal["x", "y"], libraryId):
+    '''It removes a range of values from a given array.
     
+    Parameters
+    ----------
+    ad
+        the data array
+    ls_removeRange
+        a list of tuples, each tuple is a range of values to remove
+    axis : Literal["x", "y"]
+        The axis to slice along.
+    
+    '''
+    ad_stSliced = ad.copy()
+    if axis == "x":
+        ad_stSliced.obsm["spatial"][:, 0] = np.where(
+            ad_stSliced.obsm["spatial"][:, 0] > ls_removeRange[1],
+            ad_stSliced.obsm["spatial"][:, 0] - (ls_removeRange[1] - ls_removeRange[0]),
+            ad_stSliced.obsm["spatial"][:, 0],
+        )
+
+        for imageKey, ar_image in ad_stSliced.uns["spatial"][libraryId][
+            "images"
+        ].items():
+            scaleFactor = ad_stSliced.uns["spatial"][libraryId]["scalefactors"][
+                f"tissue_{imageKey}_scalef"
+            ]
+            ls_maskRange = [round(x * scaleFactor) for x in ls_removeRange]
+            ad_stSliced.uns["spatial"][libraryId]["images"][imageKey] = np.concatenate(
+                [ar_image[:, : ls_maskRange[0]], ar_image[:, ls_maskRange[1] :]],
+                axis=1,
+            )
+    elif axis == "y":
+        ad_stSliced.obsm["spatial"][:, 1] = np.where(
+            ad_stSliced.obsm["spatial"][:, 1] > ls_removeRange[1],
+            ad_stSliced.obsm["spatial"][:, 1] - (ls_removeRange[1] - ls_removeRange[0]),
+            ad_stSliced.obsm["spatial"][:, 1],
+        )
+
+        for imageKey, ar_image in ad_stSliced.uns["spatial"][libraryId][
+            "images"
+        ].items():
+            scaleFactor = ad_stSliced.uns["spatial"][libraryId]["scalefactors"][
+                f"tissue_{imageKey}_scalef"
+            ]
+            ls_maskRange = [round(x * scaleFactor) for x in ls_removeRange]
+            ad_stSliced.uns["spatial"][libraryId]["images"][imageKey] = np.concatenate(
+                [ar_image[: ls_maskRange[0], :], ar_image[ls_maskRange[1] :, :]],
+                axis=0,
+            )
+    else:
+        raise ValueError("axis should be either 'x' or 'y'")
+    return ad_stSliced
+
+
+def rotateBgAndObsm(ad, angle, libraryId, imgKey):
+    """This function takes in an angle, a libraryId, and an imageKey, and rotates the background and
+    obstacle images in the library with the given libraryId by the given angle.
+
     Parameters
     ----------
     ad
@@ -437,7 +493,7 @@ def rotateBgAndObsm(ad, angle, libraryId, imgKey):
         the id of the library that the image is in
     imgKey
         the key of the image to be rotated, other images will be deleted
-    '''
+    """
     from PIL import Image
     import math
 

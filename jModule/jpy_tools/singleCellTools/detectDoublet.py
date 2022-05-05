@@ -143,10 +143,11 @@ def byScDblFinder(
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
-    from ..rTools import py2r, r2py, r_set_seed
+    from ..rTools import py2r, r2py, r_set_seed, ad2so
 
     r_set_seed(39)
     R = ro.r
+    Seurat = importr('Seurat')
 
     ls_obsInfo = []
     if not batch_key:
@@ -165,8 +166,10 @@ def byScDblFinder(
     tempAd.layers["counts"] = tempAd.X
 
     logger.info("start to transfer adata to R")
-    tempAdr = py2r(tempAd)
+    so = ad2so(tempAd, layer='counts')
+    tempAdr = Seurat.as_SingleCellExperiment(so)
     del tempAd
+    del so
 
     logger.info("start to calculate doublet score")
 

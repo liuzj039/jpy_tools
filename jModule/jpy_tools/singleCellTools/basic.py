@@ -32,16 +32,17 @@ from typing import (
 )
 import collections
 
-def initLayer(ad:sc.AnnData, layer=None, total=1e4):
+def initLayer(ad:sc.AnnData, layer=None, total=1e4, needScale=False):
     """
-    overwrite layer: `raw`, `normalize_log`, `normalize_log_scale`
+    overwrite layer: `raw`, `normalize_log`, `normalize_log_scale`, 'X'
     """
     ad.layers['raw'] = ad.X.copy() if layer == None else ad.layers[layer].copy()
     ad.layers['normalize_log'] = ad.layers['raw'].copy()
     sc.pp.normalize_total(ad, total, layer='normalize_log')
     sc.pp.log1p(ad, layer='normalize_log')
-    ad.layers['normalize_log_scale'] = ad.layers['normalize_log'].copy()
-    sc.pp.scale(ad, layer='normalize_log_scale')
+    if needScale:
+        ad.layers['normalize_log_scale'] = ad.layers['normalize_log'].copy()
+        sc.pp.scale(ad, layer='normalize_log_scale')
     ad.X = ad.layers['normalize_log'].copy()
 
 
