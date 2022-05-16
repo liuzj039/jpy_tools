@@ -41,6 +41,7 @@ def cellTypeAnnoByICI(
     cutoff: float = 0.01,
     threads: int = 24,
     groups: List = [],
+    ls_gene: List = None,
     keyAdded: str = None,
 ):
     """
@@ -63,7 +64,7 @@ def cellTypeAnnoByICI(
         by default None
     """
     from rpy2.robjects.packages import importr
-    from .rTools import py2r, r2py
+    from ..rTools import py2r, r2py
 
     icitools = importr("ICITools")
     future = importr("future")

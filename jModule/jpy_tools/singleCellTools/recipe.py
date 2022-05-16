@@ -65,7 +65,7 @@ def sct(ad, n_top_genes=3000):
 
 
 def singleBatch(
-    ad, method: Literal["total", "sct", "scran"], n_top_genes=3000
+    ad, method: Literal["total", "sct", "scran", "sct_r"], n_top_genes=3000
 ) -> sc.AnnData:
     """
     sct|scran|total + pca + neighbors + umap
@@ -92,6 +92,10 @@ def singleBatch(
             n_genes=n_top_genes,
         )
         ad.X = ad.layers["sct_residuals"].copy()
+    elif method == 'sct_r':
+        normalize.normalizeBySCT_r(ad, layer='raw', nTopGenes=n_top_genes)
+        ad.obsm['X_pca'] = ad.obsm['X_pca_sct']
+        ad.uns['pca'] = ad.uns['pca_sct']
     elif method == "scran":
         sc.pp.highly_variable_genes(
             ad, layer="raw", flavor="seurat_v3", n_top_genes=n_top_genes
@@ -107,7 +111,9 @@ def singleBatch(
         sc.pp.scale(ad)
     else:
         assert False, "Unsupported"
-    sc.tl.pca(ad)
+    
+    if method != 'sct_r':
+        sc.tl.pca(ad)
 
     sc.pp.neighbors(ad, n_pcs=50)
     sc.tl.umap(ad, min_dist=0.2)

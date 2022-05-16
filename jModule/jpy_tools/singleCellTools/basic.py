@@ -53,7 +53,7 @@ def geneFilterSampleSeparately(ad, batchKay, layer, minCells) -> List[str]:
         .groupby(ad.obs[batchKay])
         .agg("sum")
         .min()
-        .pipe(lambda x: x[x > minCells])
+        .pipe(lambda x: x[x >= minCells])
         .index.to_list()
     )
     return ls_feature

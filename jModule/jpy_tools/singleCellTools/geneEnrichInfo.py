@@ -932,7 +932,7 @@ def getCosgResult(ad, key="cosg") -> pd.DataFrame:
 
 
 def getAUCellScore(
-    ad, dt_genes, layer, threads=1, aucMaxRank=500, label="AUCell", thresholdsHistCol = 3, rEnv=None
+    ad, dt_genes, layer, threads=1, aucMaxRank=500, label="AUCell", thresholdsHistCol = 3, show=False, forceDense=False, rEnv=None
 ):
     """
 
@@ -951,11 +951,13 @@ def getAUCellScore(
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
+    import scipy.sparse as ss
     from ..rTools import py2r, r2py, r_inline_plot, rHelp, trl, rSet, rGet, ad2so, so2ad
 
     rBase = importr("base")
     rUtils = importr("utils")
     dplyr = importr("dplyr")
+    reticulate = importr('reticulate')
     R = ro.r
 
     aucell = importr("AUCell")
@@ -968,51 +970,59 @@ def getAUCellScore(
 
     if rEnv is None:
         rEnv = ro.Environment()
-    rlc = ro.local_context(rEnv)
-    rlc.__enter__()
+    with ro.local_context(rEnv) as rlc:
+        thresholdsHistRow = ceil(len(dt_genes) / thresholdsHistCol)
+        ls_varName = ad.var.index.to_list()
+        ls_obsName = ad.obs.index.to_list()
+        mtx = ad.layers[layer].T
+        if ss.issparse(mtx) & forceDense:
+            mtx = mtx.A
+        mtxR = py2r(mtx)
+        del(mtx)
 
-    thresholdsHistRow = ceil(len(dt_genes) / thresholdsHistCol)
-    ls_varName = ad.var.index.to_list()
-    ls_obsName = ad.obs.index.to_list()
-    mtx = ad.layers[layer].T
+        fc_list2R = lambda x:R.unlist(R.list(x))
+        lsR_obsName = fc_list2R(ls_obsName)
+        lsR_varName = fc_list2R(ls_varName)
+        dtR_genes = R.list(**{x: fc_list2R(y) for x, y in dt_genes.items()})
 
-    mtxR = py2r(mtx)
-    lsR_obsName = R.c(*ls_obsName)
-    lsR_varName = R.c(*ls_varName)
-    dtR_genes = R.list(**{x: R.c(*y) for x, y in dt_genes.items()})
-
-    rEnv["mtxR"] = mtxR
-    rEnv["lsR_obsName"] = lsR_obsName
-    rEnv["lsR_varName"] = lsR_varName
-    rEnv["dtR_genes"] = dtR_genes
-    rEnv["threads"] = threads
-    rEnv["aucMaxRank"] = aucMaxRank
-    rEnv["thresholdsHistCol"] = thresholdsHistCol
-    rEnv["thresholdsHistRow"] = thresholdsHistRow
-    with r_inline_plot():
-        R(
+        rEnv["mtxR"] = mtxR
+        rEnv["lsR_obsName"] = lsR_obsName
+        rEnv["lsR_varName"] = lsR_varName
+        rEnv["dtR_genes"] = dtR_genes
+        rEnv["threads"] = threads
+        rEnv["aucMaxRank"] = aucMaxRank
+        rEnv["thresholdsHistCol"] = thresholdsHistCol
+        rEnv["thresholdsHistRow"] = thresholdsHistRow
+        with r_inline_plot():
+            R(
+                """
+            rownames(mtxR) <- lsR_varName
+            colnames(mtxR) <- lsR_obsName
+            cells_rankings <- AUCell_buildRankings(mtxR, nCores=threads, plotStats=TRUE)
+            cells_AUC <- AUCell_calcAUC(dtR_genes, cells_rankings, aucMaxRank=aucMaxRank)
             """
-        rownames(mtxR) <- lsR_varName
-        colnames(mtxR) <- lsR_obsName
-        cells_rankings <- AUCell_buildRankings(mtxR, nCores=threads, plotStats=TRUE)
-        cells_AUC <- AUCell_calcAUC(dtR_genes, cells_rankings, aucMaxRank=aucMaxRank)
-        """
+            )
+        if show:
+            with r_inline_plot(width=512):
+                R(
+                """
+                par(mfrow=c(thresholdsHistRow, thresholdsHistCol)) 
+                cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=T) 
+                """
+                )
+        else:
+            R(
+            """
+            cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=F) 
+            """
+            )
+        df_auc = r2py(R("as.data.frame(cells_AUC@assays@data$AUC)")).T
+        df_aucThreshold = pd.concat(
+            [getThreshold("cells_assignment", x) for x in dt_genes.keys()]
         )
-    with r_inline_plot(width=512):
-        R(
-        """
-        par(mfrow=c(thresholdsHistRow, thresholdsHistCol)) 
-        cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=T) 
-        """
-        )
-    df_auc = r2py(R("as.data.frame(cells_AUC@assays@data$AUC)")).T
-    df_aucThreshold = pd.concat(
-        [getThreshold("cells_assignment", x) for x in dt_genes.keys()]
-    )
-    ad.obsm[label] = df_auc.copy()
-    ad.uns[label] = df_aucThreshold.copy()
-    rlc.__exit__(None, None, None)
-
+        ad.obsm[label] = df_auc.copy()
+        ad.uns[label] = df_aucThreshold.copy()
+    R.gc()
 
 def _getMetaCells(
     ad, ls_obs, layer="raw", skipSmallGroup=True, target_metacell_size=5e4, **kwargs

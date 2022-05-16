@@ -148,6 +148,7 @@ def byScDblFinder(
     r_set_seed(39)
     R = ro.r
     Seurat = importr('Seurat')
+    rBase = importr("base")
 
     ls_obsInfo = []
     if not batch_key:
@@ -176,7 +177,12 @@ def byScDblFinder(
     tempAdr = scDblFinder.scDblFinder(tempAdr, samples=batch_key, dbr=doubletRatio)
 
     logger.info("start to intergrate result with adata")
-    scDblFinderResultDf = r2py(tempAdr.slots["colData"])
+    # scDblFinderResultDf = r2py(R.as_data_frame(tempAdr.slots["colData"]))
+    scDblFinderResultDfR = rBase.as_data_frame(tempAdr.slots["colData"], row_names = R('row.names')(tempAdr.slots["colData"]), stringsAsFactors=False)
+    scDblFinderResultDf = r2py(scDblFinderResultDfR)
+    scDblFinderResultDf["scDblFinder.class"] = list(rBase.as_character(scDblFinderResultDfR.rx2['scDblFinder.class']))
+    # scDblFinderResultDf = r2py(rBase.as_data_frame(tempAdr.slots["colData"], row_names = R('row.names')(tempAdr.slots["colData"]), stringsAsFactors=False))
+    # import pdb; pdb.set_trace()
 
     adata.obsm["scDblFinder"] = (
         scDblFinderResultDf.reindex(adata.obs.index)

@@ -246,6 +246,7 @@ def plotLabelPercentageInCluster(
     needCounts=True,
     ax=None,
     dt_kwargsForLegend={"bbox_to_anchor": [1, 1]},
+    swapAxes = False,
 ):
     """
     根据label在adata.obs中groupby的占比绘图
@@ -268,32 +269,59 @@ def plotLabelPercentageInCluster(
     )
     legendHandleLs = []
     legendLabelLs = []
-    for singleLabel in groupbyWithLabelCounts_CumsumPercDf.columns[::-1]:
-        ax = sns.barplot(
-            x=groupbyWithLabelCounts_CumsumPercDf.index,
-            y=groupbyWithLabelCounts_CumsumPercDf[singleLabel],
-            color=labelColor[singleLabel],
-            ax=ax,
-        )
-        plt.sca(ax)
-        legendHandleLs.append(
-            plt.Rectangle((0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none")
-        )
-        legendLabelLs.append(singleLabel)
-    legendHandleLs, legendLabelLs = legendHandleLs[::-1], legendLabelLs[::-1]
-    plt.legend(legendHandleLs, legendLabelLs, frameon=False, **dt_kwargsForLegend)
-    plt.xlabel(groupby.capitalize())
-    plt.ylabel(f"Percentage")
-    if needCounts:
-        for i, label in enumerate(groupbyWithLabelCounts_CumsumPercDf.index):
-            plt.text(
-                i,
-                105,
-                f"$\it{{N}}$ = {adata[adata.obs[groupby] == label].shape[0]}",
-                rotation=90,
-                ha="center",
-                va="bottom",
+    if not swapAxes:
+        for singleLabel in groupbyWithLabelCounts_CumsumPercDf.columns[::-1]:
+            ax = sns.barplot(
+                x=groupbyWithLabelCounts_CumsumPercDf.index,
+                y=groupbyWithLabelCounts_CumsumPercDf[singleLabel],
+                color=labelColor[singleLabel],
+                ax=ax,
             )
+            plt.sca(ax)
+            legendHandleLs.append(
+                plt.Rectangle((0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none")
+            )
+            legendLabelLs.append(singleLabel)
+        legendHandleLs, legendLabelLs = legendHandleLs[::-1], legendLabelLs[::-1]
+        plt.legend(legendHandleLs, legendLabelLs, frameon=False, **dt_kwargsForLegend)
+        plt.xlabel(groupby.capitalize())
+        plt.ylabel(f"Percentage")
+        if needCounts:
+            for i, label in enumerate(groupbyWithLabelCounts_CumsumPercDf.index):
+                plt.text(
+                    i,
+                    105,
+                    f"$\it{{N}}$ = {adata[adata.obs[groupby] == label].shape[0]}",
+                    rotation=90,
+                    ha="center",
+                    va="bottom",
+                )
+    else:
+        for singleLabel in groupbyWithLabelCounts_CumsumPercDf.columns[::-1]:
+            ax = sns.barplot(
+                y=groupbyWithLabelCounts_CumsumPercDf.index,
+                x=groupbyWithLabelCounts_CumsumPercDf[singleLabel],
+                color=labelColor[singleLabel],
+                ax=ax,
+            )
+            plt.sca(ax)
+            legendHandleLs.append(
+                plt.Rectangle((0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none")
+            )
+            legendLabelLs.append(singleLabel)
+        plt.legend(legendHandleLs, legendLabelLs, frameon=False, **dt_kwargsForLegend)
+        plt.ylabel(groupby.capitalize())
+        plt.xlabel(f"Percentage")
+        if needCounts:
+            for i, label in enumerate(groupbyWithLabelCounts_CumsumPercDf.index):
+                plt.text(
+                    101,
+                    i,
+                    f"$\it{{N}}$ = {adata[adata.obs[groupby] == label].shape[0]}",
+                    rotation=0,
+                    ha="left",
+                    va="center",
+                )
     # sns.despine(top=True, right=True)
     ax.spines["right"].set_visible(False)
     ax.spines["top"].set_visible(False)
@@ -769,7 +797,9 @@ def plotGeneModuleByNetworkx(
         "width": 0.3,
     },
     dt_labelOptions: Dict[str, str] = {"font_size":12, 'bbox' : {"ec": "k", "fc": "white", "alpha": 0.7}},
-    ax = None
+    ax = None,
+    layoutMethod = 'kamada_kawai_layout',
+    forceSustainOneLinkage = False,
 ):
     '''This function plots a gene module using networkx
     
@@ -800,10 +830,18 @@ def plotGeneModuleByNetworkx(
         .reset_index()
         .rename(columns={"level_0": "source", "level_1": "target", 0: "connectivity"})
     )
+
+    df_sustained = df_adjacency.query("connectivity > @cutoff")
+    if forceSustainOneLinkage:
+        df_adjMax = df_adjacency.sort_values(["source", "connectivity"], ascending=False).drop_duplicates(
+            subset=["source"]
+        )
+        df_sustained = pd.concat([df_sustained, df_adjMax]).drop_duplicates(['source', 'target'])
+
     G = nx.from_pandas_edgelist(
-        df_adjacency.query("connectivity > @cutoff"), edge_attr="connectivity"
+        df_sustained, edge_attr="connectivity"
     )
-    pos = nx.drawing.layout.kamada_kawai_layout(G)
+    pos = eval(f"nx.drawing.layout.{layoutMethod}")(G)
     nx.draw(G, pos, ax=ax, **dt_baseOptions)
     if not ls_hubGenes is None:
         ls_hubGenes = [x for x in ls_hubGenes if x in G.nodes()]

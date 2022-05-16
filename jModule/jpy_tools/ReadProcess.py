@@ -612,10 +612,15 @@ def getRegionRead(
     return _filterGene
 
 def counts2tpm(ad, layer, bed_path, logScale=True):
+    """
+    bed_path: no gene added
+    """
     import pyranges as pr
-    def counts2tpm(ad, layer, sr_geneLength):
+    def _counts2tpm(ad, layer, sr_geneLength):
+        sr_geneLength = sr_geneLength.reindex(ad.var.index)
+        # import pdb;pdb.set_trace()
         gene_len = sr_geneLength.reindex(ad.var.index).to_frame()
-        sample_reads = ad.to_df(layer).T.copy()
+        sample_reads = ad.to_df(layer).T.copy().fillna(0)
         rate = sample_reads.values / gene_len.values
         tpm = rate / np.sum(rate, axis=0).reshape(1, -1) * 1e6
         return pd.DataFrame(data=tpm, columns=ad.obs.index, index=ad.var.index).T
@@ -632,8 +637,8 @@ def counts2tpm(ad, layer, bed_path, logScale=True):
         .groupby("GeneName")["ExonLength"]
         .agg("max")
     )
-    sr_geneLength = sr_geneLength.reindex(ad.var.index)
-    df_tpm = counts2tpm(ad, 'raw', sr_geneLength)
+    
+    df_tpm = _counts2tpm(ad, 'raw', sr_geneLength)
     if logScale:
         df_tpm = np.log(df_tpm + 1)
         ad.layers['tpm_log'] = df_tpm
