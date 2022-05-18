@@ -33,6 +33,7 @@ from typing import (
 import collections
 from xarray import corr
 from . import basic, diffxpy
+from ..rTools import rcontext
 
 
 def getBgGene(
@@ -931,8 +932,18 @@ def getCosgResult(ad, key="cosg") -> pd.DataFrame:
     return df
 
 
+@rcontext
 def getAUCellScore(
-    ad, dt_genes, layer, threads=1, aucMaxRank=500, label="AUCell", thresholdsHistCol = 3, show=False, forceDense=False, rEnv=None
+    ad,
+    dt_genes,
+    layer,
+    threads=1,
+    aucMaxRank=500,
+    label="AUCell",
+    thresholdsHistCol=3,
+    show=False,
+    forceDense=False,
+    rEnv=None,
 ):
     """
 
@@ -957,7 +968,7 @@ def getAUCellScore(
     rBase = importr("base")
     rUtils = importr("utils")
     dplyr = importr("dplyr")
-    reticulate = importr('reticulate')
+    reticulate = importr("reticulate")
     R = ro.r
 
     aucell = importr("AUCell")
@@ -968,61 +979,58 @@ def getAUCellScore(
         df = df.assign(geneCate=geneCate)
         return df
 
-    if rEnv is None:
-        rEnv = ro.Environment()
-    with ro.local_context(rEnv) as rlc:
-        thresholdsHistRow = ceil(len(dt_genes) / thresholdsHistCol)
-        ls_varName = ad.var.index.to_list()
-        ls_obsName = ad.obs.index.to_list()
-        mtx = ad.layers[layer].T
-        if ss.issparse(mtx) & forceDense:
-            mtx = mtx.A
-        mtxR = py2r(mtx)
-        del(mtx)
+    thresholdsHistRow = ceil(len(dt_genes) / thresholdsHistCol)
+    ls_varName = ad.var.index.to_list()
+    ls_obsName = ad.obs.index.to_list()
+    mtx = ad.layers[layer].T
+    if ss.issparse(mtx) & forceDense:
+        mtx = mtx.A
+    mtxR = py2r(mtx)
+    del mtx
 
-        fc_list2R = lambda x:R.unlist(R.list(x))
-        lsR_obsName = fc_list2R(ls_obsName)
-        lsR_varName = fc_list2R(ls_varName)
-        dtR_genes = R.list(**{x: fc_list2R(y) for x, y in dt_genes.items()})
+    fc_list2R = lambda x: R.unlist(R.list(x))
+    lsR_obsName = fc_list2R(ls_obsName)
+    lsR_varName = fc_list2R(ls_varName)
+    dtR_genes = R.list(**{x: fc_list2R(y) for x, y in dt_genes.items()})
 
-        rEnv["mtxR"] = mtxR
-        rEnv["lsR_obsName"] = lsR_obsName
-        rEnv["lsR_varName"] = lsR_varName
-        rEnv["dtR_genes"] = dtR_genes
-        rEnv["threads"] = threads
-        rEnv["aucMaxRank"] = aucMaxRank
-        rEnv["thresholdsHistCol"] = thresholdsHistCol
-        rEnv["thresholdsHistRow"] = thresholdsHistRow
-        with r_inline_plot():
-            R(
-                """
-            rownames(mtxR) <- lsR_varName
-            colnames(mtxR) <- lsR_obsName
-            cells_rankings <- AUCell_buildRankings(mtxR, nCores=threads, plotStats=TRUE)
-            cells_AUC <- AUCell_calcAUC(dtR_genes, cells_rankings, aucMaxRank=aucMaxRank)
+    rEnv["mtxR"] = mtxR
+    rEnv["lsR_obsName"] = lsR_obsName
+    rEnv["lsR_varName"] = lsR_varName
+    rEnv["dtR_genes"] = dtR_genes
+    rEnv["threads"] = threads
+    rEnv["aucMaxRank"] = aucMaxRank
+    rEnv["thresholdsHistCol"] = thresholdsHistCol
+    rEnv["thresholdsHistRow"] = thresholdsHistRow
+    with r_inline_plot():
+        R(
             """
-            )
-        if show:
-            with r_inline_plot(width=512):
-                R(
-                """
-                par(mfrow=c(thresholdsHistRow, thresholdsHistCol)) 
-                cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=T) 
-                """
-                )
-        else:
-            R(
-            """
-            cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=F) 
-            """
-            )
-        df_auc = r2py(R("as.data.frame(cells_AUC@assays@data$AUC)")).T
-        df_aucThreshold = pd.concat(
-            [getThreshold("cells_assignment", x) for x in dt_genes.keys()]
+        rownames(mtxR) <- lsR_varName
+        colnames(mtxR) <- lsR_obsName
+        cells_rankings <- AUCell_buildRankings(mtxR, nCores=threads, plotStats=TRUE)
+        cells_AUC <- AUCell_calcAUC(dtR_genes, cells_rankings, aucMaxRank=aucMaxRank)
+        """
         )
-        ad.obsm[label] = df_auc.copy()
-        ad.uns[label] = df_aucThreshold.copy()
-    R.gc()
+    if show:
+        with r_inline_plot(width=512):
+            R(
+                """
+            par(mfrow=c(thresholdsHistRow, thresholdsHistCol)) 
+            cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=T) 
+            """
+            )
+    else:
+        R(
+            """
+        cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=F) 
+        """
+        )
+    df_auc = r2py(R("as.data.frame(cells_AUC@assays@data$AUC)")).T
+    df_aucThreshold = pd.concat(
+        [getThreshold("cells_assignment", x) for x in dt_genes.keys()]
+    )
+    ad.obsm[label] = df_auc.copy()
+    ad.uns[label] = df_aucThreshold.copy()
+
 
 def _getMetaCells(
     ad, ls_obs, layer="raw", skipSmallGroup=True, target_metacell_size=5e4, **kwargs
@@ -1086,15 +1094,15 @@ def _getMetaCells(
                 .astype("category")
                 .cat.reorder_categories(ad.obs[obsName].cat.categories)
             )
-    ad_meta.obs['metacell_link'] = ad_meta.obs['metacell_link'].str.join(',')
+    ad_meta.obs["metacell_link"] = ad_meta.obs["metacell_link"].str.join(",")
     print(ad_meta.obs[ls_obs].value_counts())
     print(f"These {ls_changeObs} groups are skipped or changed due to small size")
     sns.histplot(ad_meta.to_df(layer).sum(1))
-    plt.xlabel('metacell UMI counts')
+    plt.xlabel("metacell UMI counts")
     plt.show()
 
-    sns.histplot(ad_meta.obs['metacell_link'].str.split(',').map(len))
-    plt.xlabel('metacell cell counts')
+    sns.histplot(ad_meta.obs["metacell_link"].str.split(",").map(len))
+    plt.xlabel("metacell cell counts")
     plt.show()
     return ad_meta
 
@@ -1112,15 +1120,15 @@ def scWGCNA(
     deepSplit: float = 4,
     mergeCutHeight: float = 0.2,
     threads: int = 1,
-    softPower: Optional[Union[int, Literal['auto']]] = None,
+    softPower: Optional[Union[int, Literal["auto"]]] = None,
     renv=None,
     dt_getMetaCellsKwargs: dict = {},
-    fc_autoPickSoftPower = lambda x:x['SFT.R.sq'] >= 0.8,
-    calcAucell = True
+    fc_autoPickSoftPower=lambda x: x["SFT.R.sq"] >= 0.8,
+    calcAucell=True,
 ) -> sc.AnnData:
-    '''`scWGCNA` is a function that takes in a single cell RNA-seq dataset, and returns a single cell
+    """`scWGCNA` is a function that takes in a single cell RNA-seq dataset, and returns a single cell
     RNA-seq dataset with metacells
-    
+
     Parameters
     ----------
     ad : sc.AnnData
@@ -1154,11 +1162,11 @@ def scWGCNA(
         dict = {}
     fc_autoPickSoftPower
         function to pick the soft power. columns: ['SFT.R.sq', 'mean.k.']. By default, it will pick the soft power if the 'SFT.R.sq' is greater than 0.8 (lambda x:x['SFT.R.sq'] >= 0.8).
-    
+
     ---
     sc.AnnData
         with WGCNA results
-    '''
+    """
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
@@ -1212,7 +1220,7 @@ def scWGCNA(
         """
         )
 
-        if (softPower is None) | (softPower == 'auto'):
+        if (softPower is None) | (softPower == "auto"):
             with r_inline_plot(width=768):
                 R(
                     """
@@ -1241,9 +1249,11 @@ def scWGCNA(
                 ylim[1, col] = min(ylim[1, col], powerTable$data[, plotCols[col]], na.rm = TRUE);
                 ylim[2, col] = max(ylim[2, col], powerTable$data[, plotCols[col]], na.rm = TRUE);
                 }
-                """)
+                """
+                )
                 # Plot the quantities in the chosen columns vs. the soft thresholding power
-                R("""
+                R(
+                    """
                 par(mfcol = c(2,2));
                 par(mar = c(4.2, 4.2 , 2.2, 0.5))
                 cex1 = 0.7;
@@ -1267,11 +1277,11 @@ def scWGCNA(
                 }
                 """
                 )
-            if softPower == 'auto':
+            if softPower == "auto":
                 df_powerTable = r2py(R("powerTable$data"))
-                df_powerTable['Power'] = df_powerTable['Power'].astype(int)
+                df_powerTable["Power"] = df_powerTable["Power"].astype(int)
                 df_powerTable = df_powerTable.loc[fc_autoPickSoftPower]
-                softPower = df_powerTable['Power'].min()
+                softPower = df_powerTable["Power"].min()
                 logger.info(f"Soft Power: {softPower}")
             else:
                 softPower = int(input("Soft Power"))
@@ -1429,7 +1439,7 @@ def scWGCNA(
             kME=lambda df: df.apply(
                 lambda x: x.at["kME" + x.at["Initially.Assigned.Module.Color"]], axis=1
             ),
-            module = lambda df: df['Initially.Assigned.Module.Color']
+            module=lambda df: df["Initially.Assigned.Module.Color"],
         )
 
         if calcAucell:
@@ -1450,3 +1460,149 @@ def scWGCNA(
     # rlc.__exit__(None, None, None)
     ro.r.gc()
     return ad_meta
+
+
+def _mergeData(ad, obsKey, layer="raw"):
+    df_oneHot = pd.DataFrame(
+        index=ad.obs.index, columns=ad.obs[obsKey].cat.categories
+    ).fillna(0)
+    for col in df_oneHot.columns:
+        df_oneHot.loc[ad.obs[obsKey] == col, col] = 1
+    ad_merge = sc.AnnData(
+        df_oneHot.values.T @ ad.layers["raw"],
+        obs=pd.DataFrame(index=df_oneHot.columns),
+        var=pd.DataFrame(index=ad.var.index),
+    )
+    return ad_merge
+
+@rcontext
+def timeSeriesAnalysisByMfuzz(
+    ad,
+    timeObs,
+    filterGeneThres=0.25,
+    fillNaGeneMethod="mean",
+    geneClusterCounts=10,
+    rFigsize=(1024, 512),
+    rMfrow=(3, 4),
+    showNLargest=50,
+    keyAdded="mfuzz",
+    rEnv=None,
+):
+    '''`timeSeriesAnalysisByMfuzz` is a function that takes in a single cell RNA-seq dataframe, performs
+    time series analysis using the `mfuzz` R package
+    
+    Parameters
+    ----------
+    ad
+        AnnData object
+    timeObs
+        the time points of the experiment
+    filterGeneThres
+        the threshold for filtering out genes with low expression.
+    fillNaGeneMethod, optional
+        How to fill NA values in the gene expression matrix.
+    geneClusterCounts, optional
+        number of gene clusters
+    rFigsize
+        the size of the figure to be generated by R
+    rMfrow
+        the number of rows and columns of plots to show in the R plot
+    showNLargest, optional
+        number of genes to show in the plot
+    keyAdded, optional
+        the key to be added to the adata object.
+    rEnv
+        R environment to use. If None, a new one will be created.
+    
+    '''
+    import rpy2
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
+    from . import plotting
+    from ..rTools import py2r, r2py, r_inline_plot, rHelp, trl, rGet, rSet, ad2so, so2ad
+
+    rBase = importr("base")
+    rUtils = importr("utils")
+    Mfuzz = importr("Mfuzz")
+    R = ro.r
+
+    ad_merged = _mergeData(ad, timeObs)
+    basic.initLayer(ad_merged, total=1e6)  # cpm
+    esR_Merged = R.ExpressionSet(
+        rBase.as_matrix(py2r(ad_merged.to_df("normalize_log").replace(0, np.nan).T))
+    )  # esR: ExpressionSet # mfuzz only recognized NA as missing value
+
+    rEnv["filterGeneThres"] = filterGeneThres
+    rEnv["fillNaGeneMethod"] = fillNaGeneMethod
+    rEnv["esR_Merged"] = esR_Merged
+    rEnv["geneClusterCounts"] = geneClusterCounts
+
+    R(
+        """
+    esR_Merged.r <- filter.NA(esR_Merged, thres=filterGeneThres)
+    esR_Merged.f <- fill.NA(esR_Merged.r,mode=fillNaGeneMethod)
+    esR_Merged.s <- standardise(esR_Merged.f)
+    m1 <- mestimate(esR_Merged.s)
+    cl <- mfuzz(esR_Merged.s, c=geneClusterCounts, m=m1)
+    """
+    )
+
+    vtR_sampleLabel = R.c(*ad.obs[timeObs].cat.categories)
+    rEnv["vtR_sampleLabel"] = vtR_sampleLabel
+    rEnv["rMfrow"] = R.c(*rMfrow)
+
+    with r_inline_plot(*rFigsize):
+        R(
+            "mfuzz.plot(esR_Merged.s,cl=cl,mfrow=rMfrow,new.window=FALSE, time.labels=vtR_sampleLabel)"
+        )
+
+    vtR_cluster = R("cl$cluster")
+    df_ms = r2py(R("as.data.frame(cl$membership)"))
+    dt_cluster = {x: y for x, y in zip(vtR_cluster.names, vtR_cluster)}
+    df_ms = df_ms.assign(cluster=lambda df: df.index.map(dt_cluster).astype(str))
+    df_ms = df_ms.assign(
+        membership=lambda df: df.apply(lambda x: x.loc[x.loc["cluster"]], axis=1)
+    )
+    df_ms = df_ms.sort_values('cluster', key=lambda x:list(map(int, x)))
+    sns.boxplot(data=df_ms.query("membership > 0.1"), x="cluster", y="membership")
+    plt.show()
+
+    df_mmPassed = (
+        df_ms.groupby("cluster")
+        .apply(lambda df: df.nlargest(showNLargest, "membership"))
+        .reset_index(level=0, drop=True)
+    )
+    _ad = ad_merged[:, df_mmPassed.index]
+    _ad.layers["normalize_log_scaled"] = _ad.layers["normalize_log"].copy()
+    sc.pp.scale(_ad, layer="normalize_log_scaled")
+
+    _df = (
+        _ad.to_df("normalize_log_scaled")
+        .melt(ignore_index=False, var_name="gene", value_name="exp")
+        .rename_axis(timeObs)
+        .reset_index()
+        .merge(df_mmPassed[["cluster", "membership"]], left_on="gene", right_index=True)
+        .sort_values("cluster", key=lambda x:list(map(int, x)))
+    )
+
+    _df[timeObs] = (
+        _df[timeObs]
+        .astype("category")
+        .cat.set_categories(ad.obs[timeObs].cat.categories)
+    )
+
+    axs = sns.FacetGrid(
+        _df,
+        col="cluster",
+        col_wrap=rMfrow[-1],
+        hue="membership",
+        palette="viridis_r",
+        #     hue_kws=dict(hue_norm=(0, 1)),
+    )
+    axs.map_dataframe(sns.lineplot, x=timeObs, y="exp", hue_norm=(0, 1))
+    plt.show()
+
+    ad_merged.varm[keyAdded] = df_ms.reindex(ad_merged.var.index)
+    ad.varm[keyAdded] = df_ms.reindex(ad.var.index)
+
+    return ad_merged

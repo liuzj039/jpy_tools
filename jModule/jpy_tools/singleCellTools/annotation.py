@@ -30,91 +30,151 @@ from typing import (
 import collections
 from xarray import corr
 from . import basic
+from ..rTools import rcontext
 
-
-def cellTypeAnnoByICI(
-    refAd: anndata.AnnData,
-    refLabel: str,
-    refLayer: str,
-    queryAd: anndata.AnnData,
-    queryLayer: str,
-    cutoff: float = 0.01,
-    threads: int = 24,
-    groups: List = [],
-    ls_gene: List = None,
-    keyAdded: str = None,
+@rcontext
+def cellTypeAnnoByIci(
+    ad,
+    layer,
+    ad_bulk,
+    bulkLayer,
+    label,
+    dt_kwargsToComputeSpec={},
+    specThreads=12,
+    minSpecScore=0.15,
+    ar_informationRange=np.linspace(0, 50, 51),
+    nSamples=200,
+    informationSelect: Literal["auto", "manual"] = "auto",
+    dt_kwargsToComputeIciScore={},
+    iciThreads=4,
+    keyAdded="ici",
+    rEnv=None,
 ):
-    """
-    annotate queryAd based on refAd annotation result.
+    '''`cellTypeAnnoByIci` is a function that takes in a single cell RNA-seq dataset and a bulk RNA-seq
+    dataset, and returns a dataframe with the ICI score for each cell
+    
+    Parameters
     ----------
-    refAd : anndata.AnnData
-    refLabel : str
-    refLayer : str
-        must be log-transformed
-    queryAd : anndata.AnnData
-    queryLayer : str
-        must be log-transformed
-    cutoff : float, optional
-        by default 0.01
-    threads : int, optional
-        by default 24
-    groups : List, optional
-        by default []
-    keyAdded : str, optional
-        by default None
-    """
+    ad
+        AnnData object
+    layer
+        the layer of the adata object that you want to annotate. log-normalized
+    ad_bulk
+        AnnData object of the bulk data
+    bulkLayer
+        the layer of the bulk adata object that you want to use to compute the ICI score. log-normalized
+    label
+        the name of the cell type recorded the annotation results
+    dt_kwargsToComputeSpec
+        dict of kwargs to pass to `compute_spec_table`
+    specThreads, optional
+        number of threads to use for computing specificity
+    minSpecScore
+        minimum specificity score to be considered a cell type
+    ar_informationRange
+        the range of information values to consider.
+    nSamples, optional
+        number of samples to use for computing the ICI score
+    informationSelect : Literal["auto", "manual"], optional
+        Literal["auto", "manual"] = "auto"
+    dt_kwargsToComputeIciScore
+        dict of kwargs to pass to `compute_ici_scores`
+    iciThreads, optional
+        number of threads to use for computing ICI scores
+    keyAdded, optional
+        the key to add to the adata object
+    rEnv
+        R environment to use. If None, will create a new one.
+    
+    '''
     from rpy2.robjects.packages import importr
+    import rpy2.robjects as ro
     from ..rTools import py2r, r2py
 
-    icitools = importr("ICITools")
+    ICITools = importr("ICITools")
     future = importr("future")
     tibble = importr("tibble")
-    future.plan(strategy="multiprocess", workers=threads)
+    future.plan(strategy="multiprocess", workers=specThreads)
+    R = ro.r
+    print(2)
+    assert informationSelect in ["auto", "manual"], "informationSelect must be either 'auto' or 'manual'"
+    df_exp = (
+        ad_bulk.to_df(bulkLayer)
+        .join(ad_bulk.obs[label].rename("Cell_Type"))
+        .rename_axis("Sample_Name")
+        .reset_index()
+        .melt(["Sample_Name", "Cell_Type"], var_name="Locus", value_name="Expression")
+        .reindex(columns=["Locus", "Cell_Type", "Sample_Name", "Expression"])
+    )
+    df_exp = df_exp.sort_values(["Sample_Name", "Locus"])
+    df_exp["Cell_Type"] = df_exp["Cell_Type"].astype(str)
+    df_exp["Sample_Name"] = df_exp["Sample_Name"].astype(str)
 
-    if (not refLayer) | (refLayer == "X"):
-        df_refGene = basic.mergeadata(refAd, refLabel, "mean").to_df()
-    else:
-        df_refGene = basic.mergeadata(refAd, refLabel, [refLayer], "mean").to_df(
-            refLayer
+    dfR_exp = py2r(df_exp)
+    dfR_exp = R.as_tibble(dfR_exp)
+    dfR_geneSpec = ICITools.compute_spec_table(dfR_exp, **dt_kwargsToComputeSpec)
+    df_geneSpec = r2py(dfR_geneSpec)
+    sns.displot(df_geneSpec['spec'])
+    plt.show()
+    plt.close()
+    print("Gene counts:")
+    print(df_geneSpec.query('spec >= @minSpecScore').value_counts('Cell_Type').to_markdown())
+
+    df_scExp = ad.to_df(layer).rename_axis(columns="Locus").T.reset_index()
+    dfR_scExp = py2r(df_scExp)
+
+    rEnv["dfR_geneSpec"] = dfR_geneSpec
+    rEnv["dfR_scExp"] = dfR_scExp
+    rEnv["ar_informationRange"] = py2r(ar_informationRange)
+    rEnv["minSpecScore"] = minSpecScore
+    rEnv["nSamples"] = nSamples
+    R(
+        """
+    library(dplyr)
+    library(ggplot2)
+    info <- gather_information_level_data(dfR_scExp, 
+                                        spec_table = dfR_geneSpec, 
+                                        information_range = ar_informationRange, 
+                                        min_spec_score = minSpecScore, 
+                                        n_samples = nSamples)
+
+    ici_signal <- extract_signal_from_info_data(info)
+    ici_var <- extract_var_from_info_data(info)
+
+    info_summary <- dplyr::inner_join(ici_var, ici_signal)
+    """
+    )
+    df_infoSummary = r2py(R('info_summary'))
+    sns.lineplot(
+        data=df_infoSummary.melt("information_level", ["signal", "variability"]),
+        x="information_level",
+        y="value",
+        hue="variable",
+    )
+    plt.show()
+    plt.close()
+    if informationSelect == "auto":
+        informationLevel = (
+            df_infoSummary.groupby("information_level")["signal"].mean().idxmax()
         )
-    df_refGene = np.exp(df_refGene) - 1
+    elif informationSelect == "manual":
+        informationLevel = float(input())
+    future.plan(strategy="multiprocess", workers=iciThreads)
 
-    df_refGene = df_refGene.stack().reset_index()
-    df_refGene.columns = ["Cell_Type", "Locus", "Expression"]
-    df_refGene["Sample_Name"] = df_refGene["Cell_Type"]
-
-    df_refGene = df_refGene.reindex(
-        columns=["Locus", "Cell_Type", "Sample_Name", "Expression"]
+    dfR_iciScore = ICITools.compute_ici_scores(
+        expression_data=dfR_scExp,
+        spec_table=dfR_geneSpec,
+        sig=True,
+        n_iterations=1000,
+        information_level=int(informationLevel),
+        min_spec_score=minSpecScore,
+        **dt_kwargsToComputeIciScore,
     )
-
-    if not groups:
-        groups = list(df_refGene["Cell_Type"].unique())
-
-    df_refGene = df_refGene.query("Cell_Type in @groups")
-
-    dfR_spec = icitools.compute_spec_table(expression_data=py2r(df_refGene))
-
-    if not queryLayer:
-        queryLayer = "X"
-
-    df_queryGene = queryAd.to_df() if queryLayer == "X" else queryAd.to_df(queryLayer)
-    df_queryGene = np.exp(df_queryGene) - 1
-    df_queryGene = df_queryGene.rename_axis(columns="Locus").T
-    dfR_queryGene = py2r(df_queryGene)
-    dfR_queryGene = tibble.as_tibble(dfR_queryGene, rownames="Locus")
-    dfR_iciScore = icitools.compute_ici_scores(dfR_queryGene, dfR_spec, sig=True)
     df_iciScore = r2py(dfR_iciScore)
-    df_iciScore = df_iciScore.pivot_table(
-        index="Cell", columns="Cell_Type", values="ici_score_norm"
-    )
-    if not keyAdded:
-        keyAdded = f"ici_{refLabel}"
+    df_iciScore = df_iciScore.pivot_table(index="Cell", columns="Cell_Type")
+    for x in ["ici_score", "ici_score_norm", "p_adj", "p_val"]:
+        ad.obsm[f"{keyAdded}_{x}"] = df_iciScore.loc[:, x].copy()
 
-    df_iciScore = df_iciScore.reindex(queryAd.obs.index)
-    queryAd.obsm[f"{keyAdded}_normScore"] = df_iciScore
-    queryAd.obs[f"{keyAdded}"] = np.select(
-        [df_iciScore.max(1) > cutoff], [df_iciScore.idxmax(1)], "unknown"
-    )
 
 
 def getOverlapBetweenPrividedMarkerAndSpecificGene(
@@ -468,17 +528,17 @@ def labelTransferByScanpy(
 
 
 def labelTransferBySeurat(
-    ad_ref:sc.AnnData,
-    refLabel:str,
+    ad_ref: sc.AnnData,
+    refLabel: str,
     refLayer,
-    ad_query:sc.AnnData,
+    ad_query: sc.AnnData,
     queryLayer,
     nTopGenes=2000,
     kScore=30,
     dims=30,
     kWeight=100,
     refIsIntegrated=False,
-    renv = None
+    renv=None,
 ) -> anndata.AnnData:
     """
     annotate queryAd based on refAd annotation result.
@@ -526,14 +586,22 @@ def labelTransferBySeurat(
     if renv is None:
         renv = ro.Environment()
 
-
     if not refIsIntegrated:
-        ad_ref.layers['_raw'] = ad_ref.layers[refLayer].copy()
-        ad_query.layers['_raw'] = ad_query.layers[queryLayer].copy()
+        ad_ref.layers["_raw"] = ad_ref.layers[refLayer].copy()
+        ad_query.layers["_raw"] = ad_query.layers[queryLayer].copy()
 
-        ad_concat = sc.concat({'ref': ad_ref, 'query': ad_query}, label='seurat_', index_unique='-')
-        sc.pp.highly_variable_genes(ad_concat, layer='_raw', n_top_genes=nTopGenes, batch_key='seurat_', subset=True, flavor='seurat_v3')
-        ls_features = ad_concat.var.index.str.replace('_', '-').to_list()
+        ad_concat = sc.concat(
+            {"ref": ad_ref, "query": ad_query}, label="seurat_", index_unique="-"
+        )
+        sc.pp.highly_variable_genes(
+            ad_concat,
+            layer="_raw",
+            n_top_genes=nTopGenes,
+            batch_key="seurat_",
+            subset=True,
+            flavor="seurat_v3",
+        )
+        ls_features = ad_concat.var.index.str.replace("_", "-").to_list()
 
         so_ref = ad2so(ad_ref, refLayer, ls_obs=refLabel)
         so_query = ad2so(ad_query, queryLayer, ls_obs=[])
@@ -554,14 +622,16 @@ def labelTransferBySeurat(
             """
             )
 
-        df_pred = r2py(rlc['predictions'])
+        df_pred = r2py(rlc["predictions"])
 
-        ad_query.obsm[f'labelTransfer_seurat_{refLabel}'] = df_pred
-        ad_query.obs[f'labelTransfer_seurat_{refLabel}'] = df_pred['predicted.id']
+        ad_query.obsm[f"labelTransfer_seurat_{refLabel}"] = df_pred
+        ad_query.obs[f"labelTransfer_seurat_{refLabel}"] = df_pred["predicted.id"]
 
-        ad_ref.obs[f'labelTransfer_seurat_{refLabel}'] = ad_ref.obs[refLabel]
-        ad_concat = sc.concat({'ref': ad_ref, 'query':ad_query}, label='seurat_', index_unique='-')
-        del(ad_ref.obs[f'labelTransfer_seurat_{refLabel}'])
+        ad_ref.obs[f"labelTransfer_seurat_{refLabel}"] = ad_ref.obs[refLabel]
+        ad_concat = sc.concat(
+            {"ref": ad_ref, "query": ad_query}, label="seurat_", index_unique="-"
+        )
+        del ad_ref.obs[f"labelTransfer_seurat_{refLabel}"]
 
         ad_concat = integrateBySeurat(
             ad_concat,
@@ -570,35 +640,49 @@ def labelTransferBySeurat(
             layer="_raw",
             k_score=kScore,
             dims=dims,
-            k_weight=kWeight
+            k_weight=kWeight,
         )
 
         sc.pp.neighbors(ad_concat)
         sc.tl.umap(ad_concat)
 
-        sc.pl.umap(ad_concat, color=[f'labelTransfer_seurat_{refLabel}', 'seurat_'], wspace=0.5)
-        ax = sc.pl.umap(ad_concat, size = 12e4 / len(ad_concat), show=False)
+        sc.pl.umap(
+            ad_concat, color=[f"labelTransfer_seurat_{refLabel}", "seurat_"], wspace=0.5
+        )
+        ax = sc.pl.umap(ad_concat, size=12e4 / len(ad_concat), show=False)
         _ad = ad_concat[ad_concat.obs.eval('seurat_ == "query"')]
-        sc.pl.umap(_ad, color=f'labelTransfer_seurat_{refLabel}', size = 12e4 / len(ad_concat), ax=ax)
+        sc.pl.umap(
+            _ad,
+            color=f"labelTransfer_seurat_{refLabel}",
+            size=12e4 / len(ad_concat),
+            ax=ax,
+        )
         renv.clear()
     else:
         ad_ref = ad_ref.copy()
-        ad_ref.var.index = ad_ref.var.index.str.replace('_', '-')
-        ad_ref = ad_ref[:, ad_ref.obsm['seurat_integrated_data'].columns]
-        ad_ref.layers['seurat_integrated_data'] = ad_ref.obsm['seurat_integrated_data']
+        ad_ref.var.index = ad_ref.var.index.str.replace("_", "-")
+        ad_ref = ad_ref[:, ad_ref.obsm["seurat_integrated_data"].columns]
+        ad_ref.layers["seurat_integrated_data"] = ad_ref.obsm["seurat_integrated_data"]
         if "seurat_integrated_scale.data" in ad_ref.obsm:
-            assert False, "Not support SCT normalization, please rerun SCT and NOT transfer `seuratObject` to `AnnData` until label transfer is finished"
+            assert (
+                False
+            ), "Not support SCT normalization, please rerun SCT and NOT transfer `seuratObject` to `AnnData` until label transfer is finished"
         else:
             refScaleLayer = None
         with ro.local_context() as rlc:
-            so_ref = ad2so(ad_ref, layer=refLayer, dataLayer='seurat_integrated_data', scaleLayer=refScaleLayer)
+            so_ref = ad2so(
+                ad_ref,
+                layer=refLayer,
+                dataLayer="seurat_integrated_data",
+                scaleLayer=refScaleLayer,
+            )
             so_query = ad2so(ad_query, layer=queryLayer)
             rlc["so_ref"] = so_ref
             rlc["so_query"] = so_query
             rlc["k.score"] = kScore
             rlc["dims"] = dims
             rlc["k.weight"] = kWeight
-            rlc['lsR_features'] = R.c(*ad_ref.var.index.str.replace('_', '-').to_list())
+            rlc["lsR_features"] = R.c(*ad_ref.var.index.str.replace("_", "-").to_list())
             R(
                 f"""
             anchors <- FindTransferAnchors(reference = so_ref, query = so_query, dims = 1:dims, k.score=k.score, features=lsR_features)
@@ -606,13 +690,15 @@ def labelTransferBySeurat(
             """
             )
 
-        df_pred = r2py(rlc['predictions'])
+        df_pred = r2py(rlc["predictions"])
 
-        ad_query.obsm[f'labelTransfer_seurat_{refLabel}'] = df_pred
-        ad_query.obs[f'labelTransfer_seurat_{refLabel}'] = df_pred['predicted.id']
+        ad_query.obsm[f"labelTransfer_seurat_{refLabel}"] = df_pred
+        ad_query.obs[f"labelTransfer_seurat_{refLabel}"] = df_pred["predicted.id"]
 
-        ad_ref.obs[f'labelTransfer_seurat_{refLabel}'] = ad_ref.obs[refLabel]
-        ad_concat = sc.concat({'ref': ad_ref, 'query':ad_query}, label='seurat_', index_unique='-')
+        ad_ref.obs[f"labelTransfer_seurat_{refLabel}"] = ad_ref.obs[refLabel]
+        ad_concat = sc.concat(
+            {"ref": ad_ref, "query": ad_query}, label="seurat_", index_unique="-"
+        )
 
     return ad_concat
 
@@ -729,7 +815,7 @@ def labelTransferByScanvi(
         )
         lvae.train(max_epochs=max_epochs, batch_size=batch_size_ref)
         lvae.history["elbo_train"].plot()
-        plt.yscale('log')
+        plt.yscale("log")
         plt.show()
         # plot result on training dataset
         refAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae.predict(refAd)
@@ -760,7 +846,7 @@ def labelTransferByScanvi(
             batch_size=batch_size_query,
         )
         lvae_online.history["elbo_train"].plot()
-        plt.yscale('log')
+        plt.yscale("log")
         plt.show()
         ad_merge.obsm["X_scANVI"] = lvae_online.get_latent_representation(ad_merge)
         sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
@@ -781,7 +867,7 @@ def labelTransferByScanvi(
             batch_size=batch_size_ref,
         )
         scvi_model.history["elbo_train"].plot()
-        plt.yscale('log')
+        plt.yscale("log")
         plt.show()
 
         lvae = scvi.model.SCANVI.from_scvi_model(
@@ -793,7 +879,7 @@ def labelTransferByScanvi(
             batch_size=batch_size_ref,
         )
         lvae.history["elbo_train"].plot()
-        plt.yscale('log')
+        plt.yscale("log")
         plt.show()
 
         ad_merge.obsm["X_scANVI"] = lvae.get_latent_representation(ad_merge)
@@ -853,4 +939,3 @@ def labelTransferByScanvi(
     )
     if needLoc:
         return ad_merge
-

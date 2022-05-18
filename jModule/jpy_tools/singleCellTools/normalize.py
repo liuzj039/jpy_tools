@@ -34,6 +34,7 @@ from xarray import corr
 import muon as mu
 from . import basic
 from ..otherTools import setSeed
+from ..rTools import rcontext
 
 
 def normalizeMultiAd(multiAd, removeAmbiguous=True):
@@ -238,9 +239,10 @@ def normalizeByScranMultiBatchNorm(
     logger.info(f"output data shape: {adOrg.shape}")
     return adOrg
 
-
+@rcontext
 def normalizeBySCT_r(
     ad,
+    *,
     layer="raw",
     nTopGenes=3000,
     ls_gene=None,
@@ -248,6 +250,8 @@ def normalizeBySCT_r(
     returnOnlyVarGenes=False,
     doCorrectUmi=True,
     returnMuon = False,
+    rEnv = None,
+    debug = False,
     **dt_kwargsToSct,
 ):
     '''`normalizeBySCT_r` is a function that takes in a single-cell RNA-seq dataset and returns a
@@ -287,6 +291,8 @@ def normalizeBySCT_r(
     R = ro.r
     setSeed()
     so = ad2so(ad, layer=layer, lightMode=True)
+    if debug:
+        import pdb;pdb.set_trace()
     dt_kwargsToSct["variable.features.n"] = nTopGenes
     dt_kwargsToSct["residual.features"] = (
         R("NULL") if ls_gene is None else R.c(*[x.replace("_", "-") for x in ls_gene])
@@ -295,18 +301,18 @@ def normalizeBySCT_r(
     dt_kwargsToSct["return.only.var.genes"] = returnOnlyVarGenes
     dt_kwargsToSct["do.correct.umi"] = doCorrectUmi
     dtR_kwargsToSct = R.list(**dt_kwargsToSct)
-    with ro.local_context() as rlc:
-        rlc["so"] = so
-        rlc["dtR_kwargsToSct"] = dtR_kwargsToSct
-        R(
-            """
-        dtR_kwargsToSct$object = so
-        so_sct = DoCall(SCTransform, dtR_kwargsToSct)
-        ls_hvg <- so_sct[['SCT']]@var.features
+
+    rEnv["so"] = so
+    rEnv["dtR_kwargsToSct"] = dtR_kwargsToSct
+    R(
         """
-        )
-        so_sct = rlc["so_sct"]
-        ls_hvg = list(rlc["ls_hvg"])
+    dtR_kwargsToSct$object = so
+    so_sct = DoCall(SCTransform, dtR_kwargsToSct)
+    ls_hvg <- so_sct[['SCT']]@var.features
+    """
+    )
+    so_sct = rEnv["so_sct"]
+    ls_hvg = list(rEnv["ls_hvg"])
     ad_sct = so2ad(so_sct, verbose=0)
     ad_sct.var['highly_variable'] = ad_sct.var.index.isin(ls_hvg)
     ad_sct.X = ad_sct.layers['SCT_scale.data'].copy()
@@ -321,7 +327,6 @@ def normalizeBySCT_r(
         ad.obsm[layer] = ad_sct.layers[layer].copy()
     ad.uns['sct_features'] = ad_sct.var.index.to_list()
 
-    R.gc()
     if returnMuon:
         md = mu.MuData({'RNA': ad, 'SCT': ad_sct})
         return md
@@ -470,7 +475,7 @@ def normalizeBySCT(
     if copy:
         return adata
 
-
+@rcontext
 def integrateBySeurat(
     ad: anndata.AnnData,
     batch_key,
@@ -484,6 +489,7 @@ def integrateBySeurat(
     k_weight=100,
     identify_top_genes_by_seurat=False,
     saveSeurat=None,
+    rEnv = None,
 ) -> sc.AnnData:
     """`integrateBySeurat` takes an AnnData object, a batch key, and a few other parameters, and returns a
     Seurat object with the integrated data
@@ -555,89 +561,88 @@ def integrateBySeurat(
 
     so = ad2so(ad, layer=layer, ls_obs=[batch_key])
 
-    renv = ro.Environment()
-    with ro.local_context(renv) as rlc:
-        rlc["so"] = so
-        rlc["batch_key"] = batch_key
-        rlc["n_top_genes"] = n_top_genes
-        rlc["lsR_features"] = lsR_features
-        rlc["reduction"] = reduction
-        rlc["normalization.method"] = normalization_method
-        rlc["k.score"] = k_score
-        rlc["dims"] = dims
-        rlc["k.filter"] = k_filter
-        rlc["k.weight"] = k_weight
 
-        R(
-            """
-        so.list <- SplitObject(so, split.by = batch_key)
+    rEnv["so"] = so
+    rEnv["batch_key"] = batch_key
+    rEnv["n_top_genes"] = n_top_genes
+    rEnv["lsR_features"] = lsR_features
+    rEnv["reduction"] = reduction
+    rEnv["normalization.method"] = normalization_method
+    rEnv["k.score"] = k_score
+    rEnv["dims"] = dims
+    rEnv["k.filter"] = k_filter
+    rEnv["k.weight"] = k_weight
+
+    R(
         """
-        )
-        if normalization_method == "LogNormalize":
-            if identify_top_genes_by_seurat:
-                R(
-                    """
-                so.list <- lapply(X = so.list, FUN = function(x) {
-                    x <- NormalizeData(x)
-                    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = n_top_genes)
-                })
-                lsR_features <- SelectIntegrationFeatures(object.list = so.list, nfeatures = n_top_genes)
+    so.list <- SplitObject(so, split.by = batch_key)
+    """
+    )
+    if normalization_method == "LogNormalize":
+        if identify_top_genes_by_seurat:
+            R(
                 """
-                )
-            else:
-                R(
-                    """
-                so.list <- lapply(X = so.list, FUN = function(x) {
-                    x <- NormalizeData(x)
-                })
-                """
-                )
-            if reduction == "rpca":
-                R(
-                    """
-                so.list <- lapply(X = so.list, FUN = function(x) {
-                    x <- ScaleData(x, features = lsR_features, verbose = FALSE)
-                    x <- RunPCA(x, features = lsR_features, verbose = FALSE)
-                })
-                """
-                )
-        elif normalization_method == "SCT":
-            if identify_top_genes_by_seurat:
-                R(
-                    """
-                so.list <- lapply(X = so.list, FUN = SCTransform, variable.features.n = lsR_features, vst.flavor = 'v2')
-                lsR_features <- SelectIntegrationFeatures(object.list = so.list, nfeatures = n_top_genes)
-                so.list <- PrepSCTIntegration(object.list = so.list, anchor.features = lsR_features)
-                """
-                )
-            else:
-                R(
-                    """
-                so.list <- lapply(X = so.list, FUN = SCTransform, residual.features = lsR_features, vst.flavor = 'v2')
-                so.list <- PrepSCTIntegration(object.list = so.list, anchor.features = lsR_features)
-                """
-                )
-            if reduction == "rpca":
-                R(
-                    """
-                so.list <- lapply(X = so.list, FUN = function(x) {
-                    x <- RunPCA(x, features = lsR_features, verbose = FALSE)
-                })
-                """
-                )
+            so.list <- lapply(X = so.list, FUN = function(x) {
+                x <- NormalizeData(x)
+                x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = n_top_genes)
+            })
+            lsR_features <- SelectIntegrationFeatures(object.list = so.list, nfeatures = n_top_genes)
+            """
+            )
         else:
-            assert False, f"unknown normalization method : {normalization_method}"
-
-        R(
+            R(
+                """
+            so.list <- lapply(X = so.list, FUN = function(x) {
+                x <- NormalizeData(x)
+            })
             """
-        so.anchors <- FindIntegrationAnchors(object.list = so.list, anchor.features = lsR_features, reduction = reduction, normalization.method = normalization.method, dims = 1:dims, k.score = k.score, k.filter = k.filter)
-        so.combined <- IntegrateData(anchorset = so.anchors, normalization.method = normalization.method, dims = 1:dims, k.weight=k.weight)
+            )
+        if reduction == "rpca":
+            R(
+                """
+            so.list <- lapply(X = so.list, FUN = function(x) {
+                x <- ScaleData(x, features = lsR_features, verbose = FALSE)
+                x <- RunPCA(x, features = lsR_features, verbose = FALSE)
+            })
+            """
+            )
+    elif normalization_method == "SCT":
+        if identify_top_genes_by_seurat:
+            R(
+                """
+            so.list <- lapply(X = so.list, FUN = SCTransform, variable.features.n = lsR_features, vst.flavor = 'v2')
+            lsR_features <- SelectIntegrationFeatures(object.list = so.list, nfeatures = n_top_genes)
+            so.list <- PrepSCTIntegration(object.list = so.list, anchor.features = lsR_features)
+            """
+            )
+        else:
+            R(
+                """
+            so.list <- lapply(X = so.list, FUN = SCTransform, residual.features = lsR_features, vst.flavor = 'v2')
+            so.list <- PrepSCTIntegration(object.list = so.list, anchor.features = lsR_features)
+            """
+            )
+        if reduction == "rpca":
+            R(
+                """
+            so.list <- lapply(X = so.list, FUN = function(x) {
+                x <- RunPCA(x, features = lsR_features, verbose = FALSE)
+            })
+            """
+            )
+    else:
+        assert False, f"unknown normalization method : {normalization_method}"
+
+    R(
         """
-        )
-        if not saveSeurat is None:
-            rlc["saveSeurat"] = saveSeurat
-            R("saveRDS(so.combined, file = saveSeurat)")  # save seurat object
-        so_combined = R("so.combined")
+    so.anchors <- FindIntegrationAnchors(object.list = so.list, anchor.features = lsR_features, reduction = reduction, normalization.method = normalization.method, dims = 1:dims, k.score = k.score, k.filter = k.filter)
+    so.combined <- IntegrateData(anchorset = so.anchors, normalization.method = normalization.method, dims = 1:dims, k.weight=k.weight)
+    """
+    )
+    if not saveSeurat is None:
+        rEnv["saveSeurat"] = saveSeurat
+        R("saveRDS(so.combined, file = saveSeurat)")  # save seurat object
+    so_combined = R("so.combined")
     ad_combined = so2ad(so_combined)
     if normalization_method == "LogNormalize":
         ad.obsm["seurat_integrated_data"] = ad_combined.to_df("integrated_data").copy()
@@ -652,5 +657,4 @@ def integrateBySeurat(
 
     sc.tl.pca(ad_combined, use_highly_variable=False)
     ad.obsm["X_pca_seurat"] = ad_combined.obsm["X_pca"].copy()
-    renv.clear()
     return ad_combined

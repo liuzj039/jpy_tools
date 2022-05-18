@@ -26,12 +26,14 @@ import scanpy as sc
 import h5py
 from tempfile import TemporaryDirectory
 import sys
+import inspect
 
 R = ro.r
 seo = importr("SeuratObject")
 rBase = importr("base")
 rUtils = importr("utils")
 # arrow = importr('arrow') # this package should be imported before pyarrow
+
 
 def rpy2_check(func):
     """Decorator to check whether rpy2 is installed at runtime"""
@@ -158,31 +160,33 @@ def py2r_disk(obj, check=False, *args, **kwargs):
 
         tpFile.close()
         return objR
-    
+
     def _dataframe(obj):
-        arrow = importr('arrow')
+        arrow = importr("arrow")
         tpFile = NamedTemporaryFile(suffix=".feather")
         obj = obj.rename(columns=str)
         if (obj.index == obj.reset_index().index).all():
             obj.to_feather(tpFile.name)
             needSetIndex = False
         else:
-            obj.rename_axis('_index_py2r_').reset_index().to_feather(tpFile.name)
+            obj.rename_axis("_index_py2r_").reset_index().to_feather(tpFile.name)
             needSetIndex = True
 
-        dfR = arrow.read_feather(tpFile.name, as_data_frame = True)
+        dfR = arrow.read_feather(tpFile.name, as_data_frame=True)
         dfR = rBase.as_data_frame(dfR)
         if needSetIndex:
             with ro.local_context() as rlc:
                 rlc["dfR"] = dfR
-                R("""
+                R(
+                    """
                 srR_index <- dfR$`_index_py2r_`
                 dfR$`_index_py2r_` <- NULL
                 rownames(dfR) <- srR_index
-                """)
+                """
+                )
                 dfR = rlc["dfR"]
         return dfR
-    
+
     def _array(obj):
         obj = pd.DataFrame(obj)
         obj = obj.rename(columns=str)
@@ -232,10 +236,10 @@ def ad2so(
     dataLayer=None,
     scaleLayer=None,
     lightMode=False,
-    renv = None,
+    renv=None,
     path_R=None,
-    libPath_R =None,
-    verbose=0
+    libPath_R=None,
+    verbose=0,
 ):
     """
     anndata to seuratObject.
@@ -255,6 +259,7 @@ def ad2so(
     """
     import sh
     import scipy.sparse as ss
+
     if not path_R:
         path_R = settings.seuratDisk_rPath
     if not libPath_R:
@@ -303,7 +308,7 @@ def ad2so(
             if not _obsm in ls_obsm:
                 ls_rm.append(_obsm)
         for _obsm in ls_rm:
-            del(ad_partial.obsm[_obsm])
+            del ad_partial.obsm[_obsm]
 
     ad_partial.X = ss.csr_matrix(
         ad_partial.X
@@ -314,13 +319,12 @@ def ad2so(
             _ls.append(key)
     for key in _ls:
         del ad_partial.obsm[key]
-    
+
     # workaround `memoory not mapped` error
     df_var = ad_partial.var
     ad_partial.var = ad_partial.var[[]]
     ad_partial.raw = ad_partial
     ad_partial.var = df_var
-    
 
     sc.pp.normalize_total(ad_partial, 1e4)
     sc.pp.log1p(ad_partial)
@@ -417,8 +421,11 @@ def r2py(x, name=None):
     return x
 
 
-def so2ad(so, dir_tmp=None, libPath_R = None, path_R=None, obsReParse = True, verbose = True) -> sc.AnnData:
+def so2ad(
+    so, dir_tmp=None, libPath_R=None, path_R=None, obsReParse=True, verbose=True
+) -> sc.AnnData:
     import sh
+
     if not libPath_R:
         libPath_R = settings.seuratDisk_rLibPath
     if not path_R:
@@ -487,7 +494,7 @@ def so2ad(so, dir_tmp=None, libPath_R = None, path_R=None, obsReParse = True, ve
             del h5ad["raw"]
     ad = sc.read_h5ad(path_h5ad)
     if obsReParse:
-        df_obs = r2py(so.slots['meta.data'])
+        df_obs = r2py(so.slots["meta.data"])
         df_obs = df_obs.combine_first(ad.obs)
         ad.obs = df_obs.copy()
     return ad
@@ -578,3 +585,26 @@ def rSet(objR, targetObjR, *attrs):
             _.slots[attr] = targetObjR
         else:
             _.rx2[attr] = targetObjR
+
+
+def rcontext(func):
+    """
+    A decorator to run a function in an R context.
+    `rEnv` should be one of parameters of wrapped function
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kargs):
+        dt_parsedKargs = inspect.signature(func).bind_partial(*args, **kargs).arguments
+        if not "rEnv" in dt_parsedKargs:
+            kargs["rEnv"] = None
+
+        rEnv = kargs["rEnv"]
+        if rEnv is None:
+            rEnv = ro.Environment()
+        kargs['rEnv'] = rEnv
+        
+        with ro.local_context(rEnv) as rlc:
+            func(*args, **kargs)
+        ro.r.gc()
+
+    return wrapper
