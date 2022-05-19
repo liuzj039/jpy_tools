@@ -250,6 +250,7 @@ def normalizeBySCT_r(
     returnOnlyVarGenes=False,
     doCorrectUmi=True,
     returnMuon = False,
+    returnSo = False,
     rEnv = None,
     debug = False,
     **dt_kwargsToSct,
@@ -330,6 +331,8 @@ def normalizeBySCT_r(
     if returnMuon:
         md = mu.MuData({'RNA': ad, 'SCT': ad_sct})
         return md
+    elif returnSo:
+        return so_sct
     else:
         return ad_sct
     

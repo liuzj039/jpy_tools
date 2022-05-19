@@ -19,20 +19,52 @@ import scipy.sparse as sp
 from contextlib import contextmanager
 from rpy2.robjects.lib import grdevices
 from IPython.display import Image, display
-from .otherTools import Capturing
-import rpy2.robjects as ro
-from rpy2.robjects.packages import importr
 import scanpy as sc
 import h5py
 from tempfile import TemporaryDirectory
 import sys
 import inspect
+import re
+from rpy2.rinterface import evaluation_context
+import rpy2.robjects as ro
+from rpy2.robjects import rl
+from rpy2.robjects.packages import importr
+from .otherTools import Capturing
+
 
 R = ro.r
 seo = importr("SeuratObject")
 rBase = importr("base")
 rUtils = importr("utils")
 # arrow = importr('arrow') # this package should be imported before pyarrow
+
+
+def rcontext(func):
+    """
+    A decorator to run a function in an R context.
+    `rEnv` parameter will be auto updated
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kargs):
+        dt_parsedKargs = inspect.signature(func).bind_partial(*args, **kargs).arguments
+        if not "rEnv" in dt_parsedKargs:
+            kargs["rEnv"] = None
+
+        rEnv = kargs["rEnv"]
+        if rEnv is None:
+            rEnv = ro.Environment()
+        kargs["rEnv"] = rEnv
+
+        if not 'rEnv' in inspect.getargspec(func).args:
+            kargs.pop('rEnv')
+
+        with ro.local_context(rEnv) as rlc:
+            result = func(*args, **kargs)
+        ro.r.gc()
+        return result
+
+    return wrapper
 
 
 def rpy2_check(func):
@@ -519,23 +551,40 @@ def rHelp(x: str):
     print("\n".join(output[1::2]))
 
 
-def trl(objR):
-    "transfer objR to an unevaluated R language object"
-    from rpy2.robjects import rl
-    import rpy2.robjects as ro
-    import random
-    import string
+def trl(objR, name=None, prefix="trl", verbose = 1):
+    rEnv = evaluation_context.get()
+    if name is None:
+        for line in inspect.getframeinfo(inspect.currentframe().f_back)[3]:
+            m = re.search(r"\btrl\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)", line)
+            if m:
+                name = m.group(1)
+                break
+        else:
+            assert False, "Can not identify argument"
+    name = f"{prefix}_{name}"
+    rEnv[name] = objR
+    ro.r.gc()
+    if verbose > 0:
+        print(name)
+    return rl(name)
 
-    def ranstr(num):
-        salt = "".join(random.sample(string.ascii_letters, num)) + "".join(
-            random.sample(string.digits, 5)
-        )
-        return salt
 
-    tempName = ranstr(40)
-    ro.globalenv[tempName] = objR
-    return rl(tempName)
-
+class Trl:
+    def __init__(self, objName='T', verbose=1):
+        self.objName = objName
+        self.verbose = verbose
+    def __ror__(self, objR):
+        objName = self.objName
+        objName = objName[::-1]
+        for line in inspect.getframeinfo(inspect.currentframe().f_back)[3]:
+            line = line[::-1]
+            m = re.search(rf"\b{objName}\s*\|\s*(\w+?)\s*[\W]", line)
+            if m:
+                name = m.group(1)[::-1]
+                break
+        else:
+            assert False, "Can not identify argument"
+        return trl(objR, name, verbose = self.verbose)
 
 def rGet(objR, *attrs):
     import rpy2.robjects as ro
@@ -585,26 +634,3 @@ def rSet(objR, targetObjR, *attrs):
             _.slots[attr] = targetObjR
         else:
             _.rx2[attr] = targetObjR
-
-
-def rcontext(func):
-    """
-    A decorator to run a function in an R context.
-    `rEnv` should be one of parameters of wrapped function
-    """
-    @functools.wraps(func)
-    def wrapper(*args, **kargs):
-        dt_parsedKargs = inspect.signature(func).bind_partial(*args, **kargs).arguments
-        if not "rEnv" in dt_parsedKargs:
-            kargs["rEnv"] = None
-
-        rEnv = kargs["rEnv"]
-        if rEnv is None:
-            rEnv = ro.Environment()
-        kargs['rEnv'] = rEnv
-        
-        with ro.local_context(rEnv) as rlc:
-            func(*args, **kargs)
-        ro.r.gc()
-
-    return wrapper
