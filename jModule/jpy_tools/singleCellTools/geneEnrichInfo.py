@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import scanpy as sc
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import seaborn as sns
 import anndata
 from scipy.stats import spearmanr, pearsonr, zscore
@@ -13,6 +14,7 @@ from loguru import logger
 from io import StringIO
 from concurrent.futures import ProcessPoolExecutor as Mtp
 from concurrent.futures import ThreadPoolExecutor as MtT
+from joblib import Parallel, delayed
 import sh
 import h5py
 from tqdm import tqdm
@@ -1463,34 +1465,43 @@ def scWGCNA(
 
 
 def _mergeData(ad, obsKey, layer="raw"):
+    basic.testAllCountIsInt(ad, layer)
     df_oneHot = pd.DataFrame(
         index=ad.obs.index, columns=ad.obs[obsKey].cat.categories
     ).fillna(0)
     for col in df_oneHot.columns:
         df_oneHot.loc[ad.obs[obsKey] == col, col] = 1
     ad_merge = sc.AnnData(
-        df_oneHot.values.T @ ad.layers["raw"],
+        df_oneHot.values.T @ ad.layers[layer],
         obs=pd.DataFrame(index=df_oneHot.columns),
         var=pd.DataFrame(index=ad.var.index),
     )
     return ad_merge
 
+
 @rcontext
 def timeSeriesAnalysisByMfuzz(
     ad,
+    *,
     timeObs,
+    clusterObs=None,
     filterGeneThres=0.25,
     fillNaGeneMethod="mean",
-    geneClusterCounts=10,
-    rFigsize=(1024, 512),
-    rMfrow=(3, 4),
-    showNLargest=50,
+    geneClusterCounts=range(5, 75, 5),
+    rFigsize=256,
+    rcol=4,
+    showNLargest=0,
     keyAdded="mfuzz",
+    minMembership=0.3,
+    palette="terrain_r",
+    forcePlotAll=False,
+    repeats=3,
+    threads=24,
     rEnv=None,
 ):
-    '''`timeSeriesAnalysisByMfuzz` is a function that takes in a single cell RNA-seq dataframe, performs
+    """`timeSeriesAnalysisByMfuzz` is a function that takes in a single cell RNA-seq dataframe, performs
     time series analysis using the `mfuzz` R package
-    
+
     Parameters
     ----------
     ad
@@ -1508,25 +1519,75 @@ def timeSeriesAnalysisByMfuzz(
     rMfrow
         the number of rows and columns of plots to show in the R plot
     showNLargest, optional
-        number of genes to show in the plot
+        number of genes to show in the plot, if 0 plot all
     keyAdded, optional
         the key to be added to the adata object.
     rEnv
         R environment to use. If None, a new one will be created.
-    
-    '''
+
+    """
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
+    from math import ceil
+    import pickle
     from . import plotting
-    from ..rTools import py2r, r2py, r_inline_plot, rHelp, trl, rGet, rSet, ad2so, so2ad
+    from ..rTools import (
+        py2r,
+        r2py,
+        r_inline_plot,
+        rHelp,
+        trl,
+        rGet,
+        rSet,
+        ad2so,
+        so2ad,
+        r_set_seed,
+    )
 
     rBase = importr("base")
     rUtils = importr("utils")
     Mfuzz = importr("Mfuzz")
+    importr("DescTools")
     R = ro.r
+    r_set_seed(0)
+    # print(1)
+    def _calcClusterDistance(pkl_eset, pkl_m1, c, repeats):
+        eset = pickle.loads(pkl_eset)
+        m1 = pickle.loads(pkl_m1)
+        ro.r("set.seed")(0)
+        Mfuzz = importr("Mfuzz")
+        result = Mfuzz.Dmin(eset, m=m1, crange=c, repeats=repeats, visu=False)[0]
+        return c, result
 
-    ad_merged = _mergeData(ad, timeObs)
+    def _timeSeriesPlot(data, x, y, cmap="terrain_r", forcePlotAll=False, **kws):
+        dt_membership = (
+            data.loc[data["gene"].duplicated()]
+            .set_index("gene")["membership"]
+            .to_dict()
+        )
+        cmap = sns.palettes.color_palette(cmap, as_cmap=True)
+        _df = data.pivot_table(y, index="gene", columns=x).reindex(
+            sorted(dt_membership.keys(), key=lambda x: dt_membership[x])
+        )
+        if not forcePlotAll:
+            _df = _df.iloc[-1000:]
+        for gene, ar_exp in _df.iterrows():
+            plt.plot(range(len(ar_exp)), ar_exp, c=cmap(int(dt_membership[gene] * 255)))
+        plt.xticks(range(len(ar_exp)), data[x].cat.categories)
+
+    # assert (rMfrow[0] * rMfrow[1]) >= geneClusterCounts, "rMfrow[0] * rMfrow[1] < geneClusterCounts"
+    if clusterObs is None:
+        ad_merged = _mergeData(ad, timeObs)
+    else:
+        dt_adMerged = {}
+        for clusterName, ad_cluster in basic.splitAdata(
+            ad, "leiden", needName=True, copy=False
+        ):
+            _ad = _mergeData(ad_cluster, "Sample")
+            _ad.var.index = _ad.var.index + "||" + clusterName
+            dt_adMerged[clusterName] = _ad
+        ad_merged = sc.concat(dt_adMerged, axis=1)
     basic.initLayer(ad_merged, total=1e6)  # cpm
     esR_Merged = R.ExpressionSet(
         rBase.as_matrix(py2r(ad_merged.to_df("normalize_log").replace(0, np.nan).T))
@@ -1535,7 +1596,7 @@ def timeSeriesAnalysisByMfuzz(
     rEnv["filterGeneThres"] = filterGeneThres
     rEnv["fillNaGeneMethod"] = fillNaGeneMethod
     rEnv["esR_Merged"] = esR_Merged
-    rEnv["geneClusterCounts"] = geneClusterCounts
+    rEnv["minMembership"] = minMembership
 
     R(
         """
@@ -1543,15 +1604,47 @@ def timeSeriesAnalysisByMfuzz(
     esR_Merged.f <- fill.NA(esR_Merged.r,mode=fillNaGeneMethod)
     esR_Merged.s <- standardise(esR_Merged.f)
     m1 <- mestimate(esR_Merged.s)
-    cl <- mfuzz(esR_Merged.s, c=geneClusterCounts, m=m1)
     """
     )
+
+    if isinstance(geneClusterCounts, int):
+        pass
+    else:
+        ls_dminRes = Parallel(threads)(
+            delayed(_calcClusterDistance)(
+                pickle.dumps(rEnv["esR_Merged.s"]), pickle.dumps(rEnv["m1"]), x, repeats
+            )
+            for x in geneClusterCounts
+        )
+        plt.scatter(
+            [x[0] for x in ls_dminRes], [x[1] for x in ls_dminRes], color="black", s=10
+        )
+        plt.show()
+        # arR_crange = R.c(*geneClusterCounts)
+        # dt_kwargsToDmin['crange'] = arR_crange
+        # dt_kwargsToDmin['visu'] = True
+        # dtR_kwargsToDmin = R.list(**dt_kwargsToDmin)
+        # rEnv['dtR_kwargsToDmin'] = dtR_kwargsToDmin
+        # with r_inline_plot():
+        #     R("""
+        #     dtR_kwargsToDmin$eset <- esR_Merged.s
+        #     dtR_kwargsToDmin$m <- m1
+        #     DoCall(Dmin, dtR_kwargsToDmin)
+        #     """)
+
+        geneClusterCounts = int(input())
+    rrow = ceil(geneClusterCounts / rcol)
+    rMfrow = (rrow, rcol)
+    rEnv["geneClusterCounts"] = geneClusterCounts
+
+    r_set_seed(0)
+    R("cl <- mfuzz(esR_Merged.s, c=geneClusterCounts, m=m1)")
 
     vtR_sampleLabel = R.c(*ad.obs[timeObs].cat.categories)
     rEnv["vtR_sampleLabel"] = vtR_sampleLabel
     rEnv["rMfrow"] = R.c(*rMfrow)
 
-    with r_inline_plot(*rFigsize):
+    with r_inline_plot(rFigsize * rcol, rFigsize * rrow):
         R(
             "mfuzz.plot(esR_Merged.s,cl=cl,mfrow=rMfrow,new.window=FALSE, time.labels=vtR_sampleLabel)"
         )
@@ -1563,26 +1656,31 @@ def timeSeriesAnalysisByMfuzz(
     df_ms = df_ms.assign(
         membership=lambda df: df.apply(lambda x: x.loc[x.loc["cluster"]], axis=1)
     )
-    df_ms = df_ms.sort_values('cluster', key=lambda x:list(map(int, x)))
+    df_ms = df_ms.sort_values("cluster", key=lambda x: list(map(int, x)))
     sns.boxplot(data=df_ms.query("membership > 0.1"), x="cluster", y="membership")
     plt.show()
 
     df_mmPassed = (
-        df_ms.groupby("cluster")
-        .apply(lambda df: df.nlargest(showNLargest, "membership"))
-        .reset_index(level=0, drop=True)
+        (
+            df_ms.groupby("cluster")
+            .apply(lambda df: df.nlargest(showNLargest, "membership"))
+            .reset_index(level=0, drop=True)
+        )
+        if showNLargest > 0
+        else df_ms
     )
-    _ad = ad_merged[:, df_mmPassed.index]
-    _ad.layers["normalize_log_scaled"] = _ad.layers["normalize_log"].copy()
-    sc.pp.scale(_ad, layer="normalize_log_scaled")
+    df_mmPassed = df_mmPassed.query("membership > @minMembership")
+    df_MergedScaledMtx = r2py(rBase.as_data_frame(R.exprs(R("esR_Merged.s")))).T
+    # _ad = ad_merged[:, df_mmPassed.index]
+    # _ad.layers["normalize_log_scaled"] = _ad.layers["normalize_log"].copy()
+    # sc.pp.scale(_ad, layer="normalize_log_scaled")
 
     _df = (
-        _ad.to_df("normalize_log_scaled")
-        .melt(ignore_index=False, var_name="gene", value_name="exp")
+        df_MergedScaledMtx.melt(ignore_index=False, var_name="gene", value_name="exp")
         .rename_axis(timeObs)
         .reset_index()
         .merge(df_mmPassed[["cluster", "membership"]], left_on="gene", right_index=True)
-        .sort_values("cluster", key=lambda x:list(map(int, x)))
+        .sort_values("cluster", key=lambda x: list(map(int, x)))
     )
 
     _df[timeObs] = (
@@ -1590,19 +1688,64 @@ def timeSeriesAnalysisByMfuzz(
         .astype("category")
         .cat.set_categories(ad.obs[timeObs].cat.categories)
     )
-
+    _df["cluster"] = (
+        _df["cluster"]
+        .astype("category")
+        .cat.set_categories(sorted(_df["cluster"].unique(), key=int))
+    )
     axs = sns.FacetGrid(
         _df,
         col="cluster",
         col_wrap=rMfrow[-1],
-        hue="membership",
-        palette="viridis_r",
-        #     hue_kws=dict(hue_norm=(0, 1)),
     )
-    axs.map_dataframe(sns.lineplot, x=timeObs, y="exp", hue_norm=(0, 1))
-    plt.show()
+    axs.map_dataframe(
+        _timeSeriesPlot, x=timeObs, y="exp", cmap=palette, forcePlotAll=forcePlotAll
+    )
+    dt_geneCategoryCounts = (
+        _df.groupby("cluster")["gene"].agg(lambda x: len(x.unique())).to_dict()
+    )
+    for ax, (category, geneCounts) in zip(
+        axs.axes.flatten(), dt_geneCategoryCounts.items()
+    ):
+        plt.sca(ax)
+        plt.title(f"Gene category {category}\n(N = {geneCounts})")
+    # add colorbar
+    ax_cbar = axs.fig.add_axes([1.015, 0.4, 0.015, 0.2])
+    plt.sca(ax_cbar)
+    cmap = mpl.cm.get_cmap(palette)
+    norm = mpl.colors.Normalize(vmin=0, vmax=1)
+    cb = mpl.colorbar.ColorbarBase(ax_cbar, cmap=cmap, norm=norm)
+    cb.set_ticks([])
+    plt.text(x=1, y=0.5, s="Membership value", ha="left", va="center", rotation=270)
 
+    plt.tight_layout()
+    plt.show()
+    # axs = sns.FacetGrid(
+    #     _df,
+    #     col="cluster",
+    #     col_wrap=rMfrow[-1],
+    #     # hue="membership",
+    #     # palette="viridis_r",
+    #     #     hue_kws=dict(hue_norm=(0, 1)),
+    # )
+    # axs.map_dataframe(sns.lineplot, x=timeObs, y="exp", hue_norm=(0, 1), ci=None)
+    # axs.set_titles(col_template="Gene category {col_name}")
+    # plt.show()
+    df_ms = df_ms.rename(columns={"cluster": "geneCategory"})
     ad_merged.varm[keyAdded] = df_ms.reindex(ad_merged.var.index)
-    ad.varm[keyAdded] = df_ms.reindex(ad.var.index)
+    if clusterObs is None:
+        ad.varm[keyAdded] = df_ms.reindex(ad.var.index)
+    else:
+        df_mfuzzMembership = (
+            (
+                df_ms.dropna().assign(
+                    cellCluster=lambda df: df.index.str.split("\|\|").str[-1],
+                    geneName=lambda df: df.index.str.split("\|\|").str[0],
+                )
+            )
+            .set_index(["geneName", "cellCluster"])
+            .unstack()
+        )
+        ad.varm[keyAdded] = df_mfuzzMembership.reindex(ad.var.index)
 
     return ad_merged

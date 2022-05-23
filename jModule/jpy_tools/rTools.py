@@ -29,6 +29,8 @@ from rpy2.rinterface import evaluation_context
 import rpy2.robjects as ro
 from rpy2.robjects import rl
 from rpy2.robjects.packages import importr
+from tempfile import TemporaryDirectory
+import pickle
 from .otherTools import Capturing
 
 
@@ -56,7 +58,7 @@ def rcontext(func):
             rEnv = ro.Environment()
         kargs["rEnv"] = rEnv
 
-        if not 'rEnv' in inspect.getargspec(func).args:
+        if not 'rEnv' in inspect.signature(func).parameters:
             kargs.pop('rEnv')
 
         with ro.local_context(rEnv) as rlc:
@@ -552,6 +554,7 @@ def rHelp(x: str):
 
 
 def trl(objR, name=None, prefix="trl", verbose = 1):
+    "return an un-evaluated R object. More details in https://github.com/rpy2/rpy2/issues/815"
     rEnv = evaluation_context.get()
     if name is None:
         for line in inspect.getframeinfo(inspect.currentframe().f_back)[3]:
@@ -634,3 +637,25 @@ def rSet(objR, targetObjR, *attrs):
             _.slots[attr] = targetObjR
         else:
             _.rx2[attr] = targetObjR
+
+def py2r_re(obj):
+    R = ro.r
+    with TemporaryDirectory() as dir_tmp:
+        fileName = dir_tmp + "/tmp"
+        with open(fileName, "wb") as fh:
+            pickle.dump(obj, fh)
+        objR = R(f"reticulate::py_load_object('{fileName}')")
+    return objR
+
+def r2py_re(objR):
+    R = ro.r
+    rEnv = evaluation_context.get()
+    rEnv['temp_r2py'] = objR
+    R("temp_r2py <- reticulate::r_to_py(temp_r2py)")
+    with TemporaryDirectory() as dir_tmp:
+        fileName = dir_tmp + "/tmp"
+        R(f"reticulate::py_save_object(temp_r2py, '{fileName}')")
+        with open(fileName, "rb") as fh:
+            obj = pickle.load(fh)
+    del(rEnv['temp_r2py'])
+    return obj
