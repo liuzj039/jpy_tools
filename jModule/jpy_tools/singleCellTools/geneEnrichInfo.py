@@ -1466,16 +1466,29 @@ def scWGCNA(
 
 def _mergeData(ad, obsKey, layer="raw"):
     basic.testAllCountIsInt(ad, layer)
-    df_oneHot = pd.DataFrame(
-        index=ad.obs.index, columns=ad.obs[obsKey].cat.categories
-    ).fillna(0)
-    for col in df_oneHot.columns:
-        df_oneHot.loc[ad.obs[obsKey] == col, col] = 1
+    ls_keyProduct = ad.obs[obsKey].value_counts().sort_index().index.to_list()
+    if isinstance(obsKey, str):
+        ad.obs['temp_merge'] = ad.obs[obsKey].copy()
+        obsKey = [obsKey]
+    else:
+        ad.obs['temp_merge'] = ad.obs[obsKey].apply(lambda x:tuple(x), axis=1)
+    lsSr_onehot = []
+    for col in ls_keyProduct:
+        if isinstance(col, str):
+            sr_col = pd.Series(index=ad.obs.index, name='||'.join([col])).fillna(0).astype(int)
+        else:
+            sr_col = pd.Series(index=ad.obs.index, name='||'.join(col)).fillna(0).astype(int)
+        sr_col.where(ad.obs['temp_merge'] != col, 1, inplace=True)
+        lsSr_onehot.append(sr_col)
+    df_oneHot = pd.concat(lsSr_onehot,axis=1)
     ad_merge = sc.AnnData(
         df_oneHot.values.T @ ad.layers[layer],
         obs=pd.DataFrame(index=df_oneHot.columns),
         var=pd.DataFrame(index=ad.var.index),
     )
+    ad_merge.obs = ad_merge.obs.index.to_series().str.split('\|\|', expand=True)
+    ad_merge.obs.columns = obsKey
+    del(ad.obs['temp_merge'])
     return ad_merge
 
 
@@ -1485,8 +1498,7 @@ def timeSeriesAnalysisByMfuzz(
     *,
     timeObs,
     clusterObs=None,
-    filterGeneThres=0.25,
-    fillNaGeneMethod="mean",
+    filterGeneThres=0.8,
     geneClusterCounts=range(5, 75, 5),
     rFigsize=256,
     rcol=4,
@@ -1494,7 +1506,7 @@ def timeSeriesAnalysisByMfuzz(
     keyAdded="mfuzz",
     minMembership=0.3,
     palette="terrain_r",
-    forcePlotAll=False,
+    plotCounts=1000,
     repeats=3,
     threads=24,
     rEnv=None,
@@ -1510,8 +1522,6 @@ def timeSeriesAnalysisByMfuzz(
         the time points of the experiment
     filterGeneThres
         the threshold for filtering out genes with low expression.
-    fillNaGeneMethod, optional
-        How to fill NA values in the gene expression matrix.
     geneClusterCounts, optional
         number of gene clusters
     rFigsize
@@ -1560,7 +1570,7 @@ def timeSeriesAnalysisByMfuzz(
         result = Mfuzz.Dmin(eset, m=m1, crange=c, repeats=repeats, visu=False)[0]
         return c, result
 
-    def _timeSeriesPlot(data, x, y, cmap="terrain_r", forcePlotAll=False, **kws):
+    def _timeSeriesPlot(data, x, y, cmap="terrain_r", plotCounts=0, **kws):
         dt_membership = (
             data.loc[data["gene"].duplicated()]
             .set_index("gene")["membership"]
@@ -1570,8 +1580,8 @@ def timeSeriesAnalysisByMfuzz(
         _df = data.pivot_table(y, index="gene", columns=x).reindex(
             sorted(dt_membership.keys(), key=lambda x: dt_membership[x])
         )
-        if not forcePlotAll:
-            _df = _df.iloc[-1000:]
+        if plotCounts > 0:
+            _df = _df.iloc[-plotCounts:]
         for gene, ar_exp in _df.iterrows():
             plt.plot(range(len(ar_exp)), ar_exp, c=cmap(int(dt_membership[gene] * 255)))
         plt.xticks(range(len(ar_exp)), data[x].cat.categories)
@@ -1579,6 +1589,7 @@ def timeSeriesAnalysisByMfuzz(
     # assert (rMfrow[0] * rMfrow[1]) >= geneClusterCounts, "rMfrow[0] * rMfrow[1] < geneClusterCounts"
     if clusterObs is None:
         ad_merged = _mergeData(ad, timeObs)
+        basic.initLayer(ad_merged, total=1e6)  # cpm
     else:
         dt_adMerged = {}
         for clusterName, ad_cluster in basic.splitAdata(
@@ -1586,23 +1597,25 @@ def timeSeriesAnalysisByMfuzz(
         ):
             _ad = _mergeData(ad_cluster, "Sample")
             _ad.var.index = _ad.var.index + "||" + clusterName
+            basic.initLayer(_ad, total=1e6)  # cpm
             dt_adMerged[clusterName] = _ad
         ad_merged = sc.concat(dt_adMerged, axis=1)
-    basic.initLayer(ad_merged, total=1e6)  # cpm
+
+    ls_genePassFilter = ((ad_merged.to_df("normalize_log") > 0).mean() >= filterGeneThres).pipe(lambda sr:sr.loc[sr]).index.to_list()
+    logger.info(f"{ad_merged.shape[1] - len(ls_genePassFilter)} genes excluded")
     esR_Merged = R.ExpressionSet(
-        rBase.as_matrix(py2r(ad_merged.to_df("normalize_log").replace(0, np.nan).T))
+        rBase.as_matrix(py2r(ad_merged[:, ls_genePassFilter].to_df("normalize_log").T))
     )  # esR: ExpressionSet # mfuzz only recognized NA as missing value
 
     rEnv["filterGeneThres"] = filterGeneThres
-    rEnv["fillNaGeneMethod"] = fillNaGeneMethod
     rEnv["esR_Merged"] = esR_Merged
     rEnv["minMembership"] = minMembership
 
     R(
         """
-    esR_Merged.r <- filter.NA(esR_Merged, thres=filterGeneThres)
-    esR_Merged.f <- fill.NA(esR_Merged.r,mode=fillNaGeneMethod)
-    esR_Merged.s <- standardise(esR_Merged.f)
+    # esR_Merged.r <- filter.NA(esR_Merged, thres=filterGeneThres)
+    # esR_Merged.f <- fill.NA(esR_Merged.r,mode=fillNaGeneMethod)
+    esR_Merged.s <- standardise(esR_Merged)
     m1 <- mestimate(esR_Merged.s)
     """
     )
@@ -1699,7 +1712,7 @@ def timeSeriesAnalysisByMfuzz(
         col_wrap=rMfrow[-1],
     )
     axs.map_dataframe(
-        _timeSeriesPlot, x=timeObs, y="exp", cmap=palette, forcePlotAll=forcePlotAll
+        _timeSeriesPlot, x=timeObs, y="exp", cmap=palette, plotCounts=plotCounts
     )
     dt_geneCategoryCounts = (
         _df.groupby("cluster")["gene"].agg(lambda x: len(x.unique())).to_dict()
