@@ -11,7 +11,7 @@ import anndata
 from scipy.stats import spearmanr, pearsonr, zscore
 from loguru import logger
 from io import StringIO
-from concurrent.futures import ProcessPoolExecutor as Mtp
+from concurrent.futures import ProcessPoolExecutor as Mtp, thread
 from concurrent.futures import ThreadPoolExecutor as MtT
 import sh
 import h5py
@@ -37,6 +37,7 @@ from more_itertools import chunked
 import patchworklib as pw
 import scipy.sparse as ss
 from joblib import Parallel, delayed
+
 
 def show_figure(fig):
 
@@ -69,11 +70,16 @@ def umapMultiBatch(
     horizontal=False,
     vmin=None,
     vmax=None,
-    format='png',
-    dpi = 'figure',
-    fileNameIsTitle = False,
+    format="png",
+    dpi="figure",
+    fileNameIsTitle=False,
     show=True,
+    clearBk=True,
 ):
+    import gc
+
+    if clearBk:
+        pw.clear()
     if isinstance(ls_gene, str):
         ls_gene = [ls_gene]
     if not ls_title:
@@ -82,8 +88,10 @@ def umapMultiBatch(
         ls_title = [ls_title]
     if len(ls_gene) <= 1:
         disableProgressBar = True
+    else:
+        disableProgressBar = False
     if groups[1] is None:
-        groups[1] = ad.obs[groups[0]].unique().to_list()
+        groups[1] = ad.obs[groups[0]].astype('category').cat.categories.to_list()
     dt_adObs = ad.obs.groupby(groups[0]).apply(lambda df: df.index.to_list()).to_dict()
     dt_adObs = {x: dt_adObs[x] for x in groups[1]}
     dt_ad = {x: ad[y] for x, y in dt_adObs.items()}
@@ -94,7 +102,9 @@ def umapMultiBatch(
 
     vmin = vmin if vmin else 0
     vmaxSpecify = vmax
-    for gene, title in tqdm(zip(ls_gene, ls_title), total=len(ls_gene), disable=disableProgressBar):
+    for gene, title in tqdm(
+        zip(ls_gene, ls_title), total=len(ls_gene), disable=disableProgressBar
+    ):
         if not vmaxSpecify:
             vmax = ad[:, gene].to_df(layer).iloc[:, 0]
             vmax = sorted(list(vmax))
@@ -156,7 +166,7 @@ def umapMultiBatch(
         axs.case.set_title(title, pad=10, size=16)
         if dir_result:
             if fileNameIsTitle:
-                fileName = title.replace('\n', '_').replace('/', '_')
+                fileName = title.replace("\n", "_").replace("/", "_")
             else:
                 fileName = gene
             axs.savefig(f"{dir_result}/{fileName}.{format}", dpi=dpi)
@@ -167,25 +177,52 @@ def umapMultiBatch(
     if len(ls_gene) == 1:
         return axs
 
+
 def saveUmapMultiBatch(ad, threads, batchSize, ls_gene, ls_title, layer, **dt_kwargs):
-    from more_itertools import chunked
+    from more_itertools import chunked, sliced
+
     def _iterAd(ad, batchSize, ls_gene, ls_title, layer):
         _ad = ad[:, ls_gene]
-        ad = sc.AnnData(_ad.X, obs=_ad.obs, var=_ad.var, obsm = {'X_umap': ad.obsm['X_umap']}, layers={layer: _ad.layers[layer]})
-        for ls_chunkGene, ls_chunkTitle in zip(chunked(ls_gene, batchSize), chunked(ls_title, batchSize)):
-            yield ad[:, ls_chunkGene].copy(), ls_chunkGene, ls_chunkTitle
+        ad = sc.AnnData(
+            _ad.X,
+            obs=_ad.obs,
+            var=_ad.var,
+            obsm={"X_umap": ad.obsm["X_umap"]},
+            layers={layer: _ad.layers[layer]},
+        )
+        for ls_chunkGene, ls_chunkTitle in tqdm(zip(
+            chunked(ls_gene, batchSize), chunked(ls_title, batchSize)
+        ), total = len(ls_gene) // batchSize):
+            yield ad[:, ls_chunkGene], ls_chunkGene, ls_chunkTitle
 
+    # assert threads * batchSize >= len(ls_gene), "threads * batchSize must be greater than or equal to the number of genes"
     if not ls_title:
         ls_title = ls_gene
-    ls_batchGene = []
-    ls_batchTitle = []
-    ls_batchAd = []
-    for ad, ls_chunkGene, ls_chunkTitle in _iterAd(ad, batchSize, ls_gene, ls_title, layer):
-        ls_batchGene.append(ls_chunkGene)
-        ls_batchTitle.append(ls_chunkTitle)
-        ls_batchAd.append(ad)
-    Parallel(n_jobs=threads)(delayed(umapMultiBatch)(_ad, ls_gene=ls_gene, ls_title=ls_title, layer=layer, **dt_kwargs) for _ad, ls_gene, ls_title in zip(ls_batchAd, ls_batchGene, ls_batchTitle))
-    
+
+    for ad_chunk, ls_chunkGene, ls_chunkTitle in _iterAd(
+        ad, batchSize, ls_gene, ls_title, layer
+    ):
+        it_chunkGene = sliced(ls_chunkGene, threads)
+        it_chunkTitle = sliced(ls_chunkTitle, threads)
+        Parallel(n_jobs=threads)(
+            delayed(umapMultiBatch)(
+                ad_chunk[:, ls_processGene].copy(), ls_gene=ls_processGene, ls_title=ls_processTitle, layer=layer, **dt_kwargs
+            )
+            for ls_processGene, ls_processTitle in zip(it_chunkGene, it_chunkTitle)
+        )
+
+    #     ls_batchGene.append(ls_chunkGene)
+    #     ls_batchTitle.append(ls_chunkTitle)
+    #     ls_batchAd.append(ad)
+    # for ad_batch, ls_
+
+    # Parallel(n_jobs=threads)(
+    #     delayed(umapMultiBatch)(
+    #         _ad, ls_gene=ls_gene, ls_title=ls_title, layer=layer, **dt_kwargs
+    #     )
+    #     for _ad, ls_gene, ls_title in zip(ls_batchAd, ls_batchGene, ls_batchTitle)
+    # )
+
 
 def obsmToObs(
     ad: sc.AnnData,
@@ -246,7 +283,7 @@ def plotLabelPercentageInCluster(
     needCounts=True,
     ax=None,
     dt_kwargsForLegend={"bbox_to_anchor": [1, 1]},
-    swapAxes = False,
+    swapAxes=False,
 ):
     """
     根据label在adata.obs中groupby的占比绘图
@@ -279,7 +316,9 @@ def plotLabelPercentageInCluster(
             )
             plt.sca(ax)
             legendHandleLs.append(
-                plt.Rectangle((0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none")
+                plt.Rectangle(
+                    (0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none"
+                )
             )
             legendLabelLs.append(singleLabel)
         legendHandleLs, legendLabelLs = legendHandleLs[::-1], legendLabelLs[::-1]
@@ -306,10 +345,12 @@ def plotLabelPercentageInCluster(
             )
             plt.sca(ax)
             legendHandleLs.append(
-                plt.Rectangle((0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none")
+                plt.Rectangle(
+                    (0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none"
+                )
             )
             legendLabelLs.append(singleLabel)
-        plt.legend(legendHandleLs, legendLabelLs, frameon=False, **dt_kwargsForLegend)
+        plt.legend(legendHandleLs[::-1], legendLabelLs[::-1], frameon=False, **dt_kwargsForLegend)
         plt.ylabel(groupby.capitalize())
         plt.xlabel(f"Percentage")
         if needCounts:
@@ -796,13 +837,16 @@ def plotGeneModuleByNetworkx(
         "node_size": 200,
         "width": 0.3,
     },
-    dt_labelOptions: Dict[str, str] = {"font_size":12, 'bbox' : {"ec": "k", "fc": "white", "alpha": 0.7}},
-    ax = None,
-    layoutMethod = 'kamada_kawai_layout',
-    forceSustainOneLinkage = False,
+    dt_labelOptions: Dict[str, str] = {
+        "font_size": 12,
+        "bbox": {"ec": "k", "fc": "white", "alpha": 0.7},
+    },
+    ax=None,
+    layoutMethod="kamada_kawai_layout",
+    forceSustainOneLinkage=False,
 ):
-    '''This function plots a gene module using networkx
-    
+    """This function plots a gene module using networkx
+
     Parameters
     ----------
     df_adjacency : pd.DataFrame
@@ -817,9 +861,10 @@ def plotGeneModuleByNetworkx(
         the default options for all nodes
     dt_hubOptions : Dict[str, str]
     dt_labelOptions : Dict[str, str]
-    
-    '''
+
+    """
     import networkx as nx
+
     if ax is None:
         fig, ax = plt.subplots()
     if cutoff is None:
@@ -833,23 +878,23 @@ def plotGeneModuleByNetworkx(
 
     df_sustained = df_adjacency.query("connectivity > @cutoff")
     if forceSustainOneLinkage:
-        df_adjMax = df_adjacency.sort_values(["source", "connectivity"], ascending=False).drop_duplicates(
-            subset=["source"]
+        df_adjMax = df_adjacency.sort_values(
+            ["source", "connectivity"], ascending=False
+        ).drop_duplicates(subset=["source"])
+        df_sustained = pd.concat([df_sustained, df_adjMax]).drop_duplicates(
+            ["source", "target"]
         )
-        df_sustained = pd.concat([df_sustained, df_adjMax]).drop_duplicates(['source', 'target'])
 
-    G = nx.from_pandas_edgelist(
-        df_sustained, edge_attr="connectivity"
-    )
+    G = nx.from_pandas_edgelist(df_sustained, edge_attr="connectivity")
     pos = eval(f"nx.drawing.layout.{layoutMethod}")(G)
     nx.draw(G, pos, ax=ax, **dt_baseOptions)
     if not ls_hubGenes is None:
         ls_hubGenes = [x for x in ls_hubGenes if x in G.nodes()]
         nx.draw(G, pos, nodelist=ls_hubGenes, ax=ax, **dt_hubOptions)
     if not dt_needLabelNodes is None:
-        dt_needLabelNodes = {x: dt_needLabelNodes[x] for x in dt_needLabelNodes.keys() if x in G.nodes()}
-        nx.draw_networkx_labels(G, pos, dt_needLabelNodes,ax = ax, **dt_labelOptions)
+        dt_needLabelNodes = {
+            x: dt_needLabelNodes[x] for x in dt_needLabelNodes.keys() if x in G.nodes()
+        }
+        nx.draw_networkx_labels(G, pos, dt_needLabelNodes, ax=ax, **dt_labelOptions)
     ax = plt.gca()
     return ax
-
-

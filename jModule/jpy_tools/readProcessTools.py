@@ -297,24 +297,45 @@ class FastqContent:
         """
         从fastq读取read
         """
-        with open(self.path, "r") as fh:
-            i = 0
-            readContent = []
-            while True:
-                lineContent = fh.readline()
-                if lineContent == "":
-                    break
-                i += 1
-                readContent.append(lineContent.strip())
-                if i % 4 == 0:
-                    read = Fastq(
-                        name=readContent[0][1:].split(" ")[0],
-                        seq=readContent[1],
-                        desc=readContent[2],
-                        qual=readContent[3],
-                    )
-                    yield read
-                    readContent = []
+        if self.path.endswith('.gz'):
+            import gzip
+            with gzip.open(self.path ,'rt') as fh:
+                i = 0
+                readContent = []
+                while True:
+                    lineContent = fh.readline()
+                    if lineContent == "":
+                        break
+                    i += 1
+                    readContent.append(lineContent.strip())
+                    if i % 4 == 0:
+                        read = Fastq(
+                            name=readContent[0][1:].split(" ")[0],
+                            seq=readContent[1],
+                            desc=readContent[2],
+                            qual=readContent[3],
+                        )
+                        yield read
+                        readContent = []
+        else:
+            with open(self.path, "r") as fh:
+                i = 0
+                readContent = []
+                while True:
+                    lineContent = fh.readline()
+                    if lineContent == "":
+                        break
+                    i += 1
+                    readContent.append(lineContent.strip())
+                    if i % 4 == 0:
+                        read = Fastq(
+                            name=readContent[0][1:].split(" ")[0],
+                            seq=readContent[1],
+                            desc=readContent[2],
+                            qual=readContent[3],
+                        )
+                        yield read
+                        readContent = []
 
     def __readFastqReadFromLmdb(self, readName):
         """
