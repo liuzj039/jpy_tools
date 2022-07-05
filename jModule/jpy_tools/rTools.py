@@ -33,7 +33,6 @@ from tempfile import TemporaryDirectory
 import pickle
 from .otherTools import Capturing
 
-
 R = ro.r
 seo = importr("SeuratObject")
 rBase = importr("base")
@@ -421,6 +420,24 @@ def r2py(x, name=None):
     from rpy2.robjects.conversion import localconverter
     import anndata2ri
     import time
+    from tempfile import NamedTemporaryFile
+
+    def _dataframe(objR):
+        tpFile = NamedTemporaryFile(suffix=".feather")
+        with ro.local_context() as rlc:
+            rlc["objR"] = objR
+            rlc["filePath"] = tpFile.name
+            R(
+            """
+            library('arrow')
+            objR$`index_r2py` <- rownames(objR)
+            rownames(objR) <- NULL
+            write_feather(objR, filePath)
+            """
+            )
+        obj = pd.read_feather(tpFile.name)
+        obj = obj.set_index('index_r2py').rename_axis(None)
+        return obj
 
     if not name:
         name = ""
@@ -432,19 +449,22 @@ def r2py(x, name=None):
 
     print(f"transfer `{objType}` to python: {name} start", end="")
     timeStart = time.time()
-    try:
-        with localconverter(
-            ro.default_converter
-            + numpy2ri.converter
-            + pandas2ri.converter
-            + anndata2ri.scipy2ri.converter
-            + anndata2ri.converter
-        ):
-            x = ro.conversion.rpy2py(x)
+    if ro.r('class')(x)[0] == 'data.frame':
+        x = _dataframe(x)
+    else:
+        try:
+            with localconverter(
+                ro.default_converter
+                + numpy2ri.converter
+                + pandas2ri.converter
+                + anndata2ri.scipy2ri.converter
+                + anndata2ri.converter
+            ):
+                x = ro.conversion.rpy2py(x)
 
-    except TypeError:
-        # workaround for: https://github.com/theislab/anndata2ri/issues/47
-        x = anndata2ri.scipy2ri.rpy2py(x)
+        except TypeError:
+            # workaround for: https://github.com/theislab/anndata2ri/issues/47
+            x = anndata2ri.scipy2ri.rpy2py(x)
     timeEnd = time.time()
     timePass = timeEnd - timeStart
     print(
@@ -455,82 +475,49 @@ def r2py(x, name=None):
     return x
 
 
-def so2ad(
-    so, dir_tmp=None, libPath_R=None, path_R=None, obsReParse=True, verbose=True
-) -> sc.AnnData:
-    import sh
+@rcontext
+def so2ad(so, assay = None, verbose=None, rEnv = None, **kwargs):
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
+    import scipy.sparse as ss
+    importr('Seurat')
+    R = ro.r
+    rEnv['so'] = so
+    if assay is None:
+        assay = R('DefaultAssay(so)')[0]
+    R(f"dfR_var <- so${assay}[[]] %>% as.data.frame")
+    R("dfR_obs <- so[[]] %>% as.data.frame")
+    df_obs = r2py(R('dfR_obs'))
+    df_var = r2py(R('dfR_var'))
+    ad = sc.AnnData(ss.csc_matrix((df_obs.shape[0], df_var.shape[0])), obs=df_obs, var=df_var)
 
-    if not libPath_R:
-        libPath_R = settings.seuratDisk_rLibPath
-    if not path_R:
-        path_R = settings.seuratDisk_rPath
-    # R('.libPaths')(libPath_R)
-    # seuratDisk = importr("SeuratDisk")
-    if not dir_tmp:
-        dir_tmp_ = TemporaryDirectory()
-        dir_tmp = dir_tmp_.name
-    path_h5ad = f"{dir_tmp}/temp.h5ad"
-    path_h5so = f"{dir_tmp}/temp.h5seurat"
-    path_rds = f"{dir_tmp}/temp.rds"
-
-    R.saveRDS(so, path_rds)
-
-    ls_cmd = [
-        "-q",
-        "-e",
-        f".libPaths('{libPath_R}'); library(SeuratDisk); so <- readRDS('{path_rds}'); SaveH5Seurat(so, '{path_h5so}')",
-    ]
-    if verbose:
-        sh.Command(path_R)(*ls_cmd, _err=sys.stderr, _out=sys.stdout)
+    for slot in ["counts", "data"]:
+        ad.layers[f"{assay}_{slot}"] = r2py(
+            R(f"""GetAssayData(object=so, assay='{assay}', slot='{slot}')""")
+        ).T
+    df_scale = r2py(R(f"""GetAssayData(object=so, assay='{assay}', slot='scale.data') %>% as.data.frame""")).T
+    if df_scale.empty:
+        pass
     else:
-        sh.Command(path_R)(*ls_cmd, _err_to_out=True)
-    # seuratDisk.SaveH5Seurat(so, path_h5so, overwrite=True)
-
-    h5so = h5py.File(path_h5so, "r+")
-    ls_assays = h5so["/assays"].keys()
-    for assay in ls_assays:
-        ls_keys = h5so[f"/assays/{assay}"].keys()
-        ls_slots = [x for x in ls_keys if x in ["counts", "data", "scale.data"]]
-        ls_slots = [x for x in h5so[f"/assays/{assay}"] if x in ls_slots]
-        for slot in ls_slots:
-            if slot != "scale.data":
-                h5so[f"/assays/{assay}_{slot}/data"] = h5so[f"/assays/{assay}/{slot}"]
-                h5so[f"/assays/{assay}_{slot}/features"] = h5so[
-                    f"/assays/{assay}/features"
-                ]
-                # h5so[f"/assays/{assay}_{slot}/misc"] = h5so[f"/assays/{assay}/misc"]
-            else:
-                h5so[f"/assays/{assay}_{slot}/scale.data"] = h5so[
-                    f"/assays/{assay}/{slot}"
-                ]
-                h5so[f"/assays/{assay}_{slot}/data"] = h5so[f"/assays/{assay}/{slot}"]
-                h5so[f"/assays/{assay}_{slot}/features"] = h5so[
-                    f"/assays/{assay}/features"
-                ]
-                # h5so[f"/assays/{assay}_{slot}/misc"] = h5so[f"/assays/{assay}/misc"]
-                h5so[f"/assays/{assay}_{slot}/scaled.features"] = h5so[
-                    f"/assays/{assay}/scaled.features"
-                ]
-    h5so.close()
-
-    # seuratDisk.Convert(path_h5so, dest="h5ad", overwrite=True)
-    ls_cmd = [
-        "-q",
-        "-e",
-        f".libPaths('{libPath_R}'); library(SeuratDisk); Convert('{path_h5so}', dest='h5ad', overwrite=T)",
-    ]
-    if verbose:
-        sh.Command(path_R)(*ls_cmd, _err=sys.stderr, _out=sys.stdout)
+        ad.obsm[f"{assay}_scale.data"] = df_scale
+    
+    if R("names(so@reductions)") is R('NULL'):
+        pass
     else:
-        sh.Command(path_R)(*ls_cmd, _err_to_out=True)
-    with h5py.File(path_h5ad, "a") as h5ad:
-        if "raw" in h5ad.keys():
-            del h5ad["raw"]
-    ad = sc.read_h5ad(path_h5ad)
-    if obsReParse:
-        df_obs = r2py(so.slots["meta.data"])
-        df_obs = df_obs.combine_first(ad.obs)
-        ad.obs = df_obs.copy()
+        for obsm in R("names(so@reductions)"):
+            usedAssay = R(f"so@reductions${obsm}@assay.used")[0]
+            ad.obsm[f"X_{obsm}_{usedAssay}"] = r2py(
+                R(f'Embeddings(object = so, reduction = "{obsm}")')
+            )
+            if usedAssay == assay:
+                ad.obsm[f"X_{obsm}"] = r2py(
+                    R(f'Embeddings(object = so, reduction = "{obsm}")')
+                )
+    if R("names(so@graphs)") is R('NULL'):
+        pass
+    else:
+        for obsp in R("names(so@graphs)"):
+            ad.obsp[obsp] = r2py(R(f'so@graphs${obsp} %>% as.sparse'))
     return ad
 
 

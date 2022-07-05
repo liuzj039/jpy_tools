@@ -1409,3 +1409,81 @@ def scWGCNA(
         dt_cyt = {"node": df_node, "edge": df_edge}
         ad_meta.uns["cyt"] = dt_cyt
     return ad_meta
+
+def so2ad(
+    so, dir_tmp=None, libPath_R=None, path_R=None, obsReParse=True, verbose=True
+) -> sc.AnnData:
+    import sh
+
+    if not libPath_R:
+        libPath_R = settings.seuratDisk_rLibPath
+    if not path_R:
+        path_R = settings.seuratDisk_rPath
+    # R('.libPaths')(libPath_R)
+    # seuratDisk = importr("SeuratDisk")
+    if not dir_tmp:
+        dir_tmp_ = TemporaryDirectory()
+        dir_tmp = dir_tmp_.name
+    path_h5ad = f"{dir_tmp}/temp.h5ad"
+    path_h5so = f"{dir_tmp}/temp.h5seurat"
+    path_rds = f"{dir_tmp}/temp.rds"
+
+    R.saveRDS(so, path_rds)
+
+    ls_cmd = [
+        "-q",
+        "-e",
+        f".libPaths('{libPath_R}'); library(SeuratDisk); so <- readRDS('{path_rds}'); SaveH5Seurat(so, '{path_h5so}')",
+    ]
+    if verbose:
+        sh.Command(path_R)(*ls_cmd, _err=sys.stderr, _out=sys.stdout)
+    else:
+        sh.Command(path_R)(*ls_cmd, _err_to_out=True)
+    # seuratDisk.SaveH5Seurat(so, path_h5so, overwrite=True)
+
+    h5so = h5py.File(path_h5so, "r+")
+    ls_assays = h5so["/assays"].keys()
+    for assay in ls_assays:
+        ls_keys = h5so[f"/assays/{assay}"].keys()
+        ls_slots = [x for x in ls_keys if x in ["counts", "data", "scale.data"]]
+        ls_slots = [x for x in h5so[f"/assays/{assay}"] if x in ls_slots]
+        for slot in ls_slots:
+            if slot != "scale.data":
+                h5so[f"/assays/{assay}_{slot}/data"] = h5so[f"/assays/{assay}/{slot}"]
+                h5so[f"/assays/{assay}_{slot}/features"] = h5so[
+                    f"/assays/{assay}/features"
+                ]
+                # h5so[f"/assays/{assay}_{slot}/misc"] = h5so[f"/assays/{assay}/misc"]
+            else:
+                h5so[f"/assays/{assay}_{slot}/scale.data"] = h5so[
+                    f"/assays/{assay}/{slot}"
+                ]
+                h5so[f"/assays/{assay}_{slot}/data"] = h5so[f"/assays/{assay}/{slot}"]
+                h5so[f"/assays/{assay}_{slot}/features"] = h5so[
+                    f"/assays/{assay}/features"
+                ]
+                # h5so[f"/assays/{assay}_{slot}/misc"] = h5so[f"/assays/{assay}/misc"]
+                h5so[f"/assays/{assay}_{slot}/scaled.features"] = h5so[
+                    f"/assays/{assay}/scaled.features"
+                ]
+    h5so.close()
+
+    # seuratDisk.Convert(path_h5so, dest="h5ad", overwrite=True)
+    ls_cmd = [
+        "-q",
+        "-e",
+        f".libPaths('{libPath_R}'); library(SeuratDisk); Convert('{path_h5so}', dest='h5ad', overwrite=T)",
+    ]
+    if verbose:
+        sh.Command(path_R)(*ls_cmd, _err=sys.stderr, _out=sys.stdout)
+    else:
+        sh.Command(path_R)(*ls_cmd, _err_to_out=True)
+    with h5py.File(path_h5ad, "a") as h5ad:
+        if "raw" in h5ad.keys():
+            del h5ad["raw"]
+    ad = sc.read_h5ad(path_h5ad)
+    if obsReParse:
+        df_obs = r2py(so.slots["meta.data"])
+        df_obs = df_obs.combine_first(ad.obs)
+        ad.obs = df_obs.copy()
+    return ad

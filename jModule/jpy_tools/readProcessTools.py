@@ -84,7 +84,7 @@ def writeFasta(read, fh, length=127):
 
     if length > 0:
         read.seq = re.sub(f"(.{{{length}}})", "\\1\n", read.seq, 0, re.DOTALL)
-    readContent = f">{read.name}\n{read.seq}\n"
+    readContent = f">{read.name}\n{read.seq.rstrip()}\n"
     fh.write(readContent)
 
 
