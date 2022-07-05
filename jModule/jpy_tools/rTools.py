@@ -57,8 +57,8 @@ def rcontext(func):
             rEnv = ro.Environment()
         kargs["rEnv"] = rEnv
 
-        if not 'rEnv' in inspect.signature(func).parameters:
-            kargs.pop('rEnv')
+        if not "rEnv" in inspect.signature(func).parameters:
+            kargs.pop("rEnv")
 
         with ro.local_context(rEnv) as rlc:
             result = func(*args, **kargs)
@@ -259,156 +259,122 @@ def py2r_disk(obj, check=False, *args, **kwargs):
     return objR
 
 
+@rcontext
 def ad2so(
     ad,
     layer="raw",
-    ls_obs=None,
-    ls_var=None,
-    ls_obsm=None,
-    dir_tmp=None,
     dataLayer=None,
     scaleLayer=None,
-    lightMode=False,
-    renv=None,
-    path_R=None,
-    libPath_R=None,
-    verbose=0,
+    scaleLayerInObsm=False,
+    assay="RNA",
+    rEnv=None,
+    **kwargs,
 ):
-    """
-    anndata to seuratObject.
-
-    obsm:
-        matrix which's name does not start with 'X_' will be discarded.
-    uns:
-        discarded
-    obsp:
-        only keep 'distances'
-    varp:
-        discarded
-    lightMode:
-        if True, obsm/varm/obsp info will be discarded.
-
-    layer must be raw.
-    """
-    import sh
     import scipy.sparse as ss
 
-    if not path_R:
-        path_R = settings.seuratDisk_rPath
-    if not libPath_R:
-        libPath_R = settings.seuratDisk_rLibPath
+    importr("Seurat")
+    R = ro.r
+    mt_count = ad.layers[layer]
+    rEnv["mtR_count"] = py2r(mt_count.T)
+    rEnv["arR_obsName"] = py2r(R.unlist(R.c(ad.obs.index.to_list())))
+    rEnv["arR_varName"] = py2r(R.unlist(R.c(ad.var.index.to_list())))
+    rEnv["assay"] = assay
 
-    # ad = ad.copy() # workaround `memoory not mapped` error
-    # R('.libPaths')(libPath_R)
-    # seuratDisk = importr("SeuratDisk")
-    if renv is None:
-        renv = ro.Environment()
+    R(
+        """
+    colnames(mtR_count) <- arR_obsName
+    rownames(mtR_count) <- arR_varName
+    so <- CreateSeuratObject(mtR_count, assay=assay)
+    """
+    )
+    if "highly_variable" in ad.var.columns:
+        ls_hvgGene = (
+            ad.var["highly_variable"]
+            .loc[lambda x: x]
+            .index.str.replace("_", "-")
+            .to_list()
+        )
+        rEnv["arR_hvgGene"] = R.unlist(R.c(ls_hvgGene))
+        R(
+            """
+        VariableFeatures(so) <- arR_hvgGene
+        """
+        )
+    rEnv["dfR_obs"] = py2r(ad.obs)
+    rEnv["dfR_var"] = py2r(ad.var)
+    R(
+        """
+    so <- AddMetaData(so, dfR_obs)
+    so[['RNA']] <- AddMetaData(so[[assay]], dfR_var)
+    """
+    )
 
-    if not dir_tmp:
-        dir_tmp_ = TemporaryDirectory()
-        dir_tmp = dir_tmp_.name
-    path_h5ad = f"{dir_tmp}/temp.h5ad"
-    path_h5so = f"{dir_tmp}/temp.h5seurat"
-    path_rds = f"{dir_tmp}/temp.rds"
-    if lightMode:
-        ad_partial = sc.AnnData(
-            ad.layers[layer].copy(),
-            obs=ad.obs,
-            var=ad.var,
+    if dataLayer is None:
+        R(
+            "NormalizeData(so, normalization.method = 'LogNormalize', scale.factor = 10000)"
         )
     else:
-        ad_partial = sc.AnnData(
-            ad.layers[layer].copy(),
-            obs=ad.obs,
-            var=ad.var,
-            obsm=ad.obsm,
-            varm=ad.varm,
-            obsp=ad.obsp,
+        mt_data = ad.layers[dataLayer]
+        rEnv["mtR_data"] = py2r(mt_data.T)
+        R(
+            """
+        colnames(mtR_data) <- arR_obsName
+        rownames(mtR_data) <- arR_varName
+        so <- SetAssayData(so, slot = "data",mtR_data, assay = assay)
+        """
         )
-    if not ls_obs is None:
-        if isinstance(ls_obs, str):
-            ls_obs = [ls_obs]
-        ad_partial.obs = ad_partial.obs[ls_obs]
-    if not ls_var is None:
-        if isinstance(ls_var, str):
-            ls_var = [ls_var]
-        ad_partial.var = ad_partial.var[ls_var]
-    if not ls_obsm is None:
-        if isinstance(ls_obsm, str):
-            ls_obsm = [ls_obsm]
-        ls_rm = []
-        for _obsm in ad_partial.obsm.keys():
-            if not _obsm in ls_obsm:
-                ls_rm.append(_obsm)
-        for _obsm in ls_rm:
-            del ad_partial.obsm[_obsm]
 
-    ad_partial.X = ss.csr_matrix(
-        ad_partial.X
-    )  # workaround https://github.com/satijalab/seurat/issues/2374
-    _ls = []
-    for key in ad_partial.obsm:
-        if not key.startswith("X_"):
-            _ls.append(key)
-    for key in _ls:
-        del ad_partial.obsm[key]
-
-    # workaround `memoory not mapped` error
-    df_var = ad_partial.var
-    ad_partial.var = ad_partial.var[[]]
-    ad_partial.raw = ad_partial
-    ad_partial.var = df_var
-
-    sc.pp.normalize_total(ad_partial, 1e4)
-    sc.pp.log1p(ad_partial)
-
-    ad_partial.write(path_h5ad)
-
-    h5 = h5py.File(path_h5ad, "r+")
-    if "obsp/distances" in h5:
-        h5["/uns/neighbors/distances"] = h5["/obsp/distances"]
-        h5["/uns/neighbors/params/method"] = "nn"
-
-    h5.close()
-
-    # seuratDisk.Convert(path_h5ad, dest="h5Seurat", overwrite=True)
-    ls_cmd = [
-        "-q",
-        "-e",
-        f".libPaths('{libPath_R}'); library(SeuratDisk); Convert('{path_h5ad}', dest='h5Seurat', overwrite=T); so <- LoadH5Seurat('{path_h5so}'); saveRDS(so, '{path_rds}')",
-    ]
-    if verbose:
-        cmd = sh.Command(path_R)(*ls_cmd, _err=sys.stderr, _out=sys.stdout)
+    if scaleLayer is None:
+        pass
     else:
-        cmd = sh.Command(path_R)(*ls_cmd, _err_to_out=True)
-    # for x in sh.Command(path_R)(*ls_cmd, _err_to_out=True, _iter=True):
-    #     print(x.rstrip())
-    so = R.readRDS(path_rds)
-
-    if dataLayer:
-        with ro.local_context(renv) as rlc:
-            _ad = sc.AnnData(X=ss.csr_matrix(ad.shape), obs=ad.obs[[]], var=ad.var[[]])
-            _ad.layers["data"] = ad.layers[dataLayer].copy()
-            _se = py2r(_ad)
-            rlc["se"] = _se
-            rlc["so"] = so
+        if not scaleLayerInObsm:
+            mt_scaleData = ad.layers[scaleLayer]
+            rEnv["mtR_scaleData"] = py2r(mt_scaleData.T)
             R(
-                """so <- SetAssayData(so, slot = 'data', new.data = assay(se, 'data')) """
+                """
+            colnames(mtR_scaleData) <- arR_obsName
+            rownames(mtR_scaleData) <- arR_varName
+            so <- SetAssayData(so, slot = "scale.data", mtR_scaleData, assay = assay)
+            """
             )
-            so = rlc["so"]
-    if scaleLayer:
-        with ro.local_context(renv) as rlc:
-            _ad = sc.AnnData(X=ss.csr_matrix(ad.shape), obs=ad.obs[[]], var=ad.var[[]])
-            _ad.layers["scale.data"] = ad.layers[scaleLayer].copy()
-            _se = py2r(_ad)
-            rlc["se"] = _se
-            rlc["so"] = so
+        else:
+            rEnv["dfR_scaleData"] = py2r(
+                ad.obsm[scaleLayer].loc[:, lambda df: df.columns.isin(ad.var.index)].T
+            )
             R(
-                """so <- SetAssayData(so, slot = 'scale.data', new.data = assay(se, 'scale.data')) """
+                """
+            mtR_scaleData <- dfR_scaleData %>% as.matrix
+            so <- SetAssayData(so, slot = "scale.data", mtR_scaleData, assay = assay)
+            """
             )
-            so = rlc["so"]
+    ls_obsm = [x for x in ad.obsm.keys() if x.startswith("X_")]
+    for obsm in ls_obsm:
+        obsm_ = obsm.split("X_", 1)[1]
+        df_obsm = pd.DataFrame(
+            ad.obsm[obsm],
+            index=ad.obs.index,
+            columns=[f"{obsm_}_{x}" for x in range(1, 1 + ad.obsm[obsm].shape[1])],
+        )
+        rEnv["dfR_obsm"] = py2r(df_obsm)
+        rEnv["obsm"] = obsm_
+        R(
+            """
+        mtR_obsm <- dfR_obsm %>% as.matrix
+        so[[obsm]] <- CreateDimReducObject(mtR_obsm, assay=assay, key=paste0(obsm, '_'))
+        """
+        )
 
-    return so
+    for obsp in ad.obsp.keys():
+        rEnv["mtR_obsp"] = py2r(ss.csc_matrix(ad.obsp[obsp]))
+        rEnv["obsp"] = obsp
+        R(
+            """
+        colnames(mtR_obsp) <- arR_obsName
+        rownames(mtR_obsp) <- arR_obsName
+        so[[obsp]] <- as.Graph(x = mtR_obsp)
+        """
+        )
+    return rEnv["so"]
 
 
 @rpy2_check
@@ -428,7 +394,7 @@ def r2py(x, name=None):
             rlc["objR"] = objR
             rlc["filePath"] = tpFile.name
             R(
-            """
+                """
             library('arrow')
             objR$`index_r2py` <- rownames(objR)
             rownames(objR) <- NULL
@@ -436,7 +402,7 @@ def r2py(x, name=None):
             """
             )
         obj = pd.read_feather(tpFile.name)
-        obj = obj.set_index('index_r2py').rename_axis(None)
+        obj = obj.set_index("index_r2py").rename_axis(None)
         return obj
 
     if not name:
@@ -449,7 +415,7 @@ def r2py(x, name=None):
 
     print(f"transfer `{objType}` to python: {name} start", end="")
     timeStart = time.time()
-    if ro.r('class')(x)[0] == 'data.frame':
+    if ro.r("class")(x)[0] == "data.frame":
         x = _dataframe(x)
     else:
         try:
@@ -476,32 +442,39 @@ def r2py(x, name=None):
 
 
 @rcontext
-def so2ad(so, assay = None, verbose=None, rEnv = None, **kwargs):
+def so2ad(so, assay=None, verbose=None, rEnv=None, **kwargs):
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
     import scipy.sparse as ss
-    importr('Seurat')
+
+    importr("Seurat")
     R = ro.r
-    rEnv['so'] = so
+    rEnv["so"] = so
     if assay is None:
-        assay = R('DefaultAssay(so)')[0]
+        assay = R("DefaultAssay(so)")[0]
     R(f"dfR_var <- so${assay}[[]] %>% as.data.frame")
     R("dfR_obs <- so[[]] %>% as.data.frame")
-    df_obs = r2py(R('dfR_obs'))
-    df_var = r2py(R('dfR_var'))
-    ad = sc.AnnData(ss.csc_matrix((df_obs.shape[0], df_var.shape[0])), obs=df_obs, var=df_var)
+    df_obs = r2py(R("dfR_obs"))
+    df_var = r2py(R("dfR_var"))
+    ad = sc.AnnData(
+        ss.csc_matrix((df_obs.shape[0], df_var.shape[0])), obs=df_obs, var=df_var
+    )
 
     for slot in ["counts", "data"]:
         ad.layers[f"{assay}_{slot}"] = r2py(
             R(f"""GetAssayData(object=so, assay='{assay}', slot='{slot}')""")
         ).T
-    df_scale = r2py(R(f"""GetAssayData(object=so, assay='{assay}', slot='scale.data') %>% as.data.frame""")).T
+    df_scale = r2py(
+        R(
+            f"""GetAssayData(object=so, assay='{assay}', slot='scale.data') %>% as.data.frame"""
+        )
+    ).T
     if df_scale.empty:
         pass
     else:
         ad.obsm[f"{assay}_scale.data"] = df_scale
-    
-    if R("names(so@reductions)") is R('NULL'):
+
+    if R("names(so@reductions)") is R("NULL"):
         pass
     else:
         for obsm in R("names(so@reductions)"):
@@ -513,11 +486,11 @@ def so2ad(so, assay = None, verbose=None, rEnv = None, **kwargs):
                 ad.obsm[f"X_{obsm}"] = r2py(
                     R(f'Embeddings(object = so, reduction = "{obsm}")')
                 )
-    if R("names(so@graphs)") is R('NULL'):
+    if R("names(so@graphs)") is R("NULL"):
         pass
     else:
         for obsp in R("names(so@graphs)"):
-            ad.obsp[obsp] = r2py(R(f'so@graphs${obsp} %>% as.sparse'))
+            ad.obsp[obsp] = r2py(R(f"so@graphs${obsp} %>% as.sparse"))
     return ad
 
 
@@ -540,7 +513,7 @@ def rHelp(x: str):
     print("\n".join(output[1::2]))
 
 
-def trl(objR, name=None, prefix="trl", verbose = 1):
+def trl(objR, name=None, prefix="trl", verbose=1):
     "return an un-evaluated R object. More details in https://github.com/rpy2/rpy2/issues/815"
     rEnv = evaluation_context.get()
     if name is None:
@@ -560,9 +533,10 @@ def trl(objR, name=None, prefix="trl", verbose = 1):
 
 
 class Trl:
-    def __init__(self, objName='T', verbose=1):
+    def __init__(self, objName="T", verbose=1):
         self.objName = objName
         self.verbose = verbose
+
     def __ror__(self, objR):
         objName = self.objName
         objName = objName[::-1]
@@ -574,7 +548,8 @@ class Trl:
                 break
         else:
             assert False, "Can not identify argument"
-        return trl(objR, name, verbose = self.verbose)
+        return trl(objR, name, verbose=self.verbose)
+
 
 def rGet(objR, *attrs):
     import rpy2.robjects as ro
@@ -625,6 +600,7 @@ def rSet(objR, targetObjR, *attrs):
         else:
             _.rx2[attr] = targetObjR
 
+
 def py2r_re(obj):
     R = ro.r
     with TemporaryDirectory() as dir_tmp:
@@ -634,15 +610,16 @@ def py2r_re(obj):
         objR = R(f"reticulate::py_load_object('{fileName}')")
     return objR
 
+
 def r2py_re(objR):
     R = ro.r
     rEnv = evaluation_context.get()
-    rEnv['temp_r2py'] = objR
+    rEnv["temp_r2py"] = objR
     R("temp_r2py <- reticulate::r_to_py(temp_r2py)")
     with TemporaryDirectory() as dir_tmp:
         fileName = dir_tmp + "/tmp"
         R(f"reticulate::py_save_object(temp_r2py, '{fileName}')")
         with open(fileName, "rb") as fh:
             obj = pickle.load(fh)
-    del(rEnv['temp_r2py'])
+    del rEnv["temp_r2py"]
     return obj

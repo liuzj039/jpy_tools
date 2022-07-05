@@ -1487,3 +1487,154 @@ def so2ad(
         df_obs = df_obs.combine_first(ad.obs)
         ad.obs = df_obs.copy()
     return ad
+
+def ad2so(
+    ad,
+    layer="raw",
+    ls_obs=None,
+    ls_var=None,
+    ls_obsm=None,
+    dir_tmp=None,
+    dataLayer=None,
+    scaleLayer=None,
+    lightMode=False,
+    renv=None,
+    path_R=None,
+    libPath_R=None,
+    verbose=0,
+):
+    """
+    anndata to seuratObject.
+
+    obsm:
+        matrix which's name does not start with 'X_' will be discarded.
+    uns:
+        discarded
+    obsp:
+        only keep 'distances'
+    varp:
+        discarded
+    lightMode:
+        if True, obsm/varm/obsp info will be discarded.
+
+    layer must be raw.
+    """
+    import sh
+    import scipy.sparse as ss
+
+    if not path_R:
+        path_R = settings.seuratDisk_rPath
+    if not libPath_R:
+        libPath_R = settings.seuratDisk_rLibPath
+
+    # ad = ad.copy() # workaround `memoory not mapped` error
+    # R('.libPaths')(libPath_R)
+    # seuratDisk = importr("SeuratDisk")
+    if renv is None:
+        renv = ro.Environment()
+
+    if not dir_tmp:
+        dir_tmp_ = TemporaryDirectory()
+        dir_tmp = dir_tmp_.name
+    path_h5ad = f"{dir_tmp}/temp.h5ad"
+    path_h5so = f"{dir_tmp}/temp.h5seurat"
+    path_rds = f"{dir_tmp}/temp.rds"
+    if lightMode:
+        ad_partial = sc.AnnData(
+            ad.layers[layer].copy(),
+            obs=ad.obs,
+            var=ad.var,
+        )
+    else:
+        ad_partial = sc.AnnData(
+            ad.layers[layer].copy(),
+            obs=ad.obs,
+            var=ad.var,
+            obsm=ad.obsm,
+            varm=ad.varm,
+            obsp=ad.obsp,
+        )
+    if not ls_obs is None:
+        if isinstance(ls_obs, str):
+            ls_obs = [ls_obs]
+        ad_partial.obs = ad_partial.obs[ls_obs]
+    if not ls_var is None:
+        if isinstance(ls_var, str):
+            ls_var = [ls_var]
+        ad_partial.var = ad_partial.var[ls_var]
+    if not ls_obsm is None:
+        if isinstance(ls_obsm, str):
+            ls_obsm = [ls_obsm]
+        ls_rm = []
+        for _obsm in ad_partial.obsm.keys():
+            if not _obsm in ls_obsm:
+                ls_rm.append(_obsm)
+        for _obsm in ls_rm:
+            del ad_partial.obsm[_obsm]
+
+    ad_partial.X = ss.csr_matrix(
+        ad_partial.X
+    )  # workaround https://github.com/satijalab/seurat/issues/2374
+    _ls = []
+    for key in ad_partial.obsm:
+        if not key.startswith("X_"):
+            _ls.append(key)
+    for key in _ls:
+        del ad_partial.obsm[key]
+
+    # workaround `memoory not mapped` error
+    df_var = ad_partial.var
+    ad_partial.var = ad_partial.var[[]]
+    ad_partial.raw = ad_partial
+    ad_partial.var = df_var
+
+    sc.pp.normalize_total(ad_partial, 1e4)
+    sc.pp.log1p(ad_partial)
+
+    ad_partial.write(path_h5ad)
+
+    h5 = h5py.File(path_h5ad, "r+")
+    if "obsp/distances" in h5:
+        h5["/uns/neighbors/distances"] = h5["/obsp/distances"]
+        h5["/uns/neighbors/params/method"] = "nn"
+
+    h5.close()
+
+    # seuratDisk.Convert(path_h5ad, dest="h5Seurat", overwrite=True)
+    ls_cmd = [
+        "-q",
+        "-e",
+        f".libPaths('{libPath_R}'); library(SeuratDisk); Convert('{path_h5ad}', dest='h5Seurat', overwrite=T); so <- LoadH5Seurat('{path_h5so}'); saveRDS(so, '{path_rds}')",
+    ]
+    if verbose:
+        cmd = sh.Command(path_R)(*ls_cmd, _err=sys.stderr, _out=sys.stdout)
+    else:
+        cmd = sh.Command(path_R)(*ls_cmd, _err_to_out=True)
+    # for x in sh.Command(path_R)(*ls_cmd, _err_to_out=True, _iter=True):
+    #     print(x.rstrip())
+    so = R.readRDS(path_rds)
+
+    if dataLayer:
+        with ro.local_context(renv) as rlc:
+            _ad = sc.AnnData(X=ss.csr_matrix(ad.shape), obs=ad.obs[[]], var=ad.var[[]])
+            _ad.layers["data"] = ad.layers[dataLayer].copy()
+            _se = py2r(_ad)
+            rlc["se"] = _se
+            rlc["so"] = so
+            R(
+                """so <- SetAssayData(so, slot = 'data', new.data = assay(se, 'data')) """
+            )
+            so = rlc["so"]
+    if scaleLayer:
+        with ro.local_context(renv) as rlc:
+            _ad = sc.AnnData(X=ss.csr_matrix(ad.shape), obs=ad.obs[[]], var=ad.var[[]])
+            _ad.layers["scale.data"] = ad.layers[scaleLayer].copy()
+            _se = py2r(_ad)
+            rlc["se"] = _se
+            rlc["so"] = so
+            R(
+                """so <- SetAssayData(so, slot = 'scale.data', new.data = assay(se, 'scale.data')) """
+            )
+            so = rlc["so"]
+
+    return so
