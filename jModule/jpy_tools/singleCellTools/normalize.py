@@ -281,7 +281,7 @@ def normalizeBySCT_r(
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
-    from ..rTools import ad2so, so2ad
+    from ..rTools import ad2so, so2ad, so2md
     from cool import F
 
     importr("DescTools")
@@ -314,27 +314,37 @@ def normalizeBySCT_r(
     )
     so_sct = rEnv["so_sct"]
     ls_hvg = list(rEnv["ls_hvg"])
-    ad_sct = so2ad(so_sct, verbose=0)
-    ad_sct.var['highly_variable'] = ad_sct.var.index.isin(ls_hvg)
-    ad_sct.X = ad_sct.layers['SCT_scale.data'].copy()
-    sc.tl.pca(ad_sct)
-    ad.obsm['X_pca_sct'] = ad_sct.obsm['X_pca'].copy()
-    ad.uns['pca_sct'] = ad_sct.uns['pca'].copy()
-
+    md_sct = so2md(so_sct)
+    md_sct['SCT_scale.data'].var['highly_variable'] = md_sct['SCT_scale.data'].var.index.isin(ls_hvg)
+    md_sct['SCT_scale.data'].X = md_sct['SCT_scale.data'].layers['SCT_scale.data']
+    sc.tl.pca(md_sct['SCT_scale.data'])
+    ad.obsm['X_pca_sct'] = md_sct['SCT_scale.data'].obsm['X_pca'].copy()
+    ad.uns['pca_sct'] = md_sct['SCT_scale.data'].uns['pca'].copy()
     ad.var['highly_variable'] = ad.var.index.isin(ls_hvg)
-    ls_layer = [x for x in ad_sct.layers if x in ['SCT_data', 'SCT_scale.data']]
+    ad.obsm['SCT_data'] = md_sct['SCT'].layers['SCT_data']
+    ad.uns['SCT_data_features'] = md_sct['SCT'].var.index.to_list()
 
-    for layer in ls_layer:
-        ad.obsm[layer] = ad_sct.layers[layer].copy()
-    ad.uns['sct_features'] = ad_sct.var.index.to_list()
+    # ad_sct = so2ad(so_sct, verbose=0)
+    # ad_sct.var['highly_variable'] = ad_sct.var.index.isin(ls_hvg)
+    # # ad_sct = ad_sct[:, ad_sct.obsm['SCT_scale.data'].columns]
+    # # ad_sct.X = ad_sct.obsm['SCT_scale.data']
+    # ad_sctForPca = sc.AnnData(ad_sct.obsm['SCT_scale.data'])
+    # ad_sctForPca.var['highly_variable'] = ad_sctForPca.var.index.isin(ls_hvg)
+    # sc.tl.pca(ad_sctForPca)
+    # ad.obsm['X_pca_sct'] = ad_sctForPca.obsm['X_pca'].copy()
+    # ad.uns['pca_sct'] = ad_sctForPca.uns['pca'].copy()
+
+    # ad.var['highly_variable'] = ad.var.index.isin(ls_hvg)
+    # ad.obsm['SCT_data'] = ad_sct.layers['SCT_data']
+    # ad.uns['SCT_data_features'] = ad_sct.var.index.to_list()
+    # ad.obsm['SCT_scale.data'] = ad_sct.obsm['SCT_scale.data']
 
     if returnMuon:
-        md = mu.MuData({'RNA': ad, 'SCT': ad_sct})
-        return md
-    elif returnSo:
+        logger.warning(f"Deprecated")
+    if returnSo:
         return so_sct
     else:
-        return ad_sct
+        return md_sct
     
     
 

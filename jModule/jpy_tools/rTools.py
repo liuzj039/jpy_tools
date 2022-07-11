@@ -20,6 +20,7 @@ from contextlib import contextmanager
 from rpy2.robjects.lib import grdevices
 from IPython.display import Image, display
 import scanpy as sc
+import muon as mu
 import h5py
 from tempfile import TemporaryDirectory
 import sys
@@ -32,7 +33,6 @@ from rpy2.robjects.packages import importr
 from tempfile import TemporaryDirectory
 import pickle
 from .otherTools import Capturing
-
 R = ro.r
 seo = importr("SeuratObject")
 rBase = importr("base")
@@ -124,7 +124,7 @@ def r_set_logger_level(level):
 
 @rpy2_check
 @anndata2ri_check
-def py2r(x, name=None, on_disk=None):
+def py2r(x, name=None, on_disk=None, verbose=0):
     """Convert a Python object to an R object using rpy2"""
     import rpy2.robjects as ro
     from rpy2.robjects import numpy2ri, pandas2ri
@@ -138,8 +138,8 @@ def py2r(x, name=None, on_disk=None):
 
     if on_disk == None:
         on_disk = True if py2r_disk(x, check=True) else False
-
-    print(f"on disk mode: {on_disk}, transfer `{objType}` to R: {name} start.", end="")
+    if verbose:
+        print(f"on disk mode: {on_disk}, transfer `{objType}` to R: {name} start.", end="")
     timeStart = time.time()
 
     if on_disk:
@@ -160,11 +160,12 @@ def py2r(x, name=None, on_disk=None):
 
     timeEnd = time.time()
     timePass = timeEnd - timeStart
-    print(
-        "\r"
-        + f"on disk mode: {on_disk}, transfer `{objType}` to R: {name} End. Elapsed time: {timePass:.0f}",
-        flush=True,
-    )
+    if verbose:
+        print(
+            "\r"
+            + f"on disk mode: {on_disk}, transfer `{objType}` to R: {name} End. Elapsed time: {timePass:.0f}",
+            flush=True,
+        )
     return x
 
 
@@ -268,6 +269,7 @@ def ad2so(
     scaleLayerInObsm=False,
     assay="RNA",
     rEnv=None,
+    verbose=0,
     **kwargs,
 ):
     import scipy.sparse as ss
@@ -275,11 +277,15 @@ def ad2so(
     importr("Seurat")
     R = ro.r
     mt_count = ad.layers[layer]
+    if ad.var.empty:
+        ad.var['project_ad2so'] = 'temp'
+    if ad.obs.empty:
+        ad.obs['project_ad2so'] = 'temp'
     rEnv["mtR_count"] = py2r(mt_count.T)
-    rEnv["arR_obsName"] = py2r(R.unlist(R.c(ad.obs.index.to_list())))
-    rEnv["arR_varName"] = py2r(R.unlist(R.c(ad.var.index.to_list())))
+    rEnv["arR_obsName"] = R.unlist(R.c(ad.obs.index.to_list()))
+    rEnv["arR_varName"] = R.unlist(R.c(ad.var.index.to_list()))
     rEnv["assay"] = assay
-
+    
     R(
         """
     colnames(mtR_count) <- arR_obsName
@@ -300,8 +306,8 @@ def ad2so(
         VariableFeatures(so) <- arR_hvgGene
         """
         )
-    rEnv["dfR_obs"] = py2r(ad.obs)
-    rEnv["dfR_var"] = py2r(ad.var)
+    rEnv["dfR_obs"] = py2r(ad.obs, verbose=verbose)
+    rEnv["dfR_var"] = py2r(ad.var, verbose=verbose)
     R(
         """
     so <- AddMetaData(so, dfR_obs)
@@ -315,7 +321,7 @@ def ad2so(
         )
     else:
         mt_data = ad.layers[dataLayer]
-        rEnv["mtR_data"] = py2r(mt_data.T)
+        rEnv["mtR_data"] = py2r(mt_data.T, verbose=verbose)
         R(
             """
         colnames(mtR_data) <- arR_obsName
@@ -329,7 +335,7 @@ def ad2so(
     else:
         if not scaleLayerInObsm:
             mt_scaleData = ad.layers[scaleLayer]
-            rEnv["mtR_scaleData"] = py2r(mt_scaleData.T)
+            rEnv["mtR_scaleData"] = py2r(mt_scaleData.T, verbose=verbose)
             R(
                 """
             colnames(mtR_scaleData) <- arR_obsName
@@ -339,7 +345,7 @@ def ad2so(
             )
         else:
             rEnv["dfR_scaleData"] = py2r(
-                ad.obsm[scaleLayer].loc[:, lambda df: df.columns.isin(ad.var.index)].T
+                ad.obsm[scaleLayer].loc[:, lambda df: df.columns.isin(ad.var.index)].T, verbose=verbose
             )
             R(
                 """
@@ -355,7 +361,7 @@ def ad2so(
             index=ad.obs.index,
             columns=[f"{obsm_}_{x}" for x in range(1, 1 + ad.obsm[obsm].shape[1])],
         )
-        rEnv["dfR_obsm"] = py2r(df_obsm)
+        rEnv["dfR_obsm"] = py2r(df_obsm, verbose=verbose)
         rEnv["obsm"] = obsm_
         R(
             """
@@ -365,7 +371,7 @@ def ad2so(
         )
 
     for obsp in ad.obsp.keys():
-        rEnv["mtR_obsp"] = py2r(ss.csc_matrix(ad.obsp[obsp]))
+        rEnv["mtR_obsp"] = py2r(ss.csc_matrix(ad.obsp[obsp]), verbose=verbose)
         rEnv["obsp"] = obsp
         R(
             """
@@ -379,7 +385,7 @@ def ad2so(
 
 @rpy2_check
 @anndata2ri_check
-def r2py(x, name=None):
+def r2py(x, name=None,verbose=0):
     """Convert an rpy2 (R)  object to a Python object"""
     import rpy2.robjects as ro
     from rpy2.robjects import numpy2ri, pandas2ri
@@ -412,8 +418,8 @@ def r2py(x, name=None):
         objType = list(x.rclass)[0]
     except:
         objType = "unknown type"
-
-    print(f"transfer `{objType}` to python: {name} start", end="")
+    if verbose:
+        print(f"transfer `{objType}` to python: {name} start", end="")
     timeStart = time.time()
     if ro.r("class")(x)[0] == "data.frame":
         x = _dataframe(x)
@@ -433,16 +439,17 @@ def r2py(x, name=None):
             x = anndata2ri.scipy2ri.rpy2py(x)
     timeEnd = time.time()
     timePass = timeEnd - timeStart
-    print(
-        "\r"
-        + f"transfer `{objType}` to python: {name} End. Elapsed time: {timePass:.0f}",
-        flush=True,
-    )
+    if verbose:
+        print(
+            "\r"
+            + f"transfer `{objType}` to python: {name} End. Elapsed time: {timePass:.0f}",
+            flush=True,
+        )
     return x
 
 
 @rcontext
-def so2ad(so, assay=None, verbose=None, rEnv=None, **kwargs):
+def so2ad(so, assay=None, verbose=0, rEnv=None, **kwargs):
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
     import scipy.sparse as ss
@@ -454,20 +461,20 @@ def so2ad(so, assay=None, verbose=None, rEnv=None, **kwargs):
         assay = R("DefaultAssay(so)")[0]
     R(f"dfR_var <- so${assay}[[]] %>% as.data.frame")
     R("dfR_obs <- so[[]] %>% as.data.frame")
-    df_obs = r2py(R("dfR_obs"))
-    df_var = r2py(R("dfR_var"))
+    df_obs = r2py(R("dfR_obs"), verbose=verbose)
+    df_var = r2py(R("dfR_var"), verbose=verbose)
     ad = sc.AnnData(
         ss.csc_matrix((df_obs.shape[0], df_var.shape[0])), obs=df_obs, var=df_var
     )
 
     for slot in ["counts", "data"]:
         ad.layers[f"{assay}_{slot}"] = r2py(
-            R(f"""GetAssayData(object=so, assay='{assay}', slot='{slot}')""")
+            R(f"""GetAssayData(object=so, assay='{assay}', slot='{slot}')"""), verbose=verbose
         ).T
     df_scale = r2py(
         R(
             f"""GetAssayData(object=so, assay='{assay}', slot='scale.data') %>% as.data.frame"""
-        )
+        ), verbose=verbose
     ).T
     if df_scale.empty:
         pass
@@ -480,19 +487,43 @@ def so2ad(so, assay=None, verbose=None, rEnv=None, **kwargs):
         for obsm in R("names(so@reductions)"):
             usedAssay = R(f"so@reductions${obsm}@assay.used")[0]
             ad.obsm[f"X_{obsm}_{usedAssay}"] = r2py(
-                R(f'Embeddings(object = so, reduction = "{obsm}")')
+                R(f'Embeddings(object = so, reduction = "{obsm}")'), verbose=verbose
             )
             if usedAssay == assay:
                 ad.obsm[f"X_{obsm}"] = r2py(
-                    R(f'Embeddings(object = so, reduction = "{obsm}")')
+                    R(f'Embeddings(object = so, reduction = "{obsm}")'), verbose=verbose
                 )
     if R("names(so@graphs)") is R("NULL"):
         pass
     else:
         for obsp in R("names(so@graphs)"):
-            ad.obsp[obsp] = r2py(R(f"so@graphs${obsp} %>% as.sparse"))
+            ad.obsp[obsp] = r2py(R(f"so@graphs${obsp} %>% as.sparse"), verbose=verbose)
     return ad
 
+
+@rcontext
+def so2md(so, rEnv=None, verbose=0, **kwargs):
+    import scipy.sparse as ss
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
+    importr("Seurat")
+    R = ro.r
+    rEnv['so'] = so
+    assays = list(R("names(so@assays)"))
+    dtAd = {}
+    for assay in assays:
+        ad = so2ad(so, assay=assay, rEnv=rEnv, verbose=verbose)
+        dtAd[assay] = ad
+        if f"{assay}_scale.data" in ad.obsm:
+            df_layer = ad.obsm[f"{assay}_scale.data"]
+            del(ad.obsm[f"{assay}_scale.data"])
+            ad_scale = sc.AnnData(df_layer)
+            ad_scale.layers[f"{assay}_scale.data"] = ad_scale.X
+            ad_scale.X = ss.csc_matrix(ad_scale.shape)
+            dtAd[f"{assay}_scale.data"] = ad_scale
+    md = mu.MuData(dtAd, axis=-1)
+    return md
+    
 
 @contextmanager
 def r_inline_plot(width=None, height=None, res=None):

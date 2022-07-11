@@ -534,10 +534,12 @@ def clustermap(
     col_label: bool = False,
     legendAlign: Literal["h", "v"] = "h",
     addSplitLine=True,
+    addGeneSplitLine = False,
     row_cluster=False,
     col_cluster=False,
     addObsLegend=True,
     forceShowModuleColor=False,
+    cmap='Reds',
     **dt_arg,
 ):
     from ..otherTools import addColorLegendToAx
@@ -549,6 +551,8 @@ def clustermap(
     if addSplitLine:
         row_cluster = False
         splitBasedOn = obsAnno[0]
+    if addGeneSplitLine:
+        col_cluster = False
     df_geneModule = pd.DataFrame(
         [(x, z) for x, y in dt_gene.items() for z in y], columns=["module", "gene"]
     ).set_index("gene")
@@ -585,7 +589,7 @@ def clustermap(
         df_geneModuleChangeColor = None
     axs = sns.clustermap(
         df_mtx,
-        cmap="Reds",
+        cmap=cmap,
         col_colors=df_geneModuleChangeColor,
         row_colors=df_cellAnno,
         figsize=figsize,
@@ -667,6 +671,12 @@ def clustermap(
         for i, (name, counts) in enumerate(dt_obsCounts.items()):
             yPos = yPos + counts
             plt.axhline(yPos, color="black", lw=1, alpha=0.7)
+    if addGeneSplitLine:
+        dt_geneCounts = {x:len(y) for x,y in dt_gene.items()}
+        xPos = 0
+        for i, (name, counts) in enumerate(dt_geneCounts.items()):
+            xPos = xPos + counts
+            plt.axvline(xPos, color="black", lw=1, alpha=0.7)
     return axs
 
 

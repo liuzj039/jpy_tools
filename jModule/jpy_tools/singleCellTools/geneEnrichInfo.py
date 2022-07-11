@@ -1509,6 +1509,7 @@ def timeSeriesAnalysisByMfuzz(
     plotCounts=1000,
     repeats=3,
     threads=24,
+    ls_useGenes = None,
     rEnv=None,
 ):
     """`timeSeriesAnalysisByMfuzz` is a function that takes in a single cell RNA-seq dataframe, performs
@@ -1587,22 +1588,28 @@ def timeSeriesAnalysisByMfuzz(
         plt.xticks(range(len(ar_exp)), data[x].cat.categories)
 
     # assert (rMfrow[0] * rMfrow[1]) >= geneClusterCounts, "rMfrow[0] * rMfrow[1] < geneClusterCounts"
+
     if clusterObs is None:
         ad_merged = _mergeData(ad, timeObs)
         basic.initLayer(ad_merged, total=1e6)  # cpm
     else:
         dt_adMerged = {}
         for clusterName, ad_cluster in basic.splitAdata(
-            ad, "leiden", needName=True, copy=False
+            ad, clusterObs, needName=True, copy=False
         ):
             _ad = _mergeData(ad_cluster, "Sample")
             _ad.var.index = _ad.var.index + "||" + clusterName
             basic.initLayer(_ad, total=1e6)  # cpm
             dt_adMerged[clusterName] = _ad
         ad_merged = sc.concat(dt_adMerged, axis=1)
-
+    if ls_useGenes is None:
+        ls_useGenes = ad_merged.var.index.to_list()
+        
     ls_genePassFilter = ((ad_merged.to_df("normalize_log") > 0).mean() >= filterGeneThres).pipe(lambda sr:sr.loc[sr]).index.to_list()
+    # import pdb;pdb.set_trace()
     logger.info(f"{ad_merged.shape[1] - len(ls_genePassFilter)} genes excluded")
+    ls_genePassFilter = list(set(ls_genePassFilter) & set(ls_useGenes))
+    logger.info(f"Total used gene counts {len(ls_genePassFilter)}")
     esR_Merged = R.ExpressionSet(
         rBase.as_matrix(py2r(ad_merged[:, ls_genePassFilter].to_df("normalize_log").T))
     )  # esR: ExpressionSet # mfuzz only recognized NA as missing value
