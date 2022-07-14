@@ -91,7 +91,7 @@ def umapMultiBatch(
     else:
         disableProgressBar = False
     if groups[1] is None:
-        groups[1] = ad.obs[groups[0]].astype('category').cat.categories.to_list()
+        groups[1] = ad.obs[groups[0]].astype("category").cat.categories.to_list()
     dt_adObs = ad.obs.groupby(groups[0]).apply(lambda df: df.index.to_list()).to_dict()
     dt_adObs = {x: dt_adObs[x] for x in groups[1]}
     dt_ad = {x: ad[y] for x, y in dt_adObs.items()}
@@ -190,9 +190,10 @@ def saveUmapMultiBatch(ad, threads, batchSize, ls_gene, ls_title, layer, **dt_kw
             obsm={"X_umap": ad.obsm["X_umap"]},
             layers={layer: _ad.layers[layer]},
         )
-        for ls_chunkGene, ls_chunkTitle in tqdm(zip(
-            chunked(ls_gene, batchSize), chunked(ls_title, batchSize)
-        ), total = len(ls_gene) // batchSize):
+        for ls_chunkGene, ls_chunkTitle in tqdm(
+            zip(chunked(ls_gene, batchSize), chunked(ls_title, batchSize)),
+            total=len(ls_gene) // batchSize,
+        ):
             yield ad[:, ls_chunkGene], ls_chunkGene, ls_chunkTitle
 
     # assert threads * batchSize >= len(ls_gene), "threads * batchSize must be greater than or equal to the number of genes"
@@ -206,7 +207,11 @@ def saveUmapMultiBatch(ad, threads, batchSize, ls_gene, ls_title, layer, **dt_kw
         it_chunkTitle = sliced(ls_chunkTitle, threads)
         Parallel(n_jobs=threads)(
             delayed(umapMultiBatch)(
-                ad_chunk[:, ls_processGene].copy(), ls_gene=ls_processGene, ls_title=ls_processTitle, layer=layer, **dt_kwargs
+                ad_chunk[:, ls_processGene].copy(),
+                ls_gene=ls_processGene,
+                ls_title=ls_processTitle,
+                layer=layer,
+                **dt_kwargs,
             )
             for ls_processGene, ls_processTitle in zip(it_chunkGene, it_chunkTitle)
         )
@@ -350,7 +355,12 @@ def plotLabelPercentageInCluster(
                 )
             )
             legendLabelLs.append(singleLabel)
-        plt.legend(legendHandleLs[::-1], legendLabelLs[::-1], frameon=False, **dt_kwargsForLegend)
+        plt.legend(
+            legendHandleLs[::-1],
+            legendLabelLs[::-1],
+            frameon=False,
+            **dt_kwargsForLegend,
+        )
         plt.ylabel(groupby.capitalize())
         plt.xlabel(f"Percentage")
         if needCounts:
@@ -527,19 +537,20 @@ def clustermap(
     layer: str,
     space_obsAnnoLegend: Union[float, List[float]] = 0.12,
     figsize=(10, 10),
-    cbarPos=(0.72, 0.15, 0.01, 0.18),
+    cbarPos=(0.02, 0.8, 0.05, 0.18),
     sort=True,
     dt_geneColor: Optional[Mapping[str, str]] = None,
     add_gene_name: bool = True,
+    reverseGeneNameInColColor: bool = False,
     col_label: bool = False,
     legendAlign: Literal["h", "v"] = "h",
     addSplitLine=True,
-    addGeneSplitLine = False,
+    addGeneSplitLine=False,
     row_cluster=False,
     col_cluster=False,
     addObsLegend=True,
     forceShowModuleColor=False,
-    cmap='Reds',
+    cmap="Reds",
     **dt_arg,
 ):
     from ..otherTools import addColorLegendToAx
@@ -585,7 +596,7 @@ def clustermap(
     df_geneModuleChangeColor = df_geneModule.assign(
         module=lambda df: df["module"].map(dt_geneColor)
     )
-    if (len(dt_gene) == 1) & (not forceShowModuleColor):
+    if (len(dt_gene) == 1) | (not forceShowModuleColor):
         df_geneModuleChangeColor = None
     axs = sns.clustermap(
         df_mtx,
@@ -616,22 +627,39 @@ def clustermap(
     df_geneModule["module"] = df_geneModule["module"].map(dt_geneColor)
 
     if add_gene_name:
-        plt.sca(axs.ax_col_colors)
-        pos_current = 0
-        for name, counts in dt_geneCounts.items():
-            pos_next = pos_current + counts
-            plt.text(
-                (pos_current + pos_next) / 2,
-                -0.2,
-                name,
-                rotation=90,
-                va="bottom",
-                ha="center",
-            )
-            pos_current = pos_next
-            plt.yticks([])
+        if reverseGeneNameInColColor:
+            _dt_geneCounts = {x:dt_geneCounts[x] for x in list(dt_geneCounts.keys())[::-1]}
+            plt.sca(axs.ax_col_colors)
+            pos_current = 0
+            for name, counts in _dt_geneCounts.items():
+                pos_next = pos_current + counts
+                plt.text(
+                    (pos_current + pos_next) / 2,
+                    0.9,
+                    name,
+                    rotation=0,
+                    va="bottom",
+                    ha="center",
+                )
+                pos_current = pos_next
+                plt.yticks([])
+        else:
+            plt.sca(axs.ax_col_colors)
+            pos_current = 0
+            for name, counts in dt_geneCounts.items():
+                pos_next = pos_current + counts
+                plt.text(
+                    (pos_current + pos_next) / 2,
+                    0.9,
+                    name,
+                    rotation=0,
+                    va="bottom",
+                    ha="center",
+                )
+                pos_current = pos_next
+                plt.yticks([])
 
-    if not ((len(dt_gene) == 1) & (not forceShowModuleColor)):
+    if not ((len(dt_gene) == 1) | (not forceShowModuleColor)):
         plt.sca(axs.ax_col_colors)
         plt.xticks([])
         plt.yticks([])
@@ -646,6 +674,7 @@ def clustermap(
                 1,
                 bbox_to_anchor=legendPox,
                 frameon=False,
+                ha="left",
             )
             if legendAlign == "h":
                 legendPox = [1.05 + space, 1]
@@ -672,11 +701,20 @@ def clustermap(
             yPos = yPos + counts
             plt.axhline(yPos, color="black", lw=1, alpha=0.7)
     if addGeneSplitLine:
-        dt_geneCounts = {x:len(y) for x,y in dt_gene.items()}
+        dt_geneCounts = {x: len(y) for x, y in dt_gene.items()}
         xPos = 0
         for i, (name, counts) in enumerate(dt_geneCounts.items()):
             xPos = xPos + counts
             plt.axvline(xPos, color="black", lw=1, alpha=0.7)
+    if cbarPos is (0.02, 0.8, 0.05, 0.18):
+        axs.ax_cbar.set_position(
+            [
+                axs.ax_heatmap.get_position().x1 + 0.05,
+                axs.ax_heatmap.get_position().y0,
+                0.02,
+                0.1,
+            ]
+        )
     return axs
 
 

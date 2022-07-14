@@ -35,6 +35,7 @@ from typing import (
 )
 from jpy_tools import settings
 
+
 def setSeed(seed=0):
     import os
     import numpy as np
@@ -47,13 +48,14 @@ def setSeed(seed=0):
     os.environ["PYTHONHASHSEED"] = str(seed)
     np.random.seed(seed)
     R("set.seed")(seed)
-    
+
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed) # if you are using multi-GPU.
+    torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.enabled = False
+
 
 class Capturing(list):
     "Capture std output"
@@ -165,9 +167,11 @@ def addColorLegendToAx(
     ncol=2,
     loc="upper left",
     bbox_to_anchor=(1.05, 1.0),
+    ha="center",
     **legendParamsDt,
 ):
     from matplotlib.legend import Legend
+
     ax = ax.twinx()
     ax.get_yaxis().set_visible(False)
     artistLs = []
@@ -184,11 +188,18 @@ def addColorLegendToAx(
     #     **legendParamsDt,
     # )
     # leg._legend_box.align = "left"
-    # ax.add_artist(leg)    
+    # ax.add_artist(leg)
     plt.sca(ax)
-    ax.legend(handles=artistLs, labels=list(colorDt.keys()), title=title, loc=loc, ncol=ncol, bbox_to_anchor=bbox_to_anchor, **legendParamsDt)
-    
-
+    leg = ax.legend(
+        handles=artistLs,
+        labels=list(colorDt.keys()),
+        title=title,
+        loc=loc,
+        ncol=ncol,
+        bbox_to_anchor=bbox_to_anchor,
+        **legendParamsDt,
+    )
+    leg._legend_box.align = ha
     # leg = ax.legend(title=title, loc=loc, ncol=ncol, bbox_to_anchor=bbox_to_anchor)
     return ax.legend
 
@@ -338,7 +349,9 @@ def sankeyPlotByPyechart(
         skLinkLs,
         linestyle_opt=opts.LineStyleOpts(opacity=0.2, curve=0.5, color="source"),
         label_opts=opts.LabelOpts(position="right"),
-    ).set_global_opts(title_opts=opts.TitleOpts(title=""), )
+    ).set_global_opts(
+        title_opts=opts.TitleOpts(title=""),
+    )
 
     return sankey
 
@@ -357,7 +370,9 @@ def copyToIpf(inPath, ipfPath) -> str:
     sh.scp(inPath, f"172.18.6.205:{ipfPath}")
 
 
-def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, dir_path=None, **dt_arg):
+def toPkl(
+    obj, name, server, config=None, writeFc=None, arg_path=None, dir_path=None, **dt_arg
+):
     """
 
     Parameters
@@ -397,7 +412,7 @@ def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, dir_path=
             "arg_path": "filename",
             "dt_arg": {},
             "readFc": "lambda **dt:sc.read_h5ad(**dt), arg_path='filename'",
-        }
+        },
     }
 
     dt_dirPkl = settings.dt_dirPkl
@@ -418,6 +433,7 @@ def toPkl(obj, name, server, config=None, writeFc=None, arg_path=None, dir_path=
         dir_currentPkl = dir_path
     if config is None:
         import scvi, mudata, anndata
+
         for className in dt_config.keys():
             class_obj = eval(className)
             if isinstance(obj, class_obj):
@@ -546,7 +562,7 @@ def getGoDesc(goTerm: Union[str, List[str]], retry=5) -> pd.DataFrame:
         dt_singleGoFirstHit = dt_singleGo["results"][0]
         dt_go[name] = {
             "hitGO": dt_singleGoFirstHit["id"],
-            "hitName": dt_singleGoFirstHit["name"] + f" ({name})" ,
+            "hitName": dt_singleGoFirstHit["name"] + f" ({name})",
             "hitDefinition": dt_singleGoFirstHit["definition"]["text"],
             "hitCounts": dt_singleGo["numberOfHits"],
             "aspect": dt_singleGoFirstHit["aspect"],
@@ -556,15 +572,23 @@ def getGoDesc(goTerm: Union[str, List[str]], retry=5) -> pd.DataFrame:
     df_go = pd.DataFrame.from_dict(dt_go, "index")
     return df_go
 
+
 from matplotlib.widgets import PolygonSelector
 from matplotlib.path import Path
 import matplotlib.pyplot as plt
 
+
 class SelectByPolygon:
-    def __init__(self, ar_image, figsize=(10, 4), dt_lineprops = {}, dt_markerprops = {}):
+    def __init__(self, ar_image, figsize=(10, 4), dt_lineprops={}, dt_markerprops={}):
         self.ar_image = ar_image
         self.imShape = ar_image.shape[:2]
-        self.xy = np.array([[x,y] for x in range(self.ar_image.shape[1]) for y in range(self.ar_image.shape[0])])
+        self.xy = np.array(
+            [
+                [x, y]
+                for x in range(self.ar_image.shape[1])
+                for y in range(self.ar_image.shape[0])
+            ]
+        )
         if len(ar_image.shape) == 2:
             self.empty = 0
         elif len(ar_image[0, 0]) == 3:
@@ -575,23 +599,26 @@ class SelectByPolygon:
         self.ax1 = ax1
         self.ax2 = ax2
         self.ax1.imshow(self.ar_image)
-        
+
         self.selectedImage = np.zeros_like(self.ar_image)
         self.ax2.imshow(self.selectedImage)
         plt.subplots_adjust()
-        self.poly = PolygonSelector(self.ax1, self.onselect, lineprops=dt_lineprops, markerprops=dt_markerprops)
+        self.poly = PolygonSelector(
+            self.ax1, self.onselect, lineprops=dt_lineprops, markerprops=dt_markerprops
+        )
 
-        logger.warning("This function is only available in jupyter environment and you should run `%matplotlib widget` before execute this function")
+        logger.warning(
+            "This function is only available in jupyter environment and you should run `%matplotlib widget` before execute this function"
+        )
         print("Select points in the figure by enclosing them within a polygon.")
         print("Press the 'esc' key to start a new polygon.")
         print("Try holding the 'shift' key to move all of the vertices.")
         print("Try holding the 'ctrl' key to move a single vertex.")
 
-
     def onselect(self, verts):
         path = Path(verts)
         self.path = path
-        self.ind = path.contains_points(self.xy).reshape(self.imShape, order='F')
+        self.ind = path.contains_points(self.xy).reshape(self.imShape, order="F")
         self.selectedImage = self.ar_image.copy()
         self.selectedImage[~self.ind] = self.empty
         self.ax2.clear()
@@ -602,10 +629,12 @@ class SelectByPolygon:
         self.poly.disconnect_events()
         plt.close()
 
+
 def pwStack(ls_ax, ncols=5):
     import patchworklib as pw
     from more_itertools import chunked
     from cool import F
+
     ls_ax = chunked(ls_ax, ncols) | F(list)
     if len(ls_ax) == 1:
         axs = pw.stack(ls_ax[0])
@@ -618,6 +647,7 @@ def pwStack(ls_ax, ncols=5):
             axs = axs[ls_name[i]] / ax
     return axs
 
+
 def pwRecoverSeaborn():
     ls_seabornParams = [
         # sns.axisgrid.Grid._figure,
@@ -626,8 +656,9 @@ def pwRecoverSeaborn():
         sns.axisgrid.FacetGrid.despine,
         sns.axisgrid.PairGrid.__init__,
         sns.axisgrid.JointGrid.__init__,
-        sns.matrix.ClusterGrid.__setattr__
+        sns.matrix.ClusterGrid.__setattr__,
     ]
+
     def _recoverSeaborn():
         (
             # sns.axisgrid.Grid._figure,
@@ -638,7 +669,8 @@ def pwRecoverSeaborn():
             sns.axisgrid.JointGrid.__init__,
             sns.matrix.ClusterGrid.__setattr__,
         ) = ls_seabornParams
-        del(sns.axisgrid.Grid._figure)
+        del sns.axisgrid.Grid._figure
+
     return _recoverSeaborn
 
 
@@ -651,3 +683,161 @@ def mergePdf(dir_inputPath, path_mergedPdf):
     [pdfMerger.append(x) for x in ls_pdfPath]
     pdfMerger.write(path_mergedPdf)
     pdfMerger.close()
+
+
+def clusterWithKmeans(
+    df_mat, nClusters, minDistance = 1, kwargs_to_kmeans={}, kwargs_to_clustermap={}
+) -> Tuple[np.ndarray, List[str], Mapping[str, List[str]]]:
+    """It takes a dataframe of features and their values, and clusters the features using kmeans. It then
+    uses hierarchical clustering to cluster the features within each kmeans cluster. It then combines
+    the kmeans and hierarchical clustering dendrograms into one dendrogram
+
+    Parameters
+    ----------
+    df_mat
+        the dataframe of the data you want to cluster
+    nClusters
+        number of clusters to use for kmeans
+    kwargs_to_kmeans
+        parameters to pass to KMeans
+    kwargs_to_clustermap
+        parameters to pass to sns.clustermap
+
+    Returns
+    ---------
+    hierachicalWithKmeans (namedlist):
+        dendrogram linkage
+            the linkage matrix of the dendrogram
+        ls_featureOrder
+            the order of the features in the dendrogram
+        dt_kMeansCluster
+            the kmeans clustering results
+        kMeans
+            the kmeans result
+    """
+    from sklearn.cluster import KMeans
+    from namedlist import namedlist
+
+    def _getNewFeatureIndex(i, dt_featureCounts, totalFeatureCounts):
+        if dt_featureCounts[i] > 1:
+            featureIndex = (
+                dt_featureCounts[i] - 1 - 1 + totalFeatureCounts
+            )  # 0-index and newFeatureCounts = total Feature Counts - 1
+            #     print(featureIndex)
+            for j in range(i):
+                featureIndex += dt_featureCounts[j] - 1
+        #         print(featureIndex)
+        else:
+            featureIndex = 0
+            for j in range(i):
+                featureIndex += dt_featureCounts[j]
+        return featureIndex
+
+    kmeans = KMeans(n_clusters=nClusters, random_state=0, **kwargs_to_kmeans).fit(
+        df_mat.T
+    )
+    df_distance = pd.DataFrame(
+        kmeans.transform(df_mat.values.T), index=df_mat.columns
+    ).assign(
+        minDistance=lambda df: df.min(1),
+        module=lambda df: df.idxmin(1)
+    ).query("minDistance <= @minDistance")
+    ls_usedFeature = df_distance.index.tolist()
+
+    df_clusterFeature = pd.DataFrame(
+        [kmeans.labels_, df_mat.columns], index=["cluster", "feature"]
+    ).T.query("feature in @ls_usedFeature")
+    dt_clusterFeature = (
+        df_clusterFeature.groupby("cluster")["feature"].agg(list).to_dict()
+    )
+    ls_clusterOrder = sorted(list(dt_clusterFeature.keys()), key=lambda x: len(dt_clusterFeature[x]), reverse=True)
+    dt_new2OldCluster = {x:y for x,y in enumerate(ls_clusterOrder)}
+    dt_clusterFeature = {x:dt_clusterFeature[dt_new2OldCluster[x]] for x in dt_new2OldCluster.keys()}
+
+    dt_clusterFeature = {
+        i: dt_clusterFeature[x]
+        for i, x in enumerate(
+            sorted(
+                dt_clusterFeature, key=lambda x: len(dt_clusterFeature[x]), reverse=True
+            )
+        )
+    }
+    assert (
+        len(dt_clusterFeature[0]) > 1
+    ), "expected more than 2 features in the biggest cluster"
+
+    df_mat = df_mat[sum(list(dt_clusterFeature.values()), [])]
+
+    dt_dendrogram = {}
+    dt_featureCounts = {}
+    dt_dendrogramCounts = {}
+    for cluster, ls_features in dt_clusterFeature.items():
+        dt_featureCounts[cluster] = len(ls_features)
+        if len(ls_features) > 1:
+            g = sns.clustermap(
+                df_mat[ls_features], row_cluster=False, **kwargs_to_clustermap
+            )
+            plt.close()
+            dt_dendrogram[cluster] = g.dendrogram_col.calculated_linkage
+            dt_dendrogramCounts[cluster] = dt_dendrogram[cluster].shape[0]
+    totalFeatureCounts = df_mat.shape[1]
+
+    currentCounts = 0
+    currentGroup = 0
+    for cluster, ar_dendrogram in dt_dendrogram.items():
+        if dt_featureCounts[cluster] > 1:
+            ar_dendrogram[:, 0:2] = np.where(
+                ar_dendrogram[:, 0:2] < dt_featureCounts[cluster],
+                ar_dendrogram[:, 0:2] + currentCounts,
+                ar_dendrogram[:, 0:2]
+                - dt_featureCounts[cluster]
+                + totalFeatureCounts
+                + currentCounts
+                - currentGroup,
+            )
+        currentCounts += dt_featureCounts[cluster]
+        currentGroup += 1
+
+    maxDistance = np.concatenate(list(dt_dendrogram.values()))[:, 2].max() * 1.1
+
+    ls_kmeansDend = []
+    for i in range(len(dt_featureCounts) - 1):
+        if i == 0:
+            ls_kmeansDend.append(
+                [
+                    _getNewFeatureIndex(i + 1, dt_featureCounts, totalFeatureCounts),
+                    _getNewFeatureIndex(i, dt_featureCounts, totalFeatureCounts),
+                    maxDistance,
+                    dt_featureCounts[i] + dt_featureCounts[i + 1],
+                ]
+            )
+        else:
+            ls_kmeansDend.append(
+                [
+                    _getNewFeatureIndex(i + 1, dt_featureCounts, totalFeatureCounts),
+                    totalFeatureCounts
+                    + totalFeatureCounts
+                    - 1
+                    - len(dt_featureCounts)
+                    + i,
+                    maxDistance,
+                    sum([dt_featureCounts[j] for j in range(i + 2)]),
+                ]
+            )
+    HierachicalWithKmeans = namedlist(
+        "HierachicalWithKmeans",
+        ["linkage", "featureOrder", "kMeansCluster", "kMeans", "distance", "clusterRenameInfo"],
+    )
+    df_distance = pd.DataFrame(
+        kmeans.transform(df_mat.values.T), index=df_mat.columns
+    ).rename(columns = {y:x for x,y in dt_new2OldCluster.items()}).sort_index(axis=1).assign(
+        minDistance=lambda df: df.min(1),
+        module=lambda df: df.idxmin(1)
+    ).query('minDistance <= @minDistance')
+    hierachicalWithKmeans = HierachicalWithKmeans(
+        np.concatenate((*list(dt_dendrogram.values()), np.array(ls_kmeansDend))),
+        df_mat.columns.to_list(),
+        dt_clusterFeature,
+        kmeans, df_distance, dt_new2OldCluster
+    )
+    return hierachicalWithKmeans
