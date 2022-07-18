@@ -491,6 +491,8 @@ def so2ad(so, assay=None, verbose=0, rEnv=None, skipScaleMtx = False, **kwargs):
         ).T
         if df_scale.empty:
             pass
+        elif (df_scale.shape == (1, 1)) & (df_scale.iat[0,0] == -2147483648):
+            pass
         else:
             ad.obsm[f"{assay}_scale.data"] = df_scale
 
