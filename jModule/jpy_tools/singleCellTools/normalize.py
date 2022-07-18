@@ -657,16 +657,15 @@ def integrateBySeurat(
         R("saveRDS(so.combined, file = saveSeurat)")  # save seurat object
     so_combined = R("so.combined")
     ad_combined = so2ad(so_combined)
+    ad_combined = ad_combined[ad.obs.index]
     if normalization_method == "LogNormalize":
         ad.obsm["seurat_integrated_data"] = ad_combined.to_df("integrated_data").copy()
         ad_combined.X = ad_combined.layers["integrated_data"].copy()
         sc.pp.scale(ad_combined)
     else:
         ad.obsm["seurat_integrated_data"] = ad_combined.to_df("integrated_data").copy()
-        ad.obsm["seurat_integrated_scale.data"] = ad_combined.to_df(
-            "integrated_scale.data"
-        ).copy()
-        ad_combined.X = ad_combined.layers["integrated_scale.data"].copy()
+        ad.obsm["seurat_integrated_scale.data"] = ad_combined.obsm["integrated_scale.data"].copy()
+        ad_combined.X = ad_combined.obsm["integrated_scale.data"].copy()
 
     sc.tl.pca(ad_combined, use_highly_variable=False)
     ad.obsm["X_pca_seurat"] = ad_combined.obsm["X_pca"].copy()
