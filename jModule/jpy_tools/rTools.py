@@ -28,6 +28,7 @@ import inspect
 import re
 from rpy2.rinterface import evaluation_context
 import rpy2.robjects as ro
+from rpy2 import rinterface_lib
 from rpy2.robjects import rl
 from rpy2.robjects.packages import importr
 from tempfile import TemporaryDirectory
@@ -37,6 +38,7 @@ R = ro.r
 seo = importr("SeuratObject")
 rBase = importr("base")
 rUtils = importr("utils")
+importr("magrittr")
 # arrow = importr('arrow') # this package should be imported before pyarrow
 
 
@@ -59,9 +61,12 @@ def rcontext(func):
 
         if not "rEnv" in inspect.signature(func).parameters:
             kargs.pop("rEnv")
-
-        with ro.local_context(rEnv) as rlc:
-            result = func(*args, **kargs)
+        try:
+            with ro.local_context(rEnv) as rlc:
+                result = func(*args, **kargs)
+        except rinterface_lib.embedded.RRuntimeError as e:
+            ro.r.traceback()
+            raise e
         ro.r.gc()
         return result
 
@@ -449,7 +454,7 @@ def r2py(x, name=None,verbose=0):
 
 
 @rcontext
-def so2ad(so, assay=None, verbose=0, rEnv=None, **kwargs):
+def so2ad(so, assay=None, verbose=0, rEnv=None, skipScaleMtx = False, **kwargs):
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
     import scipy.sparse as ss
@@ -468,18 +473,26 @@ def so2ad(so, assay=None, verbose=0, rEnv=None, **kwargs):
     )
 
     for slot in ["counts", "data"]:
-        ad.layers[f"{assay}_{slot}"] = r2py(
+        ar_mtx = r2py(
             R(f"""GetAssayData(object=so, assay='{assay}', slot='{slot}')"""), verbose=verbose
         ).T
-    df_scale = r2py(
-        R(
-            f"""GetAssayData(object=so, assay='{assay}', slot='scale.data') %>% as.data.frame"""
-        ), verbose=verbose
-    ).T
-    if df_scale.empty:
-        pass
-    else:
-        ad.obsm[f"{assay}_scale.data"] = df_scale
+        if ar_mtx.shape == (0,0):
+            pass
+        else:
+            ad.layers[f"{assay}_{slot}"] = ar_mtx
+        # ad.layers[f"{assay}_{slot}"] = r2py(
+        #     R(f"""GetAssayData(object=so, assay='{assay}', slot='{slot}')"""), verbose=verbose
+        # ).T
+    if not skipScaleMtx:
+        df_scale = r2py(
+            R(
+                f"""GetAssayData(object=so, assay='{assay}', slot='scale.data') %>% as.data.frame"""
+            ), verbose=verbose
+        ).T
+        if df_scale.empty:
+            pass
+        else:
+            ad.obsm[f"{assay}_scale.data"] = df_scale
 
     if R("names(so@reductions)") is R("NULL"):
         pass

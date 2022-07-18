@@ -473,6 +473,7 @@ def getAlignmentScore(ad, batchKey, obsm, knn=20, plot=True, **dt_heatmapKwargs)
         index=dt_index.keys(),
         columns=dt_index.keys(),
     )
+    df_alignmentProcessed = df_alignmentProcessed.reindex(ad.obs[batchKey].cat.categories).reindex(ad.obs[batchKey].cat.categories, axis=1)
     if plot:
         ax = sns.heatmap(
             df_alignmentProcessed, cmap="Reds", annot=True, **dt_heatmapKwargs

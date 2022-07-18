@@ -551,6 +551,7 @@ def clustermap(
     addObsLegend=True,
     forceShowModuleColor=False,
     cmap="Reds",
+    legendPos = 1.05,
     **dt_arg,
 ):
     from ..otherTools import addColorLegendToAx
@@ -596,8 +597,9 @@ def clustermap(
     df_geneModuleChangeColor = df_geneModule.assign(
         module=lambda df: df["module"].map(dt_geneColor)
     )
-    if (len(dt_gene) == 1) | (not forceShowModuleColor):
-        df_geneModuleChangeColor = None
+    if (len(dt_gene) == 1):
+        if not forceShowModuleColor:
+            df_geneModuleChangeColor = None
     axs = sns.clustermap(
         df_mtx,
         cmap=cmap,
@@ -664,7 +666,7 @@ def clustermap(
         plt.xticks([])
         plt.yticks([])
     if addObsLegend:
-        legendPox = [1.05, 1]
+        legendPox = [legendPos, 1]
         for i, (anno, space) in enumerate(zip(obsAnno, space_obsAnnoLegend)):
             dt_color = basic.getadataColor(ad, anno)
             addColorLegendToAx(
@@ -677,9 +679,9 @@ def clustermap(
                 ha="left",
             )
             if legendAlign == "h":
-                legendPox = [1.05 + space, 1]
+                legendPox = [legendPos + space, 1]
             elif legendAlign == "v":
-                legendPox = [1.05, 1 - space]
+                legendPox = [legendPos, 1 - space]
 
     plt.sca(axs.ax_heatmap)
     if not col_label:
@@ -709,7 +711,7 @@ def clustermap(
     if cbarPos is (0.02, 0.8, 0.05, 0.18):
         axs.ax_cbar.set_position(
             [
-                axs.ax_heatmap.get_position().x1 + 0.05,
+                axs.ax_heatmap.get_position().x1 * legendPos,
                 axs.ax_heatmap.get_position().y0,
                 0.02,
                 0.1,

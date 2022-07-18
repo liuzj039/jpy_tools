@@ -686,7 +686,7 @@ def mergePdf(dir_inputPath, path_mergedPdf):
 
 
 def clusterWithKmeans(
-    df_mat, nClusters, minDistance = 1, kwargs_to_kmeans={}, kwargs_to_clustermap={}
+    df_mat, nClusters, maxDistance = 1, kwargs_to_kmeans={}, kwargs_to_clustermap={}
 ) -> Tuple[np.ndarray, List[str], Mapping[str, List[str]]]:
     """It takes a dataframe of features and their values, and clusters the features using kmeans. It then
     uses hierarchical clustering to cluster the features within each kmeans cluster. It then combines
@@ -739,9 +739,9 @@ def clusterWithKmeans(
     df_distance = pd.DataFrame(
         kmeans.transform(df_mat.values.T), index=df_mat.columns
     ).assign(
-        minDistance=lambda df: df.min(1),
+        distance=lambda df: df.min(1),
         module=lambda df: df.idxmin(1)
-    ).query("minDistance <= @minDistance")
+    ).query("distance <= @maxDistance")
     ls_usedFeature = df_distance.index.tolist()
 
     df_clusterFeature = pd.DataFrame(
@@ -831,9 +831,9 @@ def clusterWithKmeans(
     df_distance = pd.DataFrame(
         kmeans.transform(df_mat.values.T), index=df_mat.columns
     ).rename(columns = {y:x for x,y in dt_new2OldCluster.items()}).sort_index(axis=1).assign(
-        minDistance=lambda df: df.min(1),
+        distance=lambda df: df.min(1),
         module=lambda df: df.idxmin(1)
-    ).query('minDistance <= @minDistance')
+    ).query('distance <= @maxDistance')
     hierachicalWithKmeans = HierachicalWithKmeans(
         np.concatenate((*list(dt_dendrogram.values()), np.array(ls_kmeansDend))),
         df_mat.columns.to_list(),

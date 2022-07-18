@@ -410,6 +410,7 @@ def calculateEnrichScoreByCellex(
     clusterName: str = "leiden",
     batchKey: Optional[str] = None,
     copy: bool = False,
+    kayAddedPrefix: Optional[str] = None,
     dt_kwargsForCellex: dict = {},
 ) -> Optional[anndata.AnnData]:
     """
@@ -431,13 +432,13 @@ def calculateEnrichScoreByCellex(
     """
     import cellex
 
-    def _singleBatch(adata, layer, clusterName, dt_kwargsForCellex):
+    def _singleBatch(adata, layer, clusterName, kayAddedPrefix, dt_kwargsForCellex):
         df_mtx = adata.to_df(layer).T if layer else adata.to_df().T
         df_meta = adata.obs[[clusterName]].rename({clusterName: "cell_type"}, axis=1)
         eso = cellex.ESObject(data=df_mtx, annotation=df_meta, **dt_kwargsForCellex)
         eso.compute()
         mtx_enrichScore = eso.results["esmu"].reindex(adata.var.index).fillna(0)
-        adata.varm[f"{clusterName}_cellexES"] = mtx_enrichScore
+        adata.varm[f"{kayAddedPrefix}_cellexES"] = mtx_enrichScore
 
         mtx_geneExpRatio = (
             adata.to_df(layer)
@@ -483,22 +484,25 @@ def calculateEnrichScoreByCellex(
                 right_on=["gene", clusterName],
             )
         )
-        adata.uns[f"{clusterName}_cellexES"] = df_result
+        adata.uns[f"{kayAddedPrefix}_cellexES"] = df_result
 
     adata = adata.copy() if copy else adata
     basic.testAllCountIsInt(adata, layer)
 
+    if kayAddedPrefix is None:
+        kayAddedPrefix = clusterName
+
     if layer == "X":
         layer = None
     if batchKey is None:
-        _singleBatch(adata, layer, clusterName, dt_kwargsForCellex)
+        _singleBatch(adata, layer, clusterName, kayAddedPrefix, dt_kwargsForCellex)
     else:
         ls_batchAd = basic.splitAdata(adata, batchKey, needName=True)
-        adata.uns[f"{clusterName}_cellexES"] = {}
+        adata.uns[f"{kayAddedPrefix}_cellexES"] = {}
         for sample, ad_batch in ls_batchAd:
-            _singleBatch(ad_batch, layer, clusterName, dt_kwargsForCellex)
-            adata.uns[f"{clusterName}_cellexES"][sample] = ad_batch.uns[
-                f"{clusterName}_cellexES"
+            _singleBatch(ad_batch, layer, clusterName, kayAddedPrefix, dt_kwargsForCellex)
+            adata.uns[f"{kayAddedPrefix}_cellexES"][sample] = ad_batch.uns[
+                f"{kayAddedPrefix}_cellexES"
             ]
 
     if copy:
