@@ -5,5 +5,4 @@ cosg
 patchworklib
 ont-fast5-api
 cool
-rpy2>=3.5
-anndata2ri>=1.1
+cellex

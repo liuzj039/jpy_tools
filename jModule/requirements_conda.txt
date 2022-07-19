@@ -1,0 +1,57 @@
+# python
+python>=3.8,<3.9
+rpy2>=3.5
+loguru
+joblib
+sh
+h5py
+tqdm
+more-itertools
+ipykernel
+
+# scientific calculation
+numpy
+pandas
+statsmodels
+scipy
+xarray
+
+# biology
+pysam
+pyranges
+scanpy
+squidpy
+stlearn
+anndata>=0.8
+scvi-tools>=0.15
+anndata2ri>=1.1
+harmonypy
+scanorama
+
+# visualization
+matplotlib
+seaborn
+
+# R package
+r-base>=4.1,<4.2
+r-arrow
+r-reticulate
+r-sctransform
+r-seurat>=4.1
+r-tidyverse
+bioconductor-aucell
+bioconductor-cellid
+bioconductor-deseq2
+bioconductor-mofa2
+bioconductor-sc3
+bioconductor-scdblfinder
+bioconductor-scran
+bioconductor-singlecellexperiment
+
+# pip only
+# muon
+# mudata
+# cosg
+# patchworklib
+# ont-fast5-api
+# cool
