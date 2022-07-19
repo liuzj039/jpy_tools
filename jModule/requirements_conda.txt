@@ -21,7 +21,6 @@ joblib
 sh
 h5py
 tqdm
-rpy2>=3.5
 more-itertools
 
 # scientific calculation
@@ -38,7 +37,6 @@ scanpy
 squidpy
 stlearn
 anndata>=0.8
-anndata2ri>=1.1
 scvi-tools>=0.15
 harmonypy
 scanorama
@@ -54,3 +52,5 @@ seaborn
 # patchworklib
 # ont-fast5-api
 # cool
+# rpy2>=3.5
+# anndata2ri>=1.1
