@@ -1,0 +1,40 @@
+# python
+python==3.8
+loguru
+joblib
+sh
+h5py
+tqdm
+more-itertools
+
+# scientific calculation
+numpy
+pandas
+statsmodels
+scipy
+xarray
+
+# biology
+pysam
+pyranges
+scanpy
+squidpy
+stlearn
+anndata>=0.8
+scvi-tools>=0.15
+harmonypy
+scanorama
+
+# visualization
+matplotlib
+seaborn
+
+# pip only
+# muon
+# mudata
+# cosg
+# patchworklib
+# ont-fast5-api
+# cool
+# rpy2>=3.5
+# anndata2ri>=1.1
