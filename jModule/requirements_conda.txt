@@ -8,13 +8,14 @@ h5py
 tqdm
 more-itertools
 ipykernel
-
+httplib2>0.19,<0.20
 # scientific calculation
 numpy
 pandas
 statsmodels
 scipy
 xarray
+ipykernel
 
 # biology
 pysam
