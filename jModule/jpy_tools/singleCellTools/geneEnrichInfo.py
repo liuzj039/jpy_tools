@@ -217,6 +217,8 @@ def getUcellScore(
     rBase = importr("base")
 
     layer = None if layer == "X" else layer
+    for x in dt_deGene.keys():
+        assert isinstance(x, str), f"`dt_deGene`: {x} is not a string"
     dtR_deGene = {x: R.c(*y) for x, y in dt_deGene.items()}
     dtR_deGene = R.list(**dtR_deGene)
     if batch:

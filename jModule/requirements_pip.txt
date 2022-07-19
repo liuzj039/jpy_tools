@@ -1,0 +1,7 @@
+# pip only
+muon>=0.1.2
+mudata>=0.2.0
+cosg
+patchworklib
+ont-fast5-api
+cool
