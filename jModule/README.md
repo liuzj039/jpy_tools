@@ -25,3 +25,12 @@ pip install -r requirements_pip.txt
 python setup.py install
 ```
 
+# Tips
+The following code snippets need to be added to the python script if the global environment variables are not set.
+```python
+import os
+os.environ['PATH'] = '{conda_path}/envs/sc_py/bin:' + os.environ['PATH']
+import rpy2.robjects as ro
+ro.r(".libPaths")("{conda_path}/envs/sc_py/lib/R/library")
+```
+{conda_path} is the folder where conda is installed.
