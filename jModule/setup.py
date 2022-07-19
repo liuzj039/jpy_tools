@@ -1,6 +1,6 @@
 from setuptools import setup
 
-with open("requirements.txt") as req_file:
+with open("requirements_pip.txt") as req_file:
     requirements = [req.strip() for req in req_file.readlines()]
 
 setup(
