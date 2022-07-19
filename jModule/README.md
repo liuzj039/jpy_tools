@@ -12,7 +12,8 @@ conda activate sc_py
 ```
 1.2 install conda packages
 ```bash
-conda install --file requirements_conda.txt -c conda-forge -c r -c bioconda
+conda install --file requirements_py.txt -c conda-forge -c r -c bioconda # or mamba
+conda install --file requirements_r.txt -c conda-forge -c r -c bioconda # or mamba
 ```
 1.3 install pip packages
 ```bash
