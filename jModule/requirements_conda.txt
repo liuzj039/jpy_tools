@@ -21,8 +21,8 @@ joblib
 sh
 h5py
 tqdm
-rpy2>3.5
-more_itertools
+rpy2>=3.5
+more-itertools
 
 # scientific calculation
 numpy
