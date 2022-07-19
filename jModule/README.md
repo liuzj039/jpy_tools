@@ -16,7 +16,7 @@ conda install --file requirements_py.txt -c conda-forge -c r -c bioconda -n sc_p
 conda install --file requirements_r.txt -c conda-forge -c r -c bioconda -n sc_r # or mamba
 
 conda activate sc_py
-ln -s `realpath $CONDA_PREFIX/../test_jModule_R/bin/R` $CONDA_PREFIX/bin/R # link R envirment
+ln -s `realpath $CONDA_PREFIX/../sc_r/bin/R` $CONDA_PREFIX/bin/R # link R envirment
 ```
 1.3 install pip packages
 ```bash
