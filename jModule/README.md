@@ -14,7 +14,7 @@ conda create -n sc_py
 conda install --file requirements_conda.txt -c conda-forge -c r -c bioconda -n sc_py # or mamba
 
 conda activate sc_py
-python -m ipykernel install --user --display-name 'sc_py' # add jupyter kernel
+python -m ipykernel install --name sc_py --user # add jupyter kernel
 ```
 - install pip packages
 ```bash
