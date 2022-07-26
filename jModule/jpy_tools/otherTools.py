@@ -7,6 +7,7 @@ LastEditTime: 2021-01-29 13:20:18
 FilePath: /jpy_tools/otherTools.py
 """
 import os
+from functools import partial as _partial
 import sh
 import pandas as pd
 import numpy as np
@@ -16,7 +17,6 @@ import sys
 from threading import Thread
 import matplotlib.pyplot as plt
 import seaborn as sns
-from cool import F
 from matplotlib.widgets import PolygonSelector
 from matplotlib.path import Path
 import torch
@@ -34,6 +34,26 @@ from typing import (
     Dict,
 )
 from jpy_tools import settings
+
+
+class F(_partial):
+    """
+    Python Pipe. e.g.`range(10) | F(filter, lambda x: x % 2) | F(sum)`
+    """
+
+    def __call__(self, *args, **keywords):
+        args_iter = iter(args)
+        return self.func(
+            *map(lambda arg: (next(args_iter) if arg == ... else arg), self.args),
+            *args_iter,
+            **{**self.keywords, **keywords},
+        )
+
+    def __ror__(self, other):
+        return self(other)
+
+    def __rrshift__(self, other):
+        return self(other)
 
 
 def setSeed(seed=0):
@@ -629,36 +649,40 @@ class SelectByPolygon:
         self.poly.disconnect_events()
         plt.close()
 
+
 def pwStack(ls_ax, ncols=5, wmargin=None, hmargin=None):
     import patchworklib as pw
     from more_itertools import chunked
     from cool import F
-    margin_bc = pw.param['margin']
+
+    margin_bc = pw.param["margin"]
     if wmargin is None:
         wmargin = margin_bc
     if hmargin is None:
         hmargin = margin_bc
-        
+
     ls_ax = chunked(ls_ax, ncols) | F(list)
     if len(ls_ax) == 1:
-        pw.param['margin'] = wmargin
+        pw.param["margin"] = wmargin
         axs = pw.stack(ls_ax[0])
     elif len(ls_ax[-1]) == ncols:
-        pw.param['margin'] = wmargin
+        pw.param["margin"] = wmargin
         ls_axs = [pw.stack(x) for x in ls_ax]
-        pw.param['margin'] = hmargin
+        pw.param["margin"] = hmargin
         axs = pw.stack(ls_axs, operator="/")
     else:
         ls_name = [x.get_label() for x in ls_ax[-2]]
-        
-        pw.param['margin'] = wmargin
+
+        pw.param["margin"] = wmargin
         ls_axs = [pw.stack(x) for x in ls_ax[:-1]]
-        pw.param['margin'] = hmargin
+        pw.param["margin"] = hmargin
         axs = pw.stack(ls_axs, operator="/")
         for i, ax in enumerate(ls_ax[-1]):
             axs = axs[ls_name[i]] / ax
-    pw.param['margin'] = margin_bc
+    pw.param["margin"] = margin_bc
     return axs
+
+
 # def pwStack(ls_ax, ncols=5):
 #     import patchworklib as pw
 #     from more_itertools import chunked
@@ -715,7 +739,7 @@ def mergePdf(dir_inputPath, path_mergedPdf):
 
 
 def clusterWithKmeans(
-    df_mat, nClusters, maxDistance = 1, kwargs_to_kmeans={}, kwargs_to_clustermap={}
+    df_mat, nClusters, maxDistance=1, kwargs_to_kmeans={}, kwargs_to_clustermap={}
 ) -> Tuple[np.ndarray, List[str], Mapping[str, List[str]]]:
     """It takes a dataframe of features and their values, and clusters the features using kmeans. It then
     uses hierarchical clustering to cluster the features within each kmeans cluster. It then combines
@@ -765,12 +789,11 @@ def clusterWithKmeans(
     kmeans = KMeans(n_clusters=nClusters, random_state=0, **kwargs_to_kmeans).fit(
         df_mat.T
     )
-    df_distance = pd.DataFrame(
-        kmeans.transform(df_mat.values.T), index=df_mat.columns
-    ).assign(
-        distance=lambda df: df.min(1),
-        module=lambda df: df.idxmin(1)
-    ).query("distance <= @maxDistance")
+    df_distance = (
+        pd.DataFrame(kmeans.transform(df_mat.values.T), index=df_mat.columns)
+        .assign(distance=lambda df: df.min(1), module=lambda df: df.idxmin(1))
+        .query("distance <= @maxDistance")
+    )
     ls_usedFeature = df_distance.index.tolist()
 
     df_clusterFeature = pd.DataFrame(
@@ -779,9 +802,15 @@ def clusterWithKmeans(
     dt_clusterFeature = (
         df_clusterFeature.groupby("cluster")["feature"].agg(list).to_dict()
     )
-    ls_clusterOrder = sorted(list(dt_clusterFeature.keys()), key=lambda x: len(dt_clusterFeature[x]), reverse=True)
-    dt_new2OldCluster = {x:y for x,y in enumerate(ls_clusterOrder)}
-    dt_clusterFeature = {x:dt_clusterFeature[dt_new2OldCluster[x]] for x in dt_new2OldCluster.keys()}
+    ls_clusterOrder = sorted(
+        list(dt_clusterFeature.keys()),
+        key=lambda x: len(dt_clusterFeature[x]),
+        reverse=True,
+    )
+    dt_new2OldCluster = {x: y for x, y in enumerate(ls_clusterOrder)}
+    dt_clusterFeature = {
+        x: dt_clusterFeature[dt_new2OldCluster[x]] for x in dt_new2OldCluster.keys()
+    }
 
     dt_clusterFeature = {
         i: dt_clusterFeature[x]
@@ -855,18 +884,28 @@ def clusterWithKmeans(
             )
     HierachicalWithKmeans = namedlist(
         "HierachicalWithKmeans",
-        ["linkage", "featureOrder", "kMeansCluster", "kMeans", "distance", "clusterRenameInfo"],
+        [
+            "linkage",
+            "featureOrder",
+            "kMeansCluster",
+            "kMeans",
+            "distance",
+            "clusterRenameInfo",
+        ],
     )
-    df_distance = pd.DataFrame(
-        kmeans.transform(df_mat.values.T), index=df_mat.columns
-    ).rename(columns = {y:x for x,y in dt_new2OldCluster.items()}).sort_index(axis=1).assign(
-        distance=lambda df: df.min(1),
-        module=lambda df: df.idxmin(1)
-    ).query('distance <= @maxDistance')
+    df_distance = (
+        pd.DataFrame(kmeans.transform(df_mat.values.T), index=df_mat.columns)
+        .rename(columns={y: x for x, y in dt_new2OldCluster.items()})
+        .sort_index(axis=1)
+        .assign(distance=lambda df: df.min(1), module=lambda df: df.idxmin(1))
+        .query("distance <= @maxDistance")
+    )
     hierachicalWithKmeans = HierachicalWithKmeans(
         np.concatenate((*list(dt_dendrogram.values()), np.array(ls_kmeansDend))),
         df_mat.columns.to_list(),
         dt_clusterFeature,
-        kmeans, df_distance, dt_new2OldCluster
+        kmeans,
+        df_distance,
+        dt_new2OldCluster,
     )
     return hierachicalWithKmeans

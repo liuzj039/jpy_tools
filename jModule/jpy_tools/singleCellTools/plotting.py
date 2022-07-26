@@ -29,7 +29,7 @@ from typing import (
     Mapping,
     Callable,
 )
-from cool import F
+from ..otherTools import F
 import collections
 from xarray import corr
 import matplotlib as mpl

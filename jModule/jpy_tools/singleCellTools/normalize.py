@@ -36,7 +36,6 @@ from . import basic
 from ..otherTools import setSeed
 from ..rTools import rcontext
 
-
 def normalizeMultiAd(multiAd, removeAmbiguous=True):
     """
     normalize illumina and nanopore data separately, each cell's sum counts will equals to 3e4
@@ -282,7 +281,7 @@ def normalizeBySCT_r(
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
     from ..rTools import ad2so, so2ad, so2md
-    from cool import F
+    from ..otherTools import F
 
     importr("DescTools")
     rBase = importr("base")
@@ -549,7 +548,7 @@ def integrateBySeurat(
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
     from ..rTools import ad2so, so2ad
-    from cool import F
+    from ..otherTools import F
 
     rBase = importr("base")
     rUtils = importr("utils")

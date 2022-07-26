@@ -25,8 +25,7 @@ from typing import (
 )
 import stlearn as st
 import scipy.sparse as ss
-from cool import F
-from ..otherTools import setSeed
+from ..otherTools import setSeed, F
 import warnings
 
 warnings.warn(

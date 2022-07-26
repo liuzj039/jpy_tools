@@ -35,7 +35,7 @@ import scipy.sparse as ss
 from . import basic
 import pysam
 from collections import defaultdict
-from cool import F
+from ..otherTools import F
 import muon
 from functools import reduce
 import muon as mu
