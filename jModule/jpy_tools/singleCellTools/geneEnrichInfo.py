@@ -455,12 +455,22 @@ def calculateEnrichScoreByCellex(
         )
 
         ls_cluster = adata.obs[clusterName].unique()
-        mtx_binary = (adata.to_df(layer) > 0).astype(int)
+        # mtx_binary = (adata.to_df(layer) > 0).astype(int)
 
+        # dt_geneExpRatioOtherCluster = {}
+        # for cluster in ls_cluster:
+        #     ls_index = adata.obs[clusterName].pipe(lambda sr: sr[sr != cluster]).index
+        #     dt_geneExpRatioOtherCluster[cluster] = mtx_binary.loc[ls_index].mean(0)
+        
         dt_geneExpRatioOtherCluster = {}
         for cluster in ls_cluster:
             ls_index = adata.obs[clusterName].pipe(lambda sr: sr[sr != cluster]).index
-            dt_geneExpRatioOtherCluster[cluster] = mtx_binary.loc[ls_index].mean(0)
+            _ad = adata[ls_index]
+            _ar = (_ad.layers[layer] > 0).mean(0)
+            if isinstance(_ar, np.matrix):
+                _ar = _ar.A1
+            dt_geneExpRatioOtherCluster[cluster] = pd.Series(_ar, index=_ad.var.index)
+
 
         mtx_geneExpRatioOtherCluster = pd.DataFrame.from_dict(
             dt_geneExpRatioOtherCluster
@@ -486,7 +496,7 @@ def calculateEnrichScoreByCellex(
                 right_on=["gene", clusterName],
             )
         )
-        adata.uns[f"{kayAddedPrefix}_cellexES"] = df_result
+        adata.uns[f"{kayAddedPrefix}_cellexES"] = df_result.copy()
 
     adata = adata.copy() if copy else adata
     basic.testAllCountIsInt(adata, layer)
@@ -1775,3 +1785,51 @@ def timeSeriesAnalysisByMfuzz(
         ad.varm[keyAdded] = df_mfuzzMembership.reindex(ad.var.index)
 
     return ad_merged
+
+def getLigrecPairCounts(ad:sc.AnnData, ligrecKey:str, maxPValue:float, minMean:float) -> pd.DataFrame:
+    '''It takes in an AnnData object, a ligrec key, a maximum p-value, and a minimum mean, and returns a
+    dataframe of pairwise ligrec counts
+    
+    Parameters
+    ----------
+    ad : sc.Anndata
+        the AnnData object
+    ligrecKey : str
+        the key of the ligrec results in the ad.uns
+    maxPValue : float
+        the maximum p-value for a ligand-receptor pair to be considered significant
+    minMean : float
+        the minimum mean expression of the ligand-receptor pair
+    
+    Returns
+    -------
+        A dataframe with the number of ligand-receptor pairs that have a p-value less than or equal to
+    maxPValue and a mean greater than or equal to minMean.
+    
+    '''
+    df_pvalue = ad.uns[ligrecKey]["pvalues"]
+    df_means = ad.uns[ligrecKey]["means"]
+    ls_cluster = df_pvalue.columns.get_level_values(0).unique()
+
+    from itertools import product
+
+    dt_lrPairCounts = {}
+    for sourceCluster, targetCluster in product(ls_cluster, ls_cluster):
+        _df = pd.concat(
+            (
+                df_pvalue.xs((sourceCluster, targetCluster), axis=1).rename("p_value"),
+                df_means.xs((sourceCluster, targetCluster), axis=1).rename("mean"),
+            ),
+            axis=1,
+        ).query("p_value <= @maxPValue & mean >= @minMean")
+        dt_lrPairCounts[(sourceCluster, targetCluster)] = len(_df)
+
+    df_pairCounts = (
+        pd.DataFrame(
+            dt_lrPairCounts.values(), index=dt_lrPairCounts.keys(), columns=["pairCounts"]
+        )
+        .unstack()
+        .droplevel(level=0, axis=1)
+        .rename_axis(index="source", columns="target")
+    )
+    return df_pairCounts

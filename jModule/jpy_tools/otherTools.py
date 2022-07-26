@@ -629,23 +629,52 @@ class SelectByPolygon:
         self.poly.disconnect_events()
         plt.close()
 
-
-def pwStack(ls_ax, ncols=5):
+def pwStack(ls_ax, ncols=5, wmargin=None, hmargin=None):
     import patchworklib as pw
     from more_itertools import chunked
     from cool import F
-
+    margin_bc = pw.param['margin']
+    if wmargin is None:
+        wmargin = margin_bc
+    if hmargin is None:
+        hmargin = margin_bc
+        
     ls_ax = chunked(ls_ax, ncols) | F(list)
     if len(ls_ax) == 1:
+        pw.param['margin'] = wmargin
         axs = pw.stack(ls_ax[0])
-    elif len(ls_ax) % ncols == 0:
-        axs = pw.stack([pw.stack(x) for x in ls_ax], operator="/")
+    elif len(ls_ax[-1]) == ncols:
+        pw.param['margin'] = wmargin
+        ls_axs = [pw.stack(x) for x in ls_ax]
+        pw.param['margin'] = hmargin
+        axs = pw.stack(ls_axs, operator="/")
     else:
-        axs = pw.stack([pw.stack(x) for x in ls_ax[:-1]], operator="/")
-        ls_name = list(axs.bricks_dict.keys())
+        ls_name = [x.get_label() for x in ls_ax[-2]]
+        
+        pw.param['margin'] = wmargin
+        ls_axs = [pw.stack(x) for x in ls_ax[:-1]]
+        pw.param['margin'] = hmargin
+        axs = pw.stack(ls_axs, operator="/")
         for i, ax in enumerate(ls_ax[-1]):
             axs = axs[ls_name[i]] / ax
+    pw.param['margin'] = margin_bc
     return axs
+# def pwStack(ls_ax, ncols=5):
+#     import patchworklib as pw
+#     from more_itertools import chunked
+#     from cool import F
+
+#     ls_ax = chunked(ls_ax, ncols) | F(list)
+#     if len(ls_ax) == 1:
+#         axs = pw.stack(ls_ax[0])
+#     elif len(ls_ax) % ncols == 0:
+#         axs = pw.stack([pw.stack(x) for x in ls_ax], operator="/")
+#     else:
+#         axs = pw.stack([pw.stack(x) for x in ls_ax[:-1]], operator="/")
+#         ls_name = list(axs.bricks_dict.keys())
+#         for i, ax in enumerate(ls_ax[-1]):
+#             axs = axs[ls_name[i]] / ax
+#     return axs
 
 
 def pwRecoverSeaborn():
