@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import scanpy as sc
 import matplotlib.pyplot as plt
+import patchworklib as pw
 import matplotlib as mpl
 import seaborn as sns
 import anndata
@@ -36,6 +37,7 @@ import collections
 from xarray import corr
 from . import basic, diffxpy
 from ..rTools import rcontext
+from ..otherTools import F, pwStack, pwShow
 
 
 def getBgGene(
@@ -949,9 +951,65 @@ def getCosgResult(ad, key="cosg") -> pd.DataFrame:
     )
     return df
 
+def getAUCellScore(
+    ad,
+    dt_genes,
+    layer,
+    threads=1,
+    aucMaxRank=500,
+    aucMaxPropotion=None,
+    label="AUCell",
+    calcThreshold=False,
+    thresholdsHistCol=5,
+    dt_kwargs2aucell = {},
+    **dt_kwargs
+):
+    from pyscenic.transform import df2regulons
+    from pyscenic.aucell import aucell
+    from pyscenic.plotting import plot_binarization
+    from pyscenic.binarization import binarize
+
+    assert not (aucMaxRank is None) & (aucMaxPropotion is None), "Either aucMaxRank or aucMaxPropotion must be specified"
+    assert not ((not aucMaxRank is None) & (not aucMaxPropotion is None)), "aucMaxRank and aucMaxPropotion cannot be specified at the same time"
+    if not aucMaxRank is None:
+        aucMaxPropotion = aucMaxRank / ad.shape[1]
+    df_mtx = ad.to_df(layer)
+
+    df_pseudoMotif = pd.DataFrame(columns = ['TF', 'MotifID', 'AUC', 'Annotation', 'Context', 'MotifSimilarityQvalue', 'NES', 'OrthologousIdentity', 'RankAtMax', 'TargetGenes', 'MotifLogo'])
+    for geneSetName, ls_gene in dt_genes.items():
+        _sr = pd.Series([geneSetName, geneSetName, np.nan, geneSetName, (np.nan,), np.nan, np.nan, np.nan, np.nan, [(x, 0.5) for x in ls_gene], np.nan],
+                ['TF', 'MotifID', 'AUC', 'Annotation', 'Context', 'MotifSimilarityQvalue', 'NES', 'OrthologousIdentity', 'RankAtMax', 'TargetGenes', 'MotifLogo'])
+        df_pseudoMotif.loc[df_pseudoMotif.shape[0]] = _sr
+    ls_reg = df2regulons(df_pseudoMotif) >> F(map, lambda x:x.rename(x.transcription_factor)) >> F(list)
+
+    df_auc = aucell(
+        df_mtx,
+        signatures=ls_reg,
+        auc_threshold=aucMaxPropotion, num_workers=threads,
+        noweights=True, seed=0, **dt_kwargs2aucell
+    )
+    # import pdb;pdb.set_trace()
+    ad.obsm[label] = df_auc.reindex(ad.obs.index)
+
+    if calcThreshold:
+        df_binary, sr_aucThresholds = binarize(df_auc, seed=0, num_workers=threads)
+        lsBk = []
+        for geneSetName in dt_genes.keys():
+            bk = pw.Brick(figsize=(3,2))
+            plot_binarization(df_auc, 'all', sr_aucThresholds['all'], ax=bk)
+            plt.close()
+            lsBk.append(bk)
+        bk = pwStack(lsBk, thresholdsHistCol)
+        pwShow(bk)
+
+        ad.uns[label] = sr_aucThresholds.copy()
+        ad.obsm[f"{label}_binary"] = df_binary.reindex(ad.obs.index)
+        
+
+
 
 @rcontext
-def getAUCellScore(
+def getAUCellScore_r(
     ad,
     dt_genes,
     layer,

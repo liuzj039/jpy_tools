@@ -16,6 +16,8 @@ from io import StringIO
 import sys
 from threading import Thread
 import matplotlib.pyplot as plt
+import matplotlib as mpl
+import patchworklib as pw
 import seaborn as sns
 from matplotlib.widgets import PolygonSelector
 from matplotlib.path import Path
@@ -909,3 +911,14 @@ def clusterWithKmeans(
         dt_new2OldCluster,
     )
     return hierachicalWithKmeans
+
+def pwShow(fig):
+    if isinstance(fig, (pw.Brick, pw.Bricks)):
+        fig = fig.savefig()
+    assert isinstance(fig, mpl.figure.Figure), "Unknown object type"
+    dummy = plt.figure()
+    new_manager = dummy.canvas.manager
+    new_manager.canvas.figure = fig
+    fig.set_canvas(new_manager.canvas)
+    fig.show()
+    plt.show()

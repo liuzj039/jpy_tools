@@ -6,3 +6,4 @@ patchworklib
 ont-fast5-api
 cool
 cellex
+pyscenic>=0.11.2
