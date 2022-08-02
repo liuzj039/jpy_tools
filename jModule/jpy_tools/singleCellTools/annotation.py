@@ -955,6 +955,7 @@ def labelTransferByCelltypist(
     ad_query: sc.AnnData,
     queryLayer: str,
     mode: Literal["best match", "prob match"] = "prob match",
+    model = None,
     dt_kwargs2train=dict(
         feature_selection=True,
         top_genes=300,
@@ -986,7 +987,7 @@ def labelTransferByCelltypist(
 
     Returns
     -------
-        celltypist.classifier.AnnotationResult
+        (celltypist.classifier.AnnotationResult, model)
     """
     import celltypist
 
@@ -995,7 +996,8 @@ def labelTransferByCelltypist(
     ad_ref.X = ad_ref.layers[refLayer]
     ad_query.X = ad_query.layers[queryLayer]
 
-    model = celltypist.train(ad_ref, labels=refLabel, **dt_kwargs2train)
+    if model is None:
+        model = celltypist.train(ad_ref, labels=refLabel, **dt_kwargs2train)
 
     predictions = celltypist.annotate(
         ad_query, model=model, mode=mode, **dt_kwargs2annotate
@@ -1008,4 +1010,4 @@ def labelTransferByCelltypist(
     ).join(df_predResults)
     if mode == "prob match":
         ad_queryOrg.obsm[f"celltypist_{refLabel}"] = predictions.probability_matrix
-    return predictions
+    return predictions, model
