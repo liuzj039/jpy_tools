@@ -530,7 +530,7 @@ def loadPkl(name: str, readFc=None, arg_path=None, dir_path=None, **dt_arg):
     return obj
 
 
-def getGoDesc(goTerm: Union[str, List[str]], retry=5) -> pd.DataFrame:
+def getGoDesc(goTerm: Union[str, List[str]], retry=5, verbose=True) -> pd.DataFrame:
     """
     query GO term description from QuickGO
 
@@ -573,10 +573,14 @@ def getGoDesc(goTerm: Union[str, List[str]], retry=5) -> pd.DataFrame:
         goTerm = [goTerm]
     for x in goTerm:
         assert x.startswith("GO:"), f"Wrong format: {x}"
-
-    ls_goTerm = Parallel(128, "threading")(
-        delayed(_getGOcomment)(x, retry) for x in tqdm(goTerm, position=0)
-    )
+    if verbose:
+        ls_goTerm = Parallel(128, "threading")(
+            delayed(_getGOcomment)(x, retry) for x in tqdm(goTerm, position=0)
+        )
+    else:
+        ls_goTerm = Parallel(128, "threading")(
+            delayed(_getGOcomment)(x, retry) for x in goTerm
+        )
 
     dt_go = {}
     for name, dt_singleGo in ls_goTerm:

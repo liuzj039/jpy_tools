@@ -209,7 +209,7 @@ def vsRest(
             with ProcessPoolExecutor(threads) as mtp:
                 for singleGroup in groups:
                     dt_diffxpyResult[singleGroup] = mtp.submit(
-                        diffxpy._getDiffxpy,
+                        _getDiffxpy,
                         adata,
                         testLabel,
                         singleGroup,
@@ -226,7 +226,7 @@ def vsRest(
     else:
         adata.X = adata.X.A if ss.issparse(adata.X) else adata.X
         for singleGroup in groups:
-            ad_test = diffxpy.parseAdToDiffxpyFormat(
+            ad_test = parseAdToDiffxpyFormat(
                 adata,
                 testLabel,
                 singleGroup,
@@ -234,7 +234,7 @@ def vsRest(
                 minCellCounts=minCellCounts,
                 keyAdded="temp",
             )
-            test = diffxpy.testTwoSample(
+            test = testTwoSample(
                 ad_test,
                 "temp",
                 batchLabel,
@@ -322,7 +322,7 @@ def pairWise(
             continue
         testGroup = groups[x]
         backgroundGroup = groups[y]
-        ad_test = diffxpy.parseAdToDiffxpyFormat(
+        ad_test = parseAdToDiffxpyFormat(
             adata,
             testLabel,
             testGroup,
@@ -331,7 +331,7 @@ def pairWise(
             minCellCounts=minCellCounts,
             keyAdded="temp",
         )
-        test = diffxpy.testTwoSample(
+        test = testTwoSample(
             ad_test,
             "temp",
             batchLabel,
@@ -482,7 +482,7 @@ def _getDiffxpy(
 ):  
     import scipy.sparse as ss
     from multiprocessing.shared_memory import SharedMemory
-    ad_parsed = diffxpy.parseAdToDiffxpyFormat(
+    ad_parsed = parseAdToDiffxpyFormat(
         adata,
         testLabel,
         testComp,
@@ -502,7 +502,7 @@ def _getDiffxpy(
         ad_parsed.X = mtxInShm
         ad_parsed = adata[adata.obs['keep'], ls_keepVar]
 
-    df_diffxpyResult = diffxpy.testTwoSample(
+    df_diffxpyResult = testTwoSample(
         ad_parsed,
         "temp",
         batchLabel,

@@ -18,6 +18,8 @@ scipy
 xarray
 ipykernel
 pyarrow
+dask=2021.4.0
+sparse=0.9.1
 
 # biology
 pysam

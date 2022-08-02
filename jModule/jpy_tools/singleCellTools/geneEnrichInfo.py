@@ -463,7 +463,7 @@ def calculateEnrichScoreByCellex(
         # for cluster in ls_cluster:
         #     ls_index = adata.obs[clusterName].pipe(lambda sr: sr[sr != cluster]).index
         #     dt_geneExpRatioOtherCluster[cluster] = mtx_binary.loc[ls_index].mean(0)
-        
+
         dt_geneExpRatioOtherCluster = {}
         for cluster in ls_cluster:
             ls_index = adata.obs[clusterName].pipe(lambda sr: sr[sr != cluster]).index
@@ -472,7 +472,6 @@ def calculateEnrichScoreByCellex(
             if isinstance(_ar, np.matrix):
                 _ar = _ar.A1
             dt_geneExpRatioOtherCluster[cluster] = pd.Series(_ar, index=_ad.var.index)
-
 
         mtx_geneExpRatioOtherCluster = pd.DataFrame.from_dict(
             dt_geneExpRatioOtherCluster
@@ -514,7 +513,9 @@ def calculateEnrichScoreByCellex(
         ls_batchAd = basic.splitAdata(adata, batchKey, needName=True)
         adata.uns[f"{kayAddedPrefix}_cellexES"] = {}
         for sample, ad_batch in ls_batchAd:
-            _singleBatch(ad_batch, layer, clusterName, kayAddedPrefix, dt_kwargsForCellex)
+            _singleBatch(
+                ad_batch, layer, clusterName, kayAddedPrefix, dt_kwargsForCellex
+            )
             adata.uns[f"{kayAddedPrefix}_cellexES"][sample] = ad_batch.uns[
                 f"{kayAddedPrefix}_cellexES"
             ]
@@ -951,6 +952,7 @@ def getCosgResult(ad, key="cosg") -> pd.DataFrame:
     )
     return df
 
+
 def getAUCellScore(
     ad,
     dt_genes,
@@ -961,32 +963,109 @@ def getAUCellScore(
     label="AUCell",
     calcThreshold=False,
     thresholdsHistCol=5,
-    dt_kwargs2aucell = {},
-    **dt_kwargs
+    dt_kwargs2aucell={},
+    **dt_kwargs,
 ):
+    '''It takes a list of gene sets, and calculates the AUCell score for each gene set
+
+    Parameters
+    ----------
+    ad
+        AnnData object
+    dt_genes
+        a dictionary of gene sets. The keys are the names of the gene sets, and the values are lists of gene names.
+    layer
+        the name of the layer to use for the AUCell calculation.
+    threads, optional
+        number of threads to use
+    aucMaxRank, optional
+        the maximum rank of genes used for calculating AUCell score.
+    aucMaxPropotion
+        same as aucMaxRank.
+    label, optional
+        the name of the column in ad.obsm that will contain the AUCell scores
+    calcThreshold, optional
+        whether to calculate the threshold for binarization
+    thresholdsHistCol, optional
+        the number of columns in the histogram of thresholds
+    dt_kwargs2aucell
+        parameters for the aucell function
+
+    '''
     from pyscenic.transform import df2regulons
     from pyscenic.aucell import aucell
     from pyscenic.plotting import plot_binarization
     from pyscenic.binarization import binarize
 
-    assert not (aucMaxRank is None) & (aucMaxPropotion is None), "Either aucMaxRank or aucMaxPropotion must be specified"
-    assert not ((not aucMaxRank is None) & (not aucMaxPropotion is None)), "aucMaxRank and aucMaxPropotion cannot be specified at the same time"
+    assert not (aucMaxRank is None) & (
+        aucMaxPropotion is None
+    ), "Either aucMaxRank or aucMaxPropotion must be specified"
+    assert not (
+        (not aucMaxRank is None) & (not aucMaxPropotion is None)
+    ), "aucMaxRank and aucMaxPropotion cannot be specified at the same time"
     if not aucMaxRank is None:
         aucMaxPropotion = aucMaxRank / ad.shape[1]
     df_mtx = ad.to_df(layer)
 
-    df_pseudoMotif = pd.DataFrame(columns = ['TF', 'MotifID', 'AUC', 'Annotation', 'Context', 'MotifSimilarityQvalue', 'NES', 'OrthologousIdentity', 'RankAtMax', 'TargetGenes', 'MotifLogo'])
+    df_pseudoMotif = pd.DataFrame(
+        columns=[
+            "TF",
+            "MotifID",
+            "AUC",
+            "Annotation",
+            "Context",
+            "MotifSimilarityQvalue",
+            "NES",
+            "OrthologousIdentity",
+            "RankAtMax",
+            "TargetGenes",
+            "MotifLogo",
+        ]
+    )
     for geneSetName, ls_gene in dt_genes.items():
-        _sr = pd.Series([geneSetName, geneSetName, np.nan, geneSetName, (np.nan,), np.nan, np.nan, np.nan, np.nan, [(x, 0.5) for x in ls_gene], np.nan],
-                ['TF', 'MotifID', 'AUC', 'Annotation', 'Context', 'MotifSimilarityQvalue', 'NES', 'OrthologousIdentity', 'RankAtMax', 'TargetGenes', 'MotifLogo'])
+        _sr = pd.Series(
+            [
+                geneSetName,
+                geneSetName,
+                np.nan,
+                geneSetName,
+                (np.nan,),
+                np.nan,
+                np.nan,
+                np.nan,
+                np.nan,
+                [(x, 1) for x in ls_gene],
+                np.nan,
+            ],
+            [
+                "TF",
+                "MotifID",
+                "AUC",
+                "Annotation",
+                "Context",
+                "MotifSimilarityQvalue",
+                "NES",
+                "OrthologousIdentity",
+                "RankAtMax",
+                "TargetGenes",
+                "MotifLogo",
+            ],
+        )
         df_pseudoMotif.loc[df_pseudoMotif.shape[0]] = _sr
-    ls_reg = df2regulons(df_pseudoMotif) >> F(map, lambda x:x.rename(x.transcription_factor)) >> F(list)
+    ls_reg = (
+        df2regulons(df_pseudoMotif)
+        >> F(map, lambda x: x.rename(x.transcription_factor))
+        >> F(list)
+    )
 
     df_auc = aucell(
         df_mtx,
         signatures=ls_reg,
-        auc_threshold=aucMaxPropotion, num_workers=threads,
-        noweights=True, seed=0, **dt_kwargs2aucell
+        auc_threshold=aucMaxPropotion,
+        num_workers=threads,
+        noweights=True,
+        seed=0,
+        **dt_kwargs2aucell,
     )
     # import pdb;pdb.set_trace()
     ad.obsm[label] = df_auc.reindex(ad.obs.index)
@@ -995,17 +1074,15 @@ def getAUCellScore(
         df_binary, sr_aucThresholds = binarize(df_auc, seed=0, num_workers=threads)
         lsBk = []
         for geneSetName in dt_genes.keys():
-            bk = pw.Brick(figsize=(3,2))
-            plot_binarization(df_auc, 'all', sr_aucThresholds['all'], ax=bk)
+            bk = pw.Brick(figsize=(3, 2))
+            plot_binarization(df_auc, geneSetName, sr_aucThresholds[geneSetName], ax=bk)
             plt.close()
             lsBk.append(bk)
         bk = pwStack(lsBk, thresholdsHistCol)
         pwShow(bk)
 
-        ad.uns[label] = sr_aucThresholds.copy()
+        ad.uns[label] = sr_aucThresholds.to_dict()
         ad.obsm[f"{label}_binary"] = df_binary.reindex(ad.obs.index)
-        
-
 
 
 @rcontext
@@ -1361,7 +1438,7 @@ def scWGCNA(
                 logger.info(f"Soft Power: {softPower}")
             else:
                 softPower = int(input("Soft Power"))
-        rlc["softPower"] = softPower
+        rlc["softPower"] = int(softPower)
 
         if threads > 1:
             R(f"enableWGCNAThreads({threads})")
@@ -1542,27 +1619,33 @@ def _mergeData(ad, obsKey, layer="raw"):
     basic.testAllCountIsInt(ad, layer)
     ls_keyProduct = ad.obs[obsKey].value_counts().sort_index().index.to_list()
     if isinstance(obsKey, str):
-        ad.obs['temp_merge'] = ad.obs[obsKey].copy()
+        ad.obs["temp_merge"] = ad.obs[obsKey].copy()
         obsKey = [obsKey]
     else:
-        ad.obs['temp_merge'] = ad.obs[obsKey].apply(lambda x:tuple(x), axis=1)
+        ad.obs["temp_merge"] = ad.obs[obsKey].apply(lambda x: tuple(x), axis=1)
     lsSr_onehot = []
     for col in ls_keyProduct:
         if isinstance(col, str):
-            sr_col = pd.Series(index=ad.obs.index, name='||'.join([col])).fillna(0).astype(int)
+            sr_col = (
+                pd.Series(index=ad.obs.index, name="||".join([col]))
+                .fillna(0)
+                .astype(int)
+            )
         else:
-            sr_col = pd.Series(index=ad.obs.index, name='||'.join(col)).fillna(0).astype(int)
-        sr_col.where(ad.obs['temp_merge'] != col, 1, inplace=True)
+            sr_col = (
+                pd.Series(index=ad.obs.index, name="||".join(col)).fillna(0).astype(int)
+            )
+        sr_col.where(ad.obs["temp_merge"] != col, 1, inplace=True)
         lsSr_onehot.append(sr_col)
-    df_oneHot = pd.concat(lsSr_onehot,axis=1)
+    df_oneHot = pd.concat(lsSr_onehot, axis=1)
     ad_merge = sc.AnnData(
         df_oneHot.values.T @ ad.layers[layer],
         obs=pd.DataFrame(index=df_oneHot.columns),
         var=pd.DataFrame(index=ad.var.index),
     )
-    ad_merge.obs = ad_merge.obs.index.to_series().str.split('\|\|', expand=True)
+    ad_merge.obs = ad_merge.obs.index.to_series().str.split("\|\|", expand=True)
     ad_merge.obs.columns = obsKey
-    del(ad.obs['temp_merge'])
+    del ad.obs["temp_merge"]
     return ad_merge
 
 
@@ -1583,7 +1666,8 @@ def timeSeriesAnalysisByMfuzz(
     plotCounts=1000,
     repeats=3,
     threads=24,
-    ls_useGenes = None,
+    ls_useGenes=None,
+    standardise=True,
     rEnv=None,
 ):
     """`timeSeriesAnalysisByMfuzz` is a function that takes in a single cell RNA-seq dataframe, performs
@@ -1678,25 +1762,43 @@ def timeSeriesAnalysisByMfuzz(
         ad_merged = sc.concat(dt_adMerged, axis=1)
     if ls_useGenes is None:
         ls_useGenes = ad_merged.var.index.to_list()
-        
-    ls_genePassFilter = ((ad_merged.to_df("normalize_log") > 0).mean() >= filterGeneThres).pipe(lambda sr:sr.loc[sr]).index.to_list()
+
+    ls_genePassFilter = (
+        ((ad_merged.to_df("normalize_log") > 0).mean() >= filterGeneThres)
+        .pipe(lambda sr: sr.loc[sr])
+        .index.to_list()
+    )
     # import pdb;pdb.set_trace()
     logger.info(f"{ad_merged.shape[1] - len(ls_genePassFilter)} genes excluded")
     ls_genePassFilter = list(set(ls_genePassFilter) & set(ls_useGenes))
     logger.info(f"Total used gene counts {len(ls_genePassFilter)}")
-    esR_Merged = R.ExpressionSet(
-        rBase.as_matrix(py2r(ad_merged[:, ls_genePassFilter].to_df("normalize_log").T))
-    )  # esR: ExpressionSet # mfuzz only recognized NA as missing value
+
+    if standardise:
+        esR_Merged = R.ExpressionSet(
+            rBase.as_matrix(py2r(ad_merged[:, ls_genePassFilter].to_df("normalize_log").T))
+        )  # esR: ExpressionSet # mfuzz only recognized NA as missing value
+    else:
+        # zero center
+        ad_merged.layers['center'] = ad_merged.layers['normalize_log'] - ad_merged.layers['normalize_log'].mean(0)
+        esR_Merged = R.ExpressionSet(
+            rBase.as_matrix(py2r(ad_merged[:, ls_genePassFilter].to_df("center").T))
+        ) 
+
 
     rEnv["filterGeneThres"] = filterGeneThres
     rEnv["esR_Merged"] = esR_Merged
     rEnv["minMembership"] = minMembership
+    rEnv["standardise"] = standardise
 
     R(
         """
     # esR_Merged.r <- filter.NA(esR_Merged, thres=filterGeneThres)
     # esR_Merged.f <- fill.NA(esR_Merged.r,mode=fillNaGeneMethod)
-    esR_Merged.s <- standardise(esR_Merged)
+    if (standardise) {
+        esR_Merged.s <- standardise(esR_Merged)
+    } else {
+        esR_Merged.s <- esR_Merged
+    }
     m1 <- mestimate(esR_Merged.s)
     """
     )
@@ -1827,6 +1929,7 @@ def timeSeriesAnalysisByMfuzz(
     # plt.show()
     df_ms = df_ms.rename(columns={"cluster": "geneCategory"})
     ad_merged.varm[keyAdded] = df_ms.reindex(ad_merged.var.index)
+    ad_merged.obsm[keyAdded] = df_MergedScaledMtx
     if clusterObs is None:
         ad.varm[keyAdded] = df_ms.reindex(ad.var.index)
     else:
@@ -1844,10 +1947,13 @@ def timeSeriesAnalysisByMfuzz(
 
     return ad_merged
 
-def getLigrecPairCounts(ad:sc.AnnData, ligrecKey:str, maxPValue:float, minMean:float) -> pd.DataFrame:
-    '''It takes in an AnnData object, a ligrec key, a maximum p-value, and a minimum mean, and returns a
+
+def getLigrecPairCounts(
+    ad: sc.AnnData, ligrecKey: str, maxPValue: float, minMean: float
+) -> pd.DataFrame:
+    """It takes in an AnnData object, a ligrec key, a maximum p-value, and a minimum mean, and returns a
     dataframe of pairwise ligrec counts
-    
+
     Parameters
     ----------
     ad : sc.Anndata
@@ -1858,13 +1964,13 @@ def getLigrecPairCounts(ad:sc.AnnData, ligrecKey:str, maxPValue:float, minMean:f
         the maximum p-value for a ligand-receptor pair to be considered significant
     minMean : float
         the minimum mean expression of the ligand-receptor pair
-    
+
     Returns
     -------
         A dataframe with the number of ligand-receptor pairs that have a p-value less than or equal to
     maxPValue and a mean greater than or equal to minMean.
-    
-    '''
+
+    """
     df_pvalue = ad.uns[ligrecKey]["pvalues"]
     df_means = ad.uns[ligrecKey]["means"]
     ls_cluster = df_pvalue.columns.get_level_values(0).unique()
@@ -1884,7 +1990,9 @@ def getLigrecPairCounts(ad:sc.AnnData, ligrecKey:str, maxPValue:float, minMean:f
 
     df_pairCounts = (
         pd.DataFrame(
-            dt_lrPairCounts.values(), index=dt_lrPairCounts.keys(), columns=["pairCounts"]
+            dt_lrPairCounts.values(),
+            index=dt_lrPairCounts.keys(),
+            columns=["pairCounts"],
         )
         .unstack()
         .droplevel(level=0, axis=1)

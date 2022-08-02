@@ -32,6 +32,7 @@ from xarray import corr
 from . import basic
 from ..rTools import rcontext
 
+
 @rcontext
 def cellTypeAnnoByIci(
     ad,
@@ -50,9 +51,9 @@ def cellTypeAnnoByIci(
     keyAdded="ici",
     rEnv=None,
 ):
-    '''`cellTypeAnnoByIci` is a function that takes in a single cell RNA-seq dataset and a bulk RNA-seq
+    """`cellTypeAnnoByIci` is a function that takes in a single cell RNA-seq dataset and a bulk RNA-seq
     dataset, and returns a dataframe with the ICI score for each cell
-    
+
     Parameters
     ----------
     ad
@@ -85,8 +86,8 @@ def cellTypeAnnoByIci(
         the key to add to the adata object
     rEnv
         R environment to use. If None, will create a new one.
-    
-    '''
+
+    """
     from rpy2.robjects.packages import importr
     import rpy2.robjects as ro
     from ..rTools import py2r, r2py
@@ -97,7 +98,10 @@ def cellTypeAnnoByIci(
     future.plan(strategy="multiprocess", workers=specThreads)
     R = ro.r
     print(2)
-    assert informationSelect in ["auto", "manual"], "informationSelect must be either 'auto' or 'manual'"
+    assert informationSelect in [
+        "auto",
+        "manual",
+    ], "informationSelect must be either 'auto' or 'manual'"
     df_exp = (
         ad_bulk.to_df(bulkLayer)
         .join(ad_bulk.obs[label].rename("Cell_Type"))
@@ -114,11 +118,15 @@ def cellTypeAnnoByIci(
     dfR_exp = R.as_tibble(dfR_exp)
     dfR_geneSpec = ICITools.compute_spec_table(dfR_exp, **dt_kwargsToComputeSpec)
     df_geneSpec = r2py(dfR_geneSpec)
-    sns.displot(df_geneSpec['spec'])
+    sns.displot(df_geneSpec["spec"])
     plt.show()
     plt.close()
     print("Gene counts:")
-    print(df_geneSpec.query('spec >= @minSpecScore').value_counts('Cell_Type').to_markdown())
+    print(
+        df_geneSpec.query("spec >= @minSpecScore")
+        .value_counts("Cell_Type")
+        .to_markdown()
+    )
 
     df_scExp = ad.to_df(layer).rename_axis(columns="Locus").T.reset_index()
     dfR_scExp = py2r(df_scExp)
@@ -144,7 +152,7 @@ def cellTypeAnnoByIci(
     info_summary <- dplyr::inner_join(ici_var, ici_signal)
     """
     )
-    df_infoSummary = r2py(R('info_summary'))
+    df_infoSummary = r2py(R("info_summary"))
     sns.lineplot(
         data=df_infoSummary.melt("information_level", ["signal", "variability"]),
         x="information_level",
@@ -174,7 +182,6 @@ def cellTypeAnnoByIci(
     df_iciScore = df_iciScore.pivot_table(index="Cell", columns="Cell_Type")
     for x in ["ici_score", "ici_score_norm", "p_adj", "p_val"]:
         ad.obsm[f"{keyAdded}_{x}"] = df_iciScore.loc[:, x].copy()
-
 
 
 def getOverlapBetweenPrividedMarkerAndSpecificGene(
@@ -939,3 +946,66 @@ def labelTransferByScanvi(
     )
     if needLoc:
         return ad_merge
+
+
+def labelTransferByCelltypist(
+    ad_ref: sc.AnnData,
+    refLayer: str,
+    refLabel: str,
+    ad_query: sc.AnnData,
+    queryLayer: str,
+    mode: Literal["best match", "prob match"] = "prob match",
+    dt_kwargs2train=dict(
+        feature_selection=True,
+        top_genes=300,
+        use_SGD=True,
+        mini_batch=True,
+        balance_cell_type=True,
+    ),
+    dt_kwargs2annotate=dict(majority_voting=True, over_clustering=None),
+):
+    """> This function takes in two AnnData objects, one for training and one for prediction, and returns a
+    prediction object from celltypist
+
+    Parameters
+    ----------
+    ad_ref : sc.AnnData
+        the reference dataset
+    refLayer : str
+        the layer in ad_ref that you want to use to train the model, e.g. "normalize_log"
+    refLabel : str
+        the label you want to transfer
+    ad_query : sc.AnnData
+        the query data
+    queryLayer : str
+        the layer in ad_query that you want to annotate,  e.g. "normalize_log"
+    dt_kwargs2train
+        parameters for training the model
+    dt_kwargs2annotate
+        parameters for the celltypist.annotate function
+
+    Returns
+    -------
+        celltypist.classifier.AnnotationResult
+    """
+    import celltypist
+
+    ad_queryOrg = ad_query
+    ad_ref, ad_query = basic.getOverlap(ad_ref, ad_query)
+    ad_ref.X = ad_ref.layers[refLayer]
+    ad_query.X = ad_query.layers[queryLayer]
+
+    model = celltypist.train(ad_ref, labels=refLabel, **dt_kwargs2train)
+
+    predictions = celltypist.annotate(
+        ad_query, model=model, mode=mode, **dt_kwargs2annotate
+    )
+    df_predResults = predictions.predicted_labels.rename(
+        columns=lambda x: f"celltypist_{refLabel}_" + x
+    )
+    ad_queryOrg.obs = ad_queryOrg.obs.drop(
+        columns=[x for x in df_predResults.columns if x in ad_queryOrg.obs.columns]
+    ).join(df_predResults)
+    if mode == "prob match":
+        ad_queryOrg.obsm[f"celltypist_{refLabel}"] = predictions.probability_matrix
+    return predictions
