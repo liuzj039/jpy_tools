@@ -75,6 +75,9 @@ def umapMultiBatch(
     fileNameIsTitle=False,
     show=True,
     clearBk=True,
+    cbRatio = 0.01,
+    supTitleXPos = 0.5,
+    disableSuptitle=False,
 ):
     import gc
 
@@ -147,7 +150,7 @@ def umapMultiBatch(
         norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
 
         if horizontal:
-            ax_cb = pw.Brick(figsize=(1, 0.01))
+            ax_cb = pw.Brick(figsize=(1, cbRatio))
             mpl.colorbar.ColorbarBase(
                 ax_cb, cmap=cmap, norm=norm, orientation="horizontal"
             )
@@ -156,14 +159,15 @@ def umapMultiBatch(
             axs = axs / ax_cb
             pw.param["margin"] = _bc
         else:
-            ax_cb = pw.Brick(figsize=(0.025, 1))
+            ax_cb = pw.Brick(figsize=(cbRatio, 1))
             mpl.colorbar.ColorbarBase(ax_cb, cmap=cmap, norm=norm)
 
             pw.param["margin"] = 0.1
             axs = axs | ax_cb
             pw.param["margin"] = _bc
 
-        axs.case.set_title(title, pad=10, size=16)
+        if not disableSuptitle:
+            axs.case.set_title(title, x=supTitleXPos, pad=10, size=16)
         if dir_result:
             if fileNameIsTitle:
                 fileName = title.replace("\n", "_").replace("/", "_")
@@ -178,7 +182,7 @@ def umapMultiBatch(
         return axs
 
 
-def saveUmapMultiBatch(ad, threads, batchSize, ls_gene, ls_title, layer, **dt_kwargs):
+def saveUmapMultiBatch(ad, threads, batchSize, ls_gene, ls_title, layer, backend = 'loky', **dt_kwargs):
     from more_itertools import chunked, sliced
 
     def _iterAd(ad, batchSize, ls_gene, ls_title, layer):
@@ -205,7 +209,7 @@ def saveUmapMultiBatch(ad, threads, batchSize, ls_gene, ls_title, layer, **dt_kw
     ):
         it_chunkGene = sliced(ls_chunkGene, threads)
         it_chunkTitle = sliced(ls_chunkTitle, threads)
-        Parallel(n_jobs=threads)(
+        Parallel(n_jobs=threads, backend=backend)(
             delayed(umapMultiBatch)(
                 ad_chunk[:, ls_processGene].copy(),
                 ls_gene=ls_processGene,

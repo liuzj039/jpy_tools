@@ -14,6 +14,7 @@ import numpy as np
 from loguru import logger
 from io import StringIO
 import sys
+from tempfile import NamedTemporaryFile
 from threading import Thread
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -415,6 +416,7 @@ def toPkl(
     """
     import pickle
     import os
+    import rpy2.robjects as ro
 
     dt_config = {
         "scvi.model.base._base_model.BaseModelClass": {
@@ -435,6 +437,12 @@ def toPkl(
             "dt_arg": {},
             "readFc": "lambda **dt:sc.read_h5ad(**dt), arg_path='filename'",
         },
+        "ro.RObjectMixin":{
+            "writeFc": lambda x, **dt: ro.r.saveRDS(x, **dt),
+            'arg_path': 'file',
+            'dt_arg': {},
+            'readFc': "lambda **dt:ro.r.readRDS(**dt), arg_path='file'",
+        }
     }
 
     dt_dirPkl = settings.dt_dirPkl
@@ -926,3 +934,46 @@ def pwShow(fig):
     fig.set_canvas(new_manager.canvas)
     fig.show()
     plt.show()
+
+def runBashBySh(contents, **kwargs):
+    """
+    Run Bash by Sh
+
+    Parameters
+    ----------
+    contents : 
+        scripts
+    kwargs : dict
+        Additional keyword arguments passed to sh
+    """
+    from tempfile import TemporaryDirectory
+    tempDir = TemporaryDirectory()
+    tempDirName = tempDir.name
+    tempFilePath = tempDirName + '/scripts.sh'
+    with open(tempFilePath, 'w') as fh:
+        fh.write(contents)
+    run = sh.bash(tempFilePath, **kwargs)
+    return run
+
+class MuteInfo:
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+        self.tempFile = NamedTemporaryFile()
+        self.tempName = self.tempFile.name
+
+
+    def __enter__(self):
+        f = open(self.tempName, 'w')
+        stdout = sys.stdout if self.verbose else f
+        stderr = sys.stderr if self.verbose else f
+        self.orgout = sys.stdout
+        self.orgerr = sys.stderr
+        self.f = f
+        sys.stdout = stdout
+        sys.stderr = stderr
+
+
+    def __exit__(self, type, value, trace):
+        sys.stdout = self.orgout
+        sys.stderr = self.orgerr
+        self.f.close()

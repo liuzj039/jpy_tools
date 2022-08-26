@@ -31,15 +31,48 @@ from typing import (
     Callable,
 )
 import collections
+import scipy.sparse as ss
 
-def initLayer(ad:sc.AnnData, layer=None, total=1e4, needScale=False):
+def ad2df(ad:sc.AnnData, layer=None, forceDense = False) -> pd.DataFrame:
+    '''> If the data is sparse, return a sparse dataframe, otherwise return a dense dataframe
+    
+    Parameters
+    ----------
+    ad : sc.AnnData
+        the AnnData object
+    layer
+        the layer to convert to a dataframe. If None, then the .X layer is used.
+    forceDense, optional
+        if True, will force the conversion to a dense dataframe.
+    
+    Returns
+    -------
+        A pandas dataframe
+    
+    '''
+    if forceDense:
+        df = ad.to_df(layer)
+    else:
+        if layer is None:
+            if ss.issparse(ad.X):
+                df = pd.DataFrame.sparse.from_spmatrix(ad.X, index = ad.obs.index, columns=ad.var.index)
+            else:
+                df = ad.to_df()
+        else:
+            if ss.issparse(ad.layers[layer]):
+                df = pd.DataFrame.sparse.from_spmatrix(ad.layers[layer], index = ad.obs.index, columns=ad.var.index)
+            else:
+                df = ad.to_df(layer)
+    return df
+
+def initLayer(ad:sc.AnnData, layer=None, total=1e4, needScale=False, logbase=None):
     """
     overwrite layer: `raw`, `normalize_log`, `normalize_log_scale`, 'X'
     """
     ad.layers['raw'] = ad.X.copy() if layer == None else ad.layers[layer].copy()
     ad.layers['normalize_log'] = ad.layers['raw'].copy()
     sc.pp.normalize_total(ad, total, layer='normalize_log')
-    sc.pp.log1p(ad, layer='normalize_log')
+    sc.pp.log1p(ad, layer='normalize_log', base=logbase)
     if needScale:
         ad.layers['normalize_log_scale'] = ad.layers['normalize_log'].copy()
         sc.pp.scale(ad, layer='normalize_log_scale')

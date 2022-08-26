@@ -26,6 +26,10 @@ def main(timeSpace, contents):
         if run.is_alive():
             pass
         else:
+            tempDir = TemporaryDirectory()
+            tempDirName = tempDir.name
+            scriptsPath = createTempBashFile(contents, tempDirName)
+            
             i += 1
             print(f"restart times {i}")
             run = sh.bash(scriptsPath, _bg=True, _err = sys.stderr, _out = sys.stdout)

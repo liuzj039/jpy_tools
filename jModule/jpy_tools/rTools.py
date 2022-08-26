@@ -33,7 +33,10 @@ from rpy2.robjects import rl
 from rpy2.robjects.packages import importr
 from tempfile import TemporaryDirectory
 import pickle
+import sys
+import os
 from .otherTools import Capturing
+
 R = ro.r
 seo = importr("SeuratObject")
 rBase = importr("base")
@@ -144,7 +147,9 @@ def py2r(x, name=None, on_disk=None, verbose=0):
     if on_disk == None:
         on_disk = True if py2r_disk(x, check=True) else False
     if verbose:
-        print(f"on disk mode: {on_disk}, transfer `{objType}` to R: {name} start.", end="")
+        print(
+            f"on disk mode: {on_disk}, transfer `{objType}` to R: {name} start.", end=""
+        )
     timeStart = time.time()
 
     if on_disk:
@@ -283,14 +288,14 @@ def ad2so(
     R = ro.r
     mt_count = ad.layers[layer]
     if ad.var.empty:
-        ad.var['project_ad2so'] = 'temp'
+        ad.var["project_ad2so"] = "temp"
     if ad.obs.empty:
-        ad.obs['project_ad2so'] = 'temp'
+        ad.obs["project_ad2so"] = "temp"
     rEnv["mtR_count"] = py2r(mt_count.T)
     rEnv["arR_obsName"] = R.unlist(R.c(ad.obs.index.to_list()))
     rEnv["arR_varName"] = R.unlist(R.c(ad.var.index.to_list()))
     rEnv["assay"] = assay
-    
+
     R(
         """
     colnames(mtR_count) <- arR_obsName
@@ -350,7 +355,8 @@ def ad2so(
             )
         else:
             rEnv["dfR_scaleData"] = py2r(
-                ad.obsm[scaleLayer].loc[:, lambda df: df.columns.isin(ad.var.index)].T, verbose=verbose
+                ad.obsm[scaleLayer].loc[:, lambda df: df.columns.isin(ad.var.index)].T,
+                verbose=verbose,
             )
             R(
                 """
@@ -390,7 +396,7 @@ def ad2so(
 
 @rpy2_check
 @anndata2ri_check
-def r2py(x, name=None,verbose=0):
+def r2py(x, name=None, verbose=0):
     """Convert an rpy2 (R)  object to a Python object"""
     import rpy2.robjects as ro
     from rpy2.robjects import numpy2ri, pandas2ri
@@ -454,7 +460,7 @@ def r2py(x, name=None,verbose=0):
 
 
 @rcontext
-def so2ad(so, assay=None, verbose=0, rEnv=None, skipScaleMtx = False, **kwargs):
+def so2ad(so, assay=None, verbose=0, rEnv=None, skipScaleMtx=False, **kwargs):
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
     import scipy.sparse as ss
@@ -474,9 +480,10 @@ def so2ad(so, assay=None, verbose=0, rEnv=None, skipScaleMtx = False, **kwargs):
 
     for slot in ["counts", "data"]:
         ar_mtx = r2py(
-            R(f"""GetAssayData(object=so, assay='{assay}', slot='{slot}')"""), verbose=verbose
+            R(f"""GetAssayData(object=so, assay='{assay}', slot='{slot}')"""),
+            verbose=verbose,
         ).T
-        if ar_mtx.shape == (0,0):
+        if ar_mtx.shape == (0, 0):
             pass
         else:
             ad.layers[f"{assay}_{slot}"] = ar_mtx
@@ -487,11 +494,14 @@ def so2ad(so, assay=None, verbose=0, rEnv=None, skipScaleMtx = False, **kwargs):
         df_scale = r2py(
             R(
                 f"""GetAssayData(object=so, assay='{assay}', slot='scale.data') %>% as.data.frame"""
-            ), verbose=verbose
+            ),
+            verbose=verbose,
         ).T
         if df_scale.empty:
             pass
-        elif (df_scale.shape == (1, 1)) & ((df_scale.iat[0,0] == -2147483648) | (df_scale.iat[0,0] is None)):
+        elif (df_scale.shape == (1, 1)) & (
+            (df_scale.iat[0, 0] == -2147483648) | (df_scale.iat[0, 0] is None)
+        ):
             pass
         else:
             ad.obsm[f"{assay}_scale.data"] = df_scale
@@ -521,9 +531,10 @@ def so2md(so, rEnv=None, verbose=0, **kwargs):
     import scipy.sparse as ss
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
+
     importr("Seurat")
     R = ro.r
-    rEnv['so'] = so
+    rEnv["so"] = so
     assays = list(R("names(so@assays)"))
     dtAd = {}
     for assay in assays:
@@ -531,14 +542,14 @@ def so2md(so, rEnv=None, verbose=0, **kwargs):
         dtAd[assay] = ad
         if f"{assay}_scale.data" in ad.obsm:
             df_layer = ad.obsm[f"{assay}_scale.data"]
-            del(ad.obsm[f"{assay}_scale.data"])
+            del ad.obsm[f"{assay}_scale.data"]
             ad_scale = sc.AnnData(df_layer)
             ad_scale.layers[f"{assay}_scale.data"] = ad_scale.X
             ad_scale.X = ss.csc_matrix(ad_scale.shape)
             dtAd[f"{assay}_scale.data"] = ad_scale
     md = mu.MuData(dtAd, axis=-1)
     return md
-    
+
 
 @contextmanager
 def r_inline_plot(width=None, height=None, res=None):
@@ -669,3 +680,4 @@ def r2py_re(objR):
             obj = pickle.load(fh)
     del rEnv["temp_r2py"]
     return obj
+

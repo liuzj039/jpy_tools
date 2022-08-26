@@ -37,7 +37,7 @@ import collections
 from xarray import corr
 from . import basic, diffxpy
 from ..rTools import rcontext
-from ..otherTools import F, pwStack, pwShow
+from ..otherTools import F, pwStack, pwShow, MuteInfo
 
 
 def getBgGene(
@@ -437,7 +437,8 @@ def calculateEnrichScoreByCellex(
     import cellex
 
     def _singleBatch(adata, layer, clusterName, kayAddedPrefix, dt_kwargsForCellex):
-        df_mtx = adata.to_df(layer).T if layer else adata.to_df().T
+        # df_mtx = adata.to_df(layer).T if layer else adata.to_df().T
+        df_mtx = basic.ad2df(adata, layer=layer, forceDense=True).T
         df_meta = adata.obs[[clusterName]].rename({clusterName: "cell_type"}, axis=1)
         eso = cellex.ESObject(data=df_mtx, annotation=df_meta, **dt_kwargsForCellex)
         eso.compute()
@@ -445,7 +446,7 @@ def calculateEnrichScoreByCellex(
         adata.varm[f"{kayAddedPrefix}_cellexES"] = mtx_enrichScore
 
         mtx_geneExpRatio = (
-            adata.to_df(layer)
+            basic.ad2df(adata, layer=layer)
             .groupby(adata.obs[clusterName])
             .apply(lambda df: (df > 0).mean())
             .T
@@ -1005,7 +1006,8 @@ def getAUCellScore(
     ), "aucMaxRank and aucMaxPropotion cannot be specified at the same time"
     if not aucMaxRank is None:
         aucMaxPropotion = aucMaxRank / ad.shape[1]
-    df_mtx = ad.to_df(layer)
+    
+    df_mtx = basic.ad2df(ad, layer)
 
     df_pseudoMotif = pd.DataFrame(
         columns=[
@@ -1186,7 +1188,7 @@ def getAUCellScore_r(
 
 
 def _getMetaCells(
-    ad, ls_obs, layer="raw", skipSmallGroup=True, target_metacell_size=5e4, **kwargs
+    ad, ls_obs, layer="raw", skipSmallGroup=True, target_metacell_size=5e4, verbose=True, **kwargs
 ):
     """
     get meta-cell from adata
@@ -1215,15 +1217,17 @@ def _getMetaCells(
                 logger.warning(
                     f"{ls_label} is too small, set target_metacell_size to {_target_metacell_size}"
                 )
-                mc.pl.divide_and_conquer_pipeline(
-                    ad_sub, target_metacell_size=_target_metacell_size, **kwargs
-                )
+                with MuteInfo(verbose):
+                    mc.pl.divide_and_conquer_pipeline(
+                        ad_sub, target_metacell_size=_target_metacell_size, **kwargs
+                    )
         else:
-            mc.pl.divide_and_conquer_pipeline(
-                ad_sub, target_metacell_size=target_metacell_size, **kwargs
-            )
-
-        ad_subMeta = mc.pl.collect_metacells(ad_sub, name="metacells")
+            with MuteInfo(verbose):
+                mc.pl.divide_and_conquer_pipeline(
+                    ad_sub, target_metacell_size=target_metacell_size, **kwargs
+                )
+        with MuteInfo(verbose):
+            ad_subMeta = mc.pl.collect_metacells(ad_sub, name="metacells")
         dt_metaLinkWithOrg = (
             ad_sub.obs["metacell"]
             .groupby(ad_sub.obs["metacell"])
@@ -1627,13 +1631,13 @@ def _mergeData(ad, obsKey, layer="raw"):
     for col in ls_keyProduct:
         if isinstance(col, str):
             sr_col = (
-                pd.Series(index=ad.obs.index, name="||".join([col]))
+                pd.Series(index=ad.obs.index, name="||".join([str(col)]))
                 .fillna(0)
                 .astype(int)
             )
         else:
             sr_col = (
-                pd.Series(index=ad.obs.index, name="||".join(col)).fillna(0).astype(int)
+                pd.Series(index=ad.obs.index, name="||".join([str(x) for x in col])).fillna(0).astype(int)
             )
         sr_col.where(ad.obs["temp_merge"] != col, 1, inplace=True)
         lsSr_onehot.append(sr_col)
