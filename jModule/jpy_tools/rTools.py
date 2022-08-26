@@ -209,6 +209,13 @@ def py2r_disk(obj, check=False, *args, **kwargs):
         arrow = importr("arrow")
         tpFile = NamedTemporaryFile(suffix=".feather")
         obj = obj.rename(columns=str)
+
+        #  bypass error: `Object of type bool_ is not JSON serializable`
+        for colName, colType in obj.dtypes.items():
+            if isinstance(colType, pd.CategoricalDtype):
+                ls_category = colType.categories
+                obj[colName] = obj[colName].astype('object').astype('category').cat.set_categories(ls_category)
+        
         if (obj.index == obj.reset_index().index).all():
             obj.to_feather(tpFile.name)
             needSetIndex = False
