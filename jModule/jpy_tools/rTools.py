@@ -59,7 +59,10 @@ def rcontext(func):
 
         rEnv = kargs["rEnv"]
         if rEnv is None:
+            clearEnv = True
             rEnv = ro.Environment()
+        else:
+            clearEnv = False
         kargs["rEnv"] = rEnv
 
         if not "rEnv" in inspect.signature(func).parameters:
@@ -70,6 +73,8 @@ def rcontext(func):
         except rinterface_lib.embedded.RRuntimeError as e:
             ro.r.traceback()
             raise e
+        if clearEnv:
+            rEnv.clear()
         ro.r.gc()
         return result
 
@@ -289,6 +294,27 @@ def ad2so(
     verbose=0,
     **kwargs,
 ):
+    '''`ad2so` converts an AnnData object to a SeuratObject object
+    
+    Parameters
+    ----------
+    ad
+        AnnData object
+    layer, optional
+        the layer to use for the count slot.
+    dataLayer
+        the name of the layer to use for the data slot.
+    scaleLayer
+        the name of the layer to use for scaleData slot.
+    scaleLayerInObsm, optional
+        if True, then the scaleLayer is assumed to be in the obsm of the adata object.
+    assay, optional
+        The assay to use.
+    rEnv
+        R environment to use. If None, then a new one is created.
+    verbose, optional
+        0, 1, 2, 3, 4
+    '''
     import scipy.sparse as ss
 
     importr("Seurat")
@@ -334,7 +360,7 @@ def ad2so(
 
     if dataLayer is None:
         R(
-            "NormalizeData(so, normalization.method = 'LogNormalize', scale.factor = 10000)"
+            "NormalizeData(so, normalization.method = 'LogNormalize', scale.factor = 10000, verbose = F)"
         )
     else:
         mt_data = ad.layers[dataLayer]
