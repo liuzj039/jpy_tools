@@ -559,16 +559,19 @@ def integrateBySeurat(
     if identify_top_genes_by_seurat:
         lsR_features = n_top_genes
     else:
-        sc.pp.highly_variable_genes(
-            ad,
-            layer=layer,
-            batch_key=batch_key,
-            n_top_genes=n_top_genes,
-            flavor="seurat_v3",
-        )
-        ls_features = ad.var.loc[ad.var["highly_variable"]].index.to_list() | F(
-            lambda z: [x.replace("_", "-") for x in z]
-        )  # seurat always use dash to separate gene names
+        if isinstance(n_top_genes, int):
+            sc.pp.highly_variable_genes(
+                ad,
+                layer=layer,
+                batch_key=batch_key,
+                n_top_genes=n_top_genes,
+                flavor="seurat_v3",
+            )
+            ls_features = ad.var.loc[ad.var["highly_variable"]].index.to_list() | F(
+                lambda z: [x.replace("_", "-") for x in z]
+            )  # seurat always use dash to separate gene names
+        else:
+            ls_features = n_top_genes | F(lambda z: [x.replace("_", "-") for x in z])
         lsR_features = R.c(*ls_features)
 
     so = ad2so(ad, layer=layer, ls_obs=[batch_key])

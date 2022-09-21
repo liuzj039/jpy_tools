@@ -326,12 +326,14 @@ def plotLabelPercentageInCluster(
             plt.sca(ax)
             legendHandleLs.append(
                 plt.Rectangle(
-                    (0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none"
+                    (0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none", label=singleLabel
                 )
             )
             legendLabelLs.append(singleLabel)
         legendHandleLs, legendLabelLs = legendHandleLs[::-1], legendLabelLs[::-1]
-        plt.legend(legendHandleLs, legendLabelLs, frameon=False, **dt_kwargsForLegend)
+        # plt.legend(legendHandleLs, legendLabelLs, frameon=False, **dt_kwargsForLegend)
+        plt.legend(handles=legendHandleLs, frameon=False, **dt_kwargsForLegend)
+
         plt.xlabel(groupby.capitalize())
         plt.ylabel(f"Percentage")
         if needCounts:
@@ -355,16 +357,18 @@ def plotLabelPercentageInCluster(
             plt.sca(ax)
             legendHandleLs.append(
                 plt.Rectangle(
-                    (0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none"
+                    (0, 0), 1, 1, fc=labelColor[singleLabel], edgecolor="none", label=singleLabel
                 )
             )
             legendLabelLs.append(singleLabel)
-        plt.legend(
-            legendHandleLs[::-1],
-            legendLabelLs[::-1],
-            frameon=False,
-            **dt_kwargsForLegend,
-        )
+        # plt.legend(
+        #     legendHandleLs[::-1],
+        #     legendLabelLs[::-1],
+        #     frameon=False,
+        #     **dt_kwargsForLegend,
+        # )
+        plt.legend(handles=legendHandleLs[::-1], frameon=False, **dt_kwargsForLegend)
+
         plt.ylabel(groupby.capitalize())
         plt.xlabel(f"Percentage")
         if needCounts:
