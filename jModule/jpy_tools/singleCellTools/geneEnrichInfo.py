@@ -2003,3 +2003,50 @@ def getLigrecPairCounts(
         .rename_axis(index="source", columns="target")
     )
     return df_pairCounts
+
+
+def getGeneMeanAndExpressedRatio(ad:sc.AnnData, layer='raw', prefix=None) -> None:
+    '''
+    Parameters
+    ----------
+    ad : sc.AnnData
+        the AnnData object
+    layer, optional
+        the layer of the AnnData object to use for the calculation
+    prefix
+        the prefix of the new columns. If None, the prefix will be 'mean' and 'expressedRatio'
+    
+    '''
+    import scipy.sparse as ss
+    if isinstance(ad.layers['raw'], (ss.csr_matrix, ss.csc_matrix)):
+        data = ss.csc_array(ad.layers[layer])
+    else:
+        data = ad.layers[layer]
+    if prefix is None:
+        prefix = ''
+    ad.var[f'{prefix}mean'] = data.mean(axis=0)
+    ad.var[f'{prefix}expressedRatio'] = (data > 0).mean(axis=0)
+
+
+def getGeneMeanAndExpressedRatioGroups(ad:sc.AnnData, groupby:Union[str, List[str]], layer='raw'):
+    '''It takes a single cell RNA-seq dataset, groups the cells by a categorical variable, and update the mean expression of each gene in each group, and the ratio of cells expressing
+    each gene in each group
+    
+    Parameters
+    ----------
+    ad : sc.AnnData
+        sc.AnnData: the AnnData object
+    groupby : Union[str, List[str]]
+        the column name in ad.obs that you want to group by.
+    layer, optional
+        the layer of the AnnData object to use for the analysis.
+    
+    '''
+    if isinstance(groupby, str):
+        groupby = [groupby]
+    for group in groupby:
+        for sample in ad.obs[group].unique():
+            _ad = ad[ad.obs[group] == sample].copy()
+            getGeneMeanAndExpressedRatio(_ad, layer=layer, prefix=f'{group}_{sample}_')
+            ad.var.loc[_ad.var.index, f'{group}_{sample}_mean'] = _ad.var[f'{group}_{sample}_mean']
+            ad.var.loc[_ad.var.index, f'{group}_{sample}_expressedRatio'] = _ad.var[f'{group}_{sample}_expressedRatio']
