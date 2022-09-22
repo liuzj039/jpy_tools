@@ -2026,6 +2026,7 @@ def getGeneMeanAndExpressedRatio(ad:sc.AnnData, layer='raw', prefix=None) -> Non
         prefix = ''
     ad.var[f'{prefix}mean'] = data.mean(axis=0)
     ad.var[f'{prefix}expressedRatio'] = (data > 0).mean(axis=0)
+    ad.var[f'{prefix}expressedCount'] = (data > 0).sum(axis=0)
 
 
 def getGeneMeanAndExpressedRatioGroups(ad:sc.AnnData, groupby:Union[str, List[str]], layer='raw'):
@@ -2050,3 +2051,4 @@ def getGeneMeanAndExpressedRatioGroups(ad:sc.AnnData, groupby:Union[str, List[st
             getGeneMeanAndExpressedRatio(_ad, layer=layer, prefix=f'{group}_{sample}_')
             ad.var.loc[_ad.var.index, f'{group}_{sample}_mean'] = _ad.var[f'{group}_{sample}_mean']
             ad.var.loc[_ad.var.index, f'{group}_{sample}_expressedRatio'] = _ad.var[f'{group}_{sample}_expressedRatio']
+            ad.var.loc[_ad.var.index, f'{group}_{sample}_expressedCount'] = _ad.var[f'{group}_{sample}_expressedCount']
