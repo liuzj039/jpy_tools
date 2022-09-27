@@ -63,7 +63,8 @@ def removeAmbientBySoupx(ad:sc.AnnData, ad_raw:sc.AnnData, layerAd:str='raw', la
     '''
     SoupX = importr('SoupX')
     R = ro.r
-
+    assert (ad.var.index == ad_raw.var.index).all(), 'ad.var.index != ad_raw.var.index'
+    
     ad_pp = ad.copy()
     ad_pp.X = ad_pp.layers[layerAd]
     sc.pp.highly_variable_genes(ad_pp, n_top_genes=2000, flavor='seurat_v3')
