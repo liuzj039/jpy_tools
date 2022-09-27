@@ -77,8 +77,8 @@ def removeAmbientBySoupx(ad:sc.AnnData, ad_raw:sc.AnnData, layerAd:str='raw', la
 
     cells = ad.obs_names
     genes = ad.var_names
-    data = ad.X.T
-    data_tod = ad_raw.layers['layerRaw'].T
+    data = ad.layers[layerAd].T
+    data_tod = ad_raw.layers[layerRaw].T
 
     data = py2r(data)
     data_tod = py2r(data_tod)
