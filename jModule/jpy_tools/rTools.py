@@ -197,12 +197,18 @@ def py2r_disk(obj, check=False, *args, **kwargs):
         obj.obs["temp_barcodeName"] = obj.obs.index
         obj.write_h5ad(tpFile.name)
         objR = zellkonverter.readH5AD(tpFile.name, X_layer, reader="R")
+        dfR_obs = py2r(obj.obs)
+        dfR_var = py2r(obj.var)
         with ro.local_context() as rlc:
             rlc["objR"] = objR
+            rlc["dfR_obs"] = dfR_obs
+            rlc["dfR_var"] = dfR_var
             R(
                 """
             objR@rowRanges@partitioning@NAMES <- rowData(objR)$temp_featureName
             objR@colData@rownames <- colData(objR)$temp_barcodeName
+            objR@colData <- dfR_obs %>% DataFrame
+            objR@rowRanges@elementMetadata <- dfR_var %>% DataFrame
             """
             )
             objR = R("objR")

@@ -60,7 +60,7 @@ def main(dir_result, dir_out, path_config):
         for columnName in df.columns:
             df[columnName] = df[columnName].map(dt_lambda[columnName])
 
-        df.drop_duplicates(inplace=True)
+        df.drop_duplicates(inplace=True, keep=False)
 
         for columnName in df.columns:
             df.drop_duplicates([columnName], inplace=True)

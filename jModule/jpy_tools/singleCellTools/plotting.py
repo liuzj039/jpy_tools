@@ -78,11 +78,13 @@ def umapMultiBatch(
     cbRatio = 0.01,
     supTitleXPos = 0.5,
     disableSuptitle=False,
+    disableProgressBar=False,
 ):
     import gc
 
     if clearBk:
         pw.clear()
+        gc.collect()
     if isinstance(ls_gene, str):
         ls_gene = [ls_gene]
     if not ls_title:
@@ -92,7 +94,7 @@ def umapMultiBatch(
     if len(ls_gene) <= 1:
         disableProgressBar = True
     else:
-        disableProgressBar = False
+        disableProgressBar = disableProgressBar
     if groups[1] is None:
         groups[1] = ad.obs[groups[0]].astype("category").cat.categories.to_list()
     dt_adObs = ad.obs.groupby(groups[0]).apply(lambda df: df.index.to_list()).to_dict()
@@ -182,7 +184,7 @@ def umapMultiBatch(
         return axs
 
 
-def saveUmapMultiBatch(ad, threads, batchSize, ls_gene, ls_title, layer, backend = 'loky', **dt_kwargs):
+def saveUmapMultiBatch(ad, threads, batchSize, ls_gene, ls_title, layer, backend = 'multiprocessing', **dt_kwargs):
     from more_itertools import chunked, sliced
 
     def _iterAd(ad, batchSize, ls_gene, ls_title, layer):

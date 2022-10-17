@@ -620,7 +620,6 @@ def getEnrichedGeneByCellId(
         sc.pp.scale(_ad, layer=layer, max_value=10)
     adataR = py2r(_ad)
     adataR = cellId.RunMCA(adataR, slot=layer, nmcs=nmcs)
-
     VectorR_marker = cellId.GetGroupGeneSet(
         adataR,
         group_by=clusterName,
