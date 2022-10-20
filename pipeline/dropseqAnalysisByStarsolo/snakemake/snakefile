@@ -1,0 +1,66 @@
+import pandas as pd
+#configfile: "/public1/software/liuzj/scripts/pipeline/dropseqAnalysisByStarsolo/snakemake/config.yaml"
+pipelineDir = config['pipelineDir']
+resultDir = config["resultDir"].rstrip("/") + "/"
+pipelineDir = config["pipelineDir"].rstrip("/") + "/"
+sampleLs = list(config['samples'].keys())
+
+## get parameter of rule `runStarsolo` ##
+def addDirToFastq(sr):
+    dir_fastq = sr.at['dir_fastq']
+    path_r1 = sr.at['r1']
+    ls_pathR1 = path_r1.split(',')
+    ls_pathR1 = [f"{dir_fastq}/{x}" for x in ls_pathR1]
+    sr.at['r1'] = ",".join(ls_pathR1)
+    path_r2 = sr.at['r2']
+    ls_pathR2 = path_r2.split(',')
+    ls_pathR2 = [f"{dir_fastq}/{x}" for x in ls_pathR2]
+    sr.at['r2'] = ",".join(ls_pathR2)
+    return sr
+    
+df_runStarsolo = pd.DataFrame(config['samples']).T
+df_runStarsolo = df_runStarsolo.assign(starIndex = config['starIndex'], outputDir=df_runStarsolo.index + '/').apply(addDirToFastq, axis=1)
+for column in ['outputDir']:
+    df_runStarsolo[column] = resultDir + 'step1_runStarsolo/' + df_runStarsolo[column]
+
+rule all:
+    input:
+        runStarsoloFinished = [resultDir + 'step1_runStarsolo/' + "" + sample + ".finished" for sample in df_runStarsolo.index],
+
+rule runStarsolo:
+    input:
+        dir_fastq = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'dir_fastq'],
+    output:
+        runStarsoloFinished = resultDir + 'step1_runStarsolo/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        expectedCell = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'expectedCell'],
+        r1 = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'r1'],
+        r2 = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'r2'],
+        includeIntron = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'includeIntron'],
+        starIndex = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'starIndex'],
+        outputDir = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'outputDir'],
+        umiLength = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'umiLength'],
+        umiStart = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'umiStart'],
+        cbLength = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'cbLength'],
+        cbStart = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'cbStart'],
+        r1Length = lambda wildcard: df_runStarsolo.at[wildcard.sample, 'r1Length'],
+    threads:32
+    priority:20
+    shell:
+        """
+mkdir -p {params.outputDir}
+cd {params.outputDir}
+if [ {params.includeIntron} = True ]
+then
+    STAR --runThreadN {threads} --genomeDir {params.starIndex} --soloType CB_UMI_Simple --soloCBwhitelist None --soloBarcodeReadLength {params.r1Length}        --soloUMIlen {params.umiLength} --soloCBlen {params.cbLength} --soloUMIstart {params.umiStart} --soloCBstart {params.cbStart} --readFilesIn {params.r2} {params.r1} --soloFeatures Gene GeneFull Velocyto        --clipAdapterType CellRanger4 --outFilterScoreMin 30 --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR        --soloUMIdedup 1MM_CR --soloCellFilter  EmptyDrops_CR {params.expectedCell} 0.99 10 45000 90000 500 0.01 20000 0.01 10000         --readFilesCommand zcat
+else
+    STAR --runThreadN {threads} --genomeDir {params.starIndex} --soloType CB_UMI_Simple --soloCBwhitelist None --soloBarcodeReadLength {params.r1Length}        --soloUMIlen {params.umiLength} --soloCBlen {params.cbLength} --soloUMIstart {params.umiStart} --soloCBstart {params.cbStart}  --readFilesIn {params.r2} {params.r1} --soloFeatures Gene Velocyto        --clipAdapterType CellRanger4 --outFilterScoreMin 30 --soloCBmatchWLtype 1MM_multi_Nbase_pseudocounts --soloUMIfiltering MultiGeneUMI_CR        --soloUMIdedup 1MM_CR --soloCellFilter  EmptyDrops_CR {params.expectedCell} 0.99 10 45000 90000 500 0.01 20000 0.01 10000         --readFilesCommand zcat
+fi
+samtools view -@ {threads} -S -O BAM ./Aligned.out.sam  | samtools sort -@ {threads} - -O BAM -o ./Aligned.out.bam
+samtools index -@ {threads} ./Aligned.out.bam
+rm ./Aligned.out.sam
+touch {output.runStarsoloFinished}
+        """
+
+

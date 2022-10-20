@@ -4,6 +4,8 @@ pipelineDir = config['pipelineDir']
 resultDir = config["resultDir"].rstrip("/") + "/"
 pipelineDir = config["pipelineDir"].rstrip("/") + "/"
 sampleLs = list(config['Samples'].keys())
+
+## get parameter of rule `cellRanger` ##
 cellRangerParamsDt = config["Samples"]
 cellRangerParamsDf = pd.DataFrame(cellRangerParamsDt).T.pipe(
     lambda df: df.assign(id=df.index, outputDir=df.index)
@@ -16,21 +18,29 @@ cellRangerParamsDf = cellRangerParamsDf.pipe(
     )
 )
 cellRangerParamsDf["cellRangerIndex"] = config["cellRangerIndex"]
+if 'sample' in cellRangerParamsDf.columns:
+    pass
+else:
+    cellRangerParamsDf['sample'] = False
 for column in ['outputDir', 'bamFile', 'barcodeFile', 'tenXResultDir']:
     cellRangerParamsDf[column] = resultDir + 'step1_cellRanger/' + cellRangerParamsDf[column]
 
+
+## get parameter of rule `parseUmiDr` ##
 parseUmiDrParamsDf = pd.DataFrame(index=sampleLs)
 parseUmiDrParamsDf = parseUmiDrParamsDf.assign(output = lambda df:df.index + '_umiDr.tsv', bed = config['genomeBed'])
 for column in ['output']:
     parseUmiDrParamsDf[column] = resultDir + 'step2_parseUmiDr/' + parseUmiDrParamsDf[column]
 
+
+## get parameter of rule `velocyto` ##
 velocytoParamsDf = pd.DataFrame(index=sampleLs)
 velocytoParamsDf = velocytoParamsDf.assign(gtf = config['cellRangerIndex'].rstrip('/') + '/genes/genes.gtf')
 
 rule all:
     input:
-        parseUmiDrFinished = [resultDir + 'step2_parseUmiDr/' + "" + sample + ".finished" for sample in sampleLs],
-        velocytoFinished = [resultDir + 'step3_velocyto/' + "" + sample + ".finished" for sample in sampleLs],
+        parseUmiDrFinished = [resultDir + 'step2_parseUmiDr/' + "" + sample + ".finished" for sample in parseUmiDrParamsDf.index],
+        velocytoFinished = [resultDir + 'step3_velocyto/' + "" + sample + ".finished" for sample in velocytoParamsDf.index],
 
 rule cellRanger:
     input:
@@ -45,17 +55,25 @@ rule cellRanger:
         id = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'id'],
         outputDir = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'outputDir'],
         cellRangerIndex = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'cellRangerIndex'],
+        sample = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'sample'],
     threads:48
+    priority:0
     shell:
         """
 mkdir -p {params.outputDir}
 cd {params.outputDir}
+cmd="cellranger6 count --id {params.id} --transcriptome {params.cellRangerIndex} --fastqs {input.fastq} --expect-cells {params.expectCell} --localcores {threads} --r2-length {params.r2Length}"
 if [ {params.includeIntron} = True ]
 then
-    cellranger6 count --id {params.id} --include-introns --transcriptome {params.cellRangerIndex} --fastqs {input.fastq} --expect-cells {params.expectCell} --localcores {threads} --r2-length {params.r2Length}
-else
-    cellranger6 count --id {params.id} --transcriptome {params.cellRangerIndex} --fastqs {input.fastq} --expect-cells {params.expectCell} --localcores {threads} --r2-length {params.r2Length}
+    cmd="${{cmd}} --include-introns"
 fi
+if [ {params.sample} != True ]
+then
+    cmd="${{cmd}} --sample {params.sample}"
+fi
+echo $cmd
+eval $cmd
+touch {output.cellRangerFinished}
 touch {output.cellRangerFinished}
         """
 
@@ -71,6 +89,7 @@ rule parseUmiDr:
         output = lambda wildcard: parseUmiDrParamsDf.at[wildcard.sample, 'output'],
         bed = lambda wildcard: parseUmiDrParamsDf.at[wildcard.sample, 'bed'],
     threads:12
+    priority:0
     shell:
         """
 python ~/scripts/tools/singleCell/parseUmiDirectionFromCellrangerBam.py     -i {params.bamFile} -o {params.output} -t {threads} --bed {params.bed} --barcode {params.barcodeFile}
@@ -87,6 +106,7 @@ rule velocyto:
         tenXResultDir = lambda wildcard: cellRangerParamsDf.at[wildcard.sample, 'tenXResultDir'],
         gtf = lambda wildcard: velocytoParamsDf.at[wildcard.sample, 'gtf'],
     threads:12
+    priority:0
     shell:
         """
 velocyto run10x -@ {threads} --samtools-memory 2048 {params.tenXResultDir} {params.gtf}
