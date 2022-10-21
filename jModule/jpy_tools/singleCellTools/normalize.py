@@ -500,6 +500,7 @@ def integrateBySeurat(
     k_filter=200,
     k_weight=100,
     identify_top_genes_by_seurat=False,
+    dt_integrateDataParams={},
     saveSeurat=None,
     rEnv = None,
 ) -> sc.AnnData:
@@ -587,7 +588,7 @@ def integrateBySeurat(
     rEnv["dims"] = dims
     rEnv["k.filter"] = k_filter
     rEnv["k.weight"] = k_weight
-
+    rEnv["dtR_integrateDataParams"] = R.list(**dt_integrateDataParams)
     R(
         """
     so.list <- SplitObject(so, split.by = batch_key)
@@ -647,11 +648,14 @@ def integrateBySeurat(
             )
     else:
         assert False, f"unknown normalization method : {normalization_method}"
-
     R(
         """
     so.anchors <- FindIntegrationAnchors(object.list = so.list, anchor.features = lsR_features, reduction = reduction, normalization.method = normalization.method, dims = 1:dims, k.score = k.score, k.filter = k.filter)
-    so.combined <- IntegrateData(anchorset = so.anchors, normalization.method = normalization.method, dims = 1:dims, k.weight=k.weight)
+    dtR_integrateDataParams$anchorset <- so.anchors
+    dtR_integrateDataParams$`normalization.method` <- normalization.method
+    dtR_integrateDataParams$dims <- 1:dims
+    dtR_integrateDataParams$`k.weight` <- k.weight
+    so.combined <- DescTools::DoCall(IntegrateData, dtR_integrateDataParams)
     """
     )
     if not saveSeurat is None:
