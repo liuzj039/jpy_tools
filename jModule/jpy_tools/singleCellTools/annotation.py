@@ -533,7 +533,7 @@ def labelTransferByScanpy(
     if needLoc:
         return ad_concat
 
-
+@rcontext
 def labelTransferBySeurat(
     ad_ref: sc.AnnData,
     refLabel: str,
@@ -545,7 +545,7 @@ def labelTransferBySeurat(
     dims=30,
     kWeight=100,
     refIsIntegrated=False,
-    renv=None,
+    rEnv=None,
 ) -> anndata.AnnData:
     """
     annotate queryAd based on refAd annotation result.
@@ -575,7 +575,6 @@ def labelTransferBySeurat(
     anndata.AnnData
         intregated anndata
     """
-
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
@@ -590,13 +589,9 @@ def labelTransferBySeurat(
     seuratObject = importr("SeuratObject")
     setSeed(0)
 
-    if renv is None:
-        renv = ro.Environment()
-
     if not refIsIntegrated:
         ad_ref.layers["_raw"] = ad_ref.layers[refLayer].copy()
         ad_query.layers["_raw"] = ad_query.layers[queryLayer].copy()
-
         ad_concat = sc.concat(
             {"ref": ad_ref, "query": ad_query}, label="seurat_", index_unique="-"
         )
@@ -609,27 +604,24 @@ def labelTransferBySeurat(
             flavor="seurat_v3",
         )
         ls_features = ad_concat.var.index.str.replace("_", "-").to_list()
-
         so_ref = ad2so(ad_ref, refLayer, ls_obs=refLabel)
         so_query = ad2so(ad_query, queryLayer, ls_obs=[])
         lsR_features = R.c(*ls_features)
+        rEnv["so_ref"] = so_ref
+        rEnv["so_query"] = so_query
+        rEnv["lsR_features"] = lsR_features
+        rEnv["k.score"] = kScore
+        rEnv["dims"] = dims
+        rEnv["k.weight"] = kWeight
 
-        with ro.local_context(renv) as rlc:
-            rlc["so_ref"] = so_ref
-            rlc["so_query"] = so_query
-            rlc["lsR_features"] = lsR_features
-            rlc["k.score"] = kScore
-            rlc["dims"] = dims
-            rlc["k.weight"] = kWeight
+        R(
+            f"""
+        anchors <- FindTransferAnchors(reference = so_ref, query = so_query, dims = 1:dims, k.score=k.score,features=lsR_features)
+        predictions <- TransferData(anchorset = anchors, refdata = so_ref${refLabel}, dims = 1:dims, k.weight=k.weight)
+        """
+        )
 
-            R(
-                f"""
-            anchors <- FindTransferAnchors(reference = so_ref, query = so_query, dims = 1:dims, k.score=k.score,features=lsR_features)
-            predictions <- TransferData(anchorset = anchors, refdata = so_ref${refLabel}, dims = 1:dims, k.weight=k.weight)
-            """
-            )
-
-        df_pred = r2py(rlc["predictions"])
+        df_pred = r2py(rEnv["predictions"])
 
         ad_query.obsm[f"labelTransfer_seurat_{refLabel}"] = df_pred
         ad_query.obs[f"labelTransfer_seurat_{refLabel}"] = df_pred["predicted.id"]
@@ -664,7 +656,6 @@ def labelTransferBySeurat(
             size=12e4 / len(ad_concat),
             ax=ax,
         )
-        renv.clear()
     else:
         ad_ref = ad_ref.copy()
         ad_ref.var.index = ad_ref.var.index.str.replace("_", "-")
@@ -676,28 +667,28 @@ def labelTransferBySeurat(
             ), "Not support SCT normalization, please rerun SCT and NOT transfer `seuratObject` to `AnnData` until label transfer is finished"
         else:
             refScaleLayer = None
-        with ro.local_context() as rlc:
-            so_ref = ad2so(
-                ad_ref,
-                layer=refLayer,
-                dataLayer="seurat_integrated_data",
-                scaleLayer=refScaleLayer,
-            )
-            so_query = ad2so(ad_query, layer=queryLayer)
-            rlc["so_ref"] = so_ref
-            rlc["so_query"] = so_query
-            rlc["k.score"] = kScore
-            rlc["dims"] = dims
-            rlc["k.weight"] = kWeight
-            rlc["lsR_features"] = R.c(*ad_ref.var.index.str.replace("_", "-").to_list())
-            R(
-                f"""
-            anchors <- FindTransferAnchors(reference = so_ref, query = so_query, dims = 1:dims, k.score=k.score, features=lsR_features)
-            predictions <- TransferData(anchorset = anchors, refdata = so_ref${refLabel}, dims = 1:dims, k.weight=k.weight)
-            """
-            )
 
-        df_pred = r2py(rlc["predictions"])
+        so_ref = ad2so(
+            ad_ref,
+            layer=refLayer,
+            dataLayer="seurat_integrated_data",
+            scaleLayer=refScaleLayer,
+        )
+        so_query = ad2so(ad_query, layer=queryLayer)
+        rEnv["so_ref"] = so_ref
+        rEnv["so_query"] = so_query
+        rEnv["k.score"] = kScore
+        rEnv["dims"] = dims
+        rEnv["k.weight"] = kWeight
+        rEnv["lsR_features"] = R.c(*ad_ref.var.index.str.replace("_", "-").to_list())
+        R(
+            f"""
+        anchors <- FindTransferAnchors(reference = so_ref, query = so_query, dims = 1:dims, k.score=k.score, features=lsR_features)
+        predictions <- TransferData(anchorset = anchors, refdata = so_ref${refLabel}, dims = 1:dims, k.weight=k.weight)
+        """
+        )
+
+        df_pred = r2py(rEnv["predictions"])
 
         ad_query.obsm[f"labelTransfer_seurat_{refLabel}"] = df_pred
         ad_query.obs[f"labelTransfer_seurat_{refLabel}"] = df_pred["predicted.id"]
@@ -973,13 +964,13 @@ def labelTransferByCelltypist(
     ad_ref : sc.AnnData
         the reference dataset
     refLayer : str
-        the layer in ad_ref that you want to use to train the model, e.g. "normalize_log"
+        the layer in ad_ref that you want to use to train the model. must be 'raw'
     refLabel : str
         the label you want to transfer
     ad_query : sc.AnnData
         the query data
     queryLayer : str
-        the layer in ad_query that you want to annotate,  e.g. "normalize_log"
+        the layer in ad_query that you want to annotate, must be 'raw'
     dt_kwargs2train
         parameters for training the model
     dt_kwargs2annotate
@@ -994,7 +985,11 @@ def labelTransferByCelltypist(
     ad_queryOrg = ad_query
     ad_ref, ad_query = basic.getOverlap(ad_ref, ad_query)
     ad_ref.X = ad_ref.layers[refLayer]
+    sc.pp.normalize_total(ad_ref, target_sum=1e4)
+    sc.pp.log1p(ad_ref)
     ad_query.X = ad_query.layers[queryLayer]
+    sc.pp.normalize_total(ad_query, target_sum=1e4)
+    sc.pp.log1p(ad_query)
 
     if model is None:
         model = celltypist.train(ad_ref, labels=refLabel, **dt_kwargs2train)
