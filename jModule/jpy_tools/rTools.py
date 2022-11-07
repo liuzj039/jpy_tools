@@ -638,7 +638,7 @@ class Trl:
         objName = objName[::-1]
         for line in inspect.getframeinfo(inspect.currentframe().f_back)[3]:
             line = line[::-1]
-            m = re.search(rf"\b{objName}\s*\|\s*(\w+?)\s*[\W]", line)
+            m = re.search(rf"\b{objName}\s*\|\s*(\w+)[\s\W]*", line)
             if m:
                 name = m.group(1)[::-1]
                 break

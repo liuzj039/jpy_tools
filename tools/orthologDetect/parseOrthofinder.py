@@ -56,14 +56,15 @@ def main(dir_result, dir_out, path_config):
             df[columnName] = df[columnName].str.split(", ")
             df = df.explode(columnName)
         df = df.reset_index(drop=True)
-
         for columnName in df.columns:
             df[columnName] = df[columnName].map(dt_lambda[columnName])
+        df.drop_duplicates(inplace=True)
 
-        df.drop_duplicates(inplace=True, keep=False)
-
+        _ls = []
         for columnName in df.columns:
-            df.drop_duplicates([columnName], inplace=True)
+            _ls.append(df.duplicated([columnName], keep=False))
+        sr = _ls[0] | _ls[1]
+        df = df.loc[~sr]
 
         df.to_csv(f"{dir_out}/{name}.1v1.tsv", index=None, sep="\t")
 
