@@ -42,7 +42,7 @@ rBase = importr("base")
 rUtils = importr('utils')
 
 @rcontext
-def removeAmbientBySoupx(ad:sc.AnnData, ad_raw:sc.AnnData, layerAd:str='raw', layerRaw:str='raw', correctedLayerName:str='soupX_corrected', rEnv=None):
+def removeAmbientBySoupx(ad:sc.AnnData, ad_raw:sc.AnnData, layerAd:str='raw', layerRaw:str='raw', res=1, correctedLayerName:str='soupX_corrected', forceAccept=True, rEnv=None):
     '''`removeAmbientBySoupx` removes the ambient signal from the data by using the soupX algorithm
     
     Parameters
@@ -72,7 +72,7 @@ def removeAmbientBySoupx(ad:sc.AnnData, ad_raw:sc.AnnData, layerAd:str='raw', la
     sc.pp.log1p(ad_pp)
     sc.pp.pca(ad_pp)
     sc.pp.neighbors(ad_pp)
-    sc.tl.leiden(ad_pp, key_added="soupx_groups")
+    sc.tl.leiden(ad_pp, key_added="soupx_groups", resolution=res)
     soupx_groups = ad_pp.obs["soupx_groups"]
     del ad_pp
 
@@ -91,6 +91,7 @@ def removeAmbientBySoupx(ad:sc.AnnData, ad_raw:sc.AnnData, layerAd:str='raw', la
     rEnv['cells'] = cells
     rEnv['genes'] = genes
     rEnv['soupx_groups'] = R.c(**soupx_groups)
+    rEnv['forceAccept'] = forceAccept
 
     R("""
     rownames(data) = genes
@@ -111,8 +112,10 @@ def removeAmbientBySoupx(ad:sc.AnnData, ad_raw:sc.AnnData, layerAd:str='raw', la
 
     with r_inline_plot():
         R("""
-        sc  = autoEstCont(sc, doPlot=T)
+        sc  = autoEstCont(sc, doPlot=T, forceAccept=forceAccept)
         out = adjustCounts(sc, roundToInt = TRUE)
         """)
 
     ad.layers[correctedLayerName] = r2py(rEnv['out']).T
+
+    ad.obs['ambientRnaFractionEstimatedBySoupx'] = 1 - (ad.layers['soupX_corrected'].sum(1).A.reshape(-1) / ad.layers['raw'].sum(1).A.reshape(-1))

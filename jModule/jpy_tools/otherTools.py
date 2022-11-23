@@ -36,8 +36,7 @@ from typing import (
     Callable,
     Dict,
 )
-from jpy_tools import settings
-
+from ._setting import settings
 
 class F(_partial):
     """
@@ -537,6 +536,25 @@ def loadPkl(name: str, readFc=None, arg_path=None, dir_path=None, **dt_arg):
 
     return obj
 
+def _getGOcomment(goTerm, retry=5):
+    import requests
+    _goTerm = goTerm.split(":")[-1]
+    requestURL = (
+        f"https://www.ebi.ac.uk/QuickGO/services/ontology/go/terms/GO%3A{_goTerm}"
+    )
+    for i in range(retry):
+        try:
+            r = requests.get(requestURL, headers={"Accept": "application/json"})
+            break
+        except:
+            pass
+
+    if not r.ok:
+        r.raise_for_status()
+        sys.exit()
+
+    responseBody = r.text
+    return goTerm, responseBody
 
 def getGoDesc(goTerm: Union[str, List[str]], retry=5, verbose=True) -> pd.DataFrame:
     """
@@ -558,35 +576,16 @@ def getGoDesc(goTerm: Union[str, List[str]], retry=5, verbose=True) -> pd.DataFr
     from joblib import Parallel, delayed
     from tqdm import tqdm
 
-    def _getGOcomment(goTerm, retry=5):
-        _goTerm = goTerm.split(":")[-1]
-        requestURL = (
-            f"https://www.ebi.ac.uk/QuickGO/services/ontology/go/terms/GO%3A{_goTerm}"
-        )
-        for i in range(retry):
-            try:
-                r = requests.get(requestURL, headers={"Accept": "application/json"})
-                break
-            except:
-                pass
-
-        if not r.ok:
-            r.raise_for_status()
-            sys.exit()
-
-        responseBody = r.text
-        return goTerm, responseBody
-
     if isinstance(goTerm, str):
         goTerm = [goTerm]
     for x in goTerm:
         assert x.startswith("GO:"), f"Wrong format: {x}"
     if verbose:
-        ls_goTerm = Parallel(128, "threading")(
+        ls_goTerm = Parallel(64)(
             delayed(_getGOcomment)(x, retry) for x in tqdm(goTerm, position=0)
         )
     else:
-        ls_goTerm = Parallel(128, "threading")(
+        ls_goTerm = Parallel(64)(
             delayed(_getGOcomment)(x, retry) for x in goTerm
         )
 

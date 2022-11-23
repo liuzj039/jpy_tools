@@ -35,14 +35,17 @@ from tempfile import TemporaryDirectory
 import pickle
 import sys
 import os
-from .otherTools import Capturing
+from loguru import logger
+from .otherTools import Capturing, F
+# import pyarrow
+
+# pyarrow.Table.from_pandas(pd.DataFrame([1,2,3])) # this package should be imported before arrow(R)
 
 R = ro.r
 seo = importr("SeuratObject")
 rBase = importr("base")
 rUtils = importr("utils")
 importr("magrittr")
-# arrow = importr('arrow') # this package should be imported before pyarrow
 
 
 def rcontext(func):
@@ -562,6 +565,17 @@ def so2ad(so, assay=None, verbose=0, rEnv=None, skipScaleMtx=False, **kwargs):
     else:
         for obsp in R("names(so@graphs)"):
             ad.obsp[obsp] = r2py(R(f"so@graphs${obsp} %>% as.sparse"), verbose=verbose)
+    
+    # add hvg info
+    haveVarGene = R("VariableFeatures")(so, assay=assay) >> F(R("length")) >> F(R("\(x) {x>0}")) >> F(lambda x:x[0]) 
+    if haveVarGene:
+        ls_var =  R("VariableFeatures")(so, assay=assay) >> F(list)
+        logger.info(f"assay {assay}: Variable features are already calculated. {len(ls_var)} features are selected.")
+        dt_var = {ls_var[i]:i for i in range(len(ls_var))}
+        ad.var['highly_variable'] = ad.var.index.isin(dt_var)
+        ad.var['highly_variable_rank'] = ad.var.index.map(lambda x:dt_var.get(x, np.nan))
+    else:
+        logger.info(f"assay {assay}: No variable features are calculated. Pass")
     return ad
 
 
@@ -585,6 +599,9 @@ def so2md(so, rEnv=None, verbose=0, **kwargs):
             ad_scale = sc.AnnData(df_layer)
             ad_scale.layers[f"{assay}_scale.data"] = ad_scale.X
             ad_scale.X = ss.csc_matrix(ad_scale.shape)
+            if "highly_variable" in ad.var:
+                ad_scale.var["highly_variable"] = ad.var["highly_variable"]
+                ad_scale.var["highly_variable_rank"] = ad.var["highly_variable_rank"]
             dtAd[f"{assay}_scale.data"] = ad_scale
     md = mu.MuData(dtAd, axis=-1)
     return md
@@ -649,7 +666,6 @@ class Trl:
 
 def rGet(objR, *attrs):
     import rpy2.robjects as ro
-
     _ = objR
     for attr in attrs:
         if attr[0] in ["@", "$"]:

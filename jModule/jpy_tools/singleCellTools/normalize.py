@@ -346,7 +346,44 @@ def normalizeBySCT_r(
         return md_sct
     
     
+def getHvgGeneFromSctAdata(ls_ad, nTopGenes=3000, nTopGenesEachAd=3000):
+    '''> get the top  HVGs that are shared across all adatas
 
+    Parameters
+    ----------
+    ls_ad
+        a list of adata objects
+    nTopGenes, optional
+        the total number of genes to use for the analysis
+    nTopGenesEachAd, optional
+        the number of HVGs to use from each adata object
+
+    Returns
+    -------
+        A list of genes that are highly variable across all adatas.
+
+    '''
+    for ad in ls_ad:
+        assert 'highly_variable_rank' in ad.var.columns, "adata must have highly_variable_rank"
+    ls_allHvg = []
+    for ad in ls_ad:
+        ls_allHvg.extend(ad.var.sort_values('highly_variable_rank').index[:nTopGenesEachAd].to_list())
+    ls_hvgCounts = pd.Series(ls_allHvg).value_counts()
+
+    assert len(ls_allHvg) > nTopGenes, "nTopGenes must be smaller than total number of HVGs"
+    ls_usedHvg = []
+    for hvgCounts in range(len(ls_ad), 0, -1):
+        ls_currentCountsHvg = ls_hvgCounts[ls_hvgCounts == hvgCounts].index.to_list()
+        if (len(ls_usedHvg) + len(ls_currentCountsHvg)) > nTopGenes:
+            break
+        ls_usedHvg.extend(ls_currentCountsHvg)
+
+    needAnotherCounts = nTopGenes - len(ls_usedHvg)
+    df_anotherGeneRank = pd.DataFrame(index=ls_currentCountsHvg)
+    for i,ad in enumerate(ls_ad):
+        df_anotherGeneRank[f"{i}"] = ad.var['highly_variable_rank']
+    ls_usedHvg.extend(df_anotherGeneRank.apply('median', axis=1).sort_values().iloc[:needAnotherCounts].index.to_list())
+    return ls_usedHvg
 
 def normalizeBySCT(
     adata: anndata.AnnData,
