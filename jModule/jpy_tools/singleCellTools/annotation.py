@@ -715,6 +715,7 @@ def labelTransferByScanvi(
     cutoff: float = 0.95,
     keyAdded: Optional[str] = None,
     max_epochs: int = 1000,
+    max_epochs_scanvi: Optional[int] = None,
     threads: int = 24,
     mode: Literal["merge", "online"] = "online",
     n_top_genes=3000,
@@ -836,7 +837,7 @@ def labelTransferByScanvi(
         lvae = scvi.model.SCANVI.from_scvi_model(
             scvi_model, "unknown", **dt_params2SCANVIModel
         )
-        lvae.train(max_epochs=max_epochs, batch_size=batch_size_ref)
+        lvae.train(max_epochs=max_epochs_scanvi, batch_size=batch_size_ref)
         lvae.history["elbo_train"].plot()
         plt.yscale("log")
         plt.show()
@@ -864,7 +865,7 @@ def labelTransferByScanvi(
         lvae_online._unlabeled_indices = np.arange(queryAd.n_obs)
         lvae_online._labeled_indices = []
         lvae_online.train(
-            max_epochs=max_epochs,
+            max_epochs=max_epochs_scanvi,
             plan_kwargs=dict(weight_decay=0.0),
             batch_size=batch_size_query,
         )
@@ -897,7 +898,7 @@ def labelTransferByScanvi(
             scvi_model, "unknown", **dt_params2SCANVIModel
         )
         lvae.train(
-            max_epochs=max_epochs,
+            max_epochs=max_epochs_scanvi,
             early_stopping=early_stopping,
             batch_size=batch_size_ref,
         )
