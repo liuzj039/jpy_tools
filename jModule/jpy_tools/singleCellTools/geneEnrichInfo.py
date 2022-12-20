@@ -2017,7 +2017,7 @@ def getGeneMeanAndExpressedRatio(ad:sc.AnnData, layer='raw', prefix=None) -> Non
     
     '''
     import scipy.sparse as ss
-    if isinstance(ad.layers['raw'], (ss.csr_matrix, ss.csc_matrix)):
+    if isinstance(ad.layers[layer], (ss.csr_matrix, ss.csc_matrix)):
         data = ss.csc_array(ad.layers[layer])
     else:
         data = ad.layers[layer]

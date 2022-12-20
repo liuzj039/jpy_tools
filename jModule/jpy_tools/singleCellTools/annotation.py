@@ -31,6 +31,7 @@ import collections
 from xarray import corr
 from . import basic
 from ..rTools import rcontext
+from ..otherTools import F
 
 
 @rcontext
@@ -720,54 +721,78 @@ def labelTransferByScanvi(
     early_stopping: bool = True,
     batch_size_ref: int = 128,
     batch_size_query: int = 128,
-    hvgBatch=None,
+    hvgBatch='',
 ) -> Optional[anndata.AnnData]:
     """
-    annotate queryAd based on refAd annotation result.
-
+    Performs label transfer from a reference dataset to a query dataset using the scanvi library.
+        
     Parameters
     ----------
-    refAd : anndata.AnnData
-    refLabel : str
-    refLayer : str
-        raw count
-    queryAd : anndata.AnnData
-    queryLayer : str
-        raw count
-    needLoc : bool, optional
-        if True, and `copy` is False, integrated anndata will be returned. by default False
-    ls_removeCateKey : Optional[List[str]], optional
-        These categories will be removed, the first one must be 'batch', by default []
-    dt_params2Model : dict, optional
-        by default {}
-    cutoff : float, optional
-        by default 0.9
-    keyAdded : Optional[str], optional
-        by default None
-    max_epochs : int, optional
-        by default 1000
-    threads : int, optional
-        by default 24
-    mode: Literal['merge', 'online']
-        by default 'online'
-
-    Returns
-    -------
-    Optional[anndata.AnnData]
-        based on needloc
+    refAd: anndata.AnnData
+        The reference dataset.
+    refLabel: str
+        The categorical column name in the reference dataset to use for labels.
+    refLayer: str
+        The layer to filter the reference dataset by.
+    queryAd: anndata.AnnData
+        The query dataset.
+    queryLayer: str
+        The layer to filter the query dataset by.
+    needLoc: bool, optional
+        If True, modifies the original queryAd object in place and returns None. Otherwise, returns an AnnData object with the transferred labels added.
+        Default is False.
+    ls_removeCateKey: List[str], optional
+        A list of categorical column names to remove from both refAd and queryAd before performing the label transfer.
+        Default is [].
+    dt_params2SCVIModel: dict, optional
+        A dictionary of parameters to pass to the SCVI model when training it.
+        Default is {}.
+    dt_params2SCANVIModel: dict, optional
+        A dictionary of parameters to pass to the SCANVI model when training it.
+        Default is {}.
+    cutoff: float, optional
+        The minimum probability required for a cell to be labeled.
+        Must be a float value between 0 and 1.
+        Default is 0.95.
+    keyAdded: str, optional
+        The name of the column to use for the transferred labels in the returned AnnData object.
+        Default is None.
+    max_epochs: int, optional
+        The maximum number of epochs to use for training the SCVI and SCANVI models.
+        Default is 1000.
+    threads: int, optional
+        The number of threads to use.
+        Default is 24.
+    mode: str, optional
+        The mode of operation, either "merge" or "online".
+        Default is "online".
+    n_top_genes: int, optional
+        The number of top genes to use.
+        Default is 3000.
+    early_stopping: bool, optional
+        Whether to use early stopping when training the models.
+        Default is True.
+    batch_size_ref: int, optional
+        an integer specifying the batch size to use when training the SCANVI model on the reference data.
+        Default is 128.
+    batch_size_query: int, optional
+        an integer specifying the batch size to use when training the SCANVI model on the query data.
+        Default is 128.
+    hvgBatch: str, optional
+        a string specifying a batch column name to use for highly variable gene selection.
     """
     scvi.settings.seed = 39
     scvi.settings.num_threads = threads
-    if not hvgBatch:
-        hvgBatch = ls_removeCateKey[0]
+
 
     queryAdOrg = queryAd
-    refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel, *ls_removeCateKey])
-    queryAd = basic.getPartialLayersAdata(queryAd, queryLayer, ls_removeCateKey)
+    refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel, *ls_removeCateKey, hvgBatch] >> F(filter, lambda x: x) >> F(set) >> F(list))
+    queryAd = basic.getPartialLayersAdata(queryAd, queryLayer, [*ls_removeCateKey, hvgBatch] >> F(filter, lambda x: x) >> F(set) >> F(list))
     refAd, queryAd = basic.getOverlap(refAd, queryAd)
     if not ls_removeCateKey:
         ls_removeCateKey = ["_batch"]
-
+    if not hvgBatch:
+        hvgBatch = ls_removeCateKey[0]
     queryAd.obs[refLabel] = "unknown"
     refAd.obs["_batch"] = "ref"
     queryAd.obs["_batch"] = "query"
@@ -984,6 +1009,8 @@ def labelTransferByCelltypist(
 
     ad_queryOrg = ad_query
     ad_ref, ad_query = basic.getOverlap(ad_ref, ad_query)
+    ad_ref = ad_ref.copy()
+    ad_query = ad_query.copy()
     ad_ref.X = ad_ref.layers[refLayer]
     sc.pp.normalize_total(ad_ref, target_sum=1e4)
     sc.pp.log1p(ad_ref)

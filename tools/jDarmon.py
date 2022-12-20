@@ -50,7 +50,7 @@ def main(timeSpace, contents, dir_log, path_allLog):
             print(f"restart times {i}")
             run = sh.bash(scriptsPath, _bg=True, _err = sys.stderr, _out = sys.stdout)
         if dir_log:
-            if j % 1000 == 1:
+            if j % 100 == 1:
                 mergeLog(dir_log, path_allLog)
 
 

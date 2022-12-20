@@ -588,7 +588,7 @@ def getClusterRobustness_reclustering(
 
     return df_clusterRes, df_ari
 
-def saveAdToLmdb(ad, outputPath, ls_saveObsKey, ls_pseudoBulkUse):
+def saveAdToLmdb(ad, outputPath, ls_saveObsKey, ls_pseudoBulkUse, forceDense, batchSize=100):
     '''It takes an AnnData object, and saves it to a directory in LMDB format
 
     Parameters
@@ -601,11 +601,20 @@ def saveAdToLmdb(ad, outputPath, ls_saveObsKey, ls_pseudoBulkUse):
         a list of keys in ad.obs that you want to save.
     ls_pseudoBulkUse
         a list of columns in ad.obs that will be used to create the pseudo-bulk data.
-
+    
+    Notes
+    ----------
+    sparse matrix will be stored by following scripts:
+        a = ss.coo_array(a)
+        value = pickle.dumps((a.data, a.row, a.col, a.shape))
+    The saved data will be loaded by following scripts:
+        data, row, col, shape = pickle.loads(value)
+        a = ss.coo_matrix((data, (row, col)), shape=shape)
     '''
     import lmdb
     import tqdm
     import pickle
+    import gc
     from . import geneEnrichInfo, basic
 
     # save gene (cell)
@@ -633,9 +642,17 @@ def saveAdToLmdb(ad, outputPath, ls_saveObsKey, ls_pseudoBulkUse):
         txn.put(key=key.encode(), value=value)
         logger.info(f"save {key} to {key}")
 
-    for gene in tqdm.tqdm(ad.var.index):
-        value = pickle.dumps(ad[:, gene].layers['normalize_log'].A.reshape(-1))
+    for i, gene in tqdm.tqdm(enumerate(ad.var.index), total=len(ad.var.index)):
+        if forceDense:
+            value = pickle.dumps(ad[:, gene].layers['normalize_log'].A.reshape(-1))
+        else:
+            coo_exp = ad[:, gene].layers['normalize_log'].tocoo()
+            value = pickle.dumps((coo_exp.data, coo_exp.row, coo_exp.col, coo_exp.shape))
         txn.put(key=gene.encode(), value=value)
+        if i % batchSize == 0:
+            txn.commit()
+            txn = env.begin(write=True)
+            gc.collect()
 
     txn.commit()
     env.close()
