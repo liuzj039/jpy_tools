@@ -716,6 +716,7 @@ def labelTransferByScanvi(
     keyAdded: Optional[str] = None,
     max_epochs: int = 1000,
     max_epochs_scanvi: Optional[int] = None,
+    max_epochs_update: Optional[int] = None,
     threads: int = 24,
     mode: Literal["merge", "online"] = "online",
     n_top_genes=3000,
@@ -865,7 +866,7 @@ def labelTransferByScanvi(
         lvae_online._unlabeled_indices = np.arange(queryAd.n_obs)
         lvae_online._labeled_indices = []
         lvae_online.train(
-            max_epochs=max_epochs_scanvi,
+            max_epochs=max_epochs_update,
             plan_kwargs=dict(weight_decay=0.0),
             batch_size=batch_size_query,
         )
