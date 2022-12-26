@@ -37,21 +37,6 @@ from more_itertools import chunked
 import patchworklib as pw
 import scipy.sparse as ss
 from joblib import Parallel, delayed
-
-
-def show_figure(fig):
-
-    dummy = plt.figure()
-    new_manager = dummy.canvas.manager
-    new_manager.canvas.figure = fig
-    fig.set_canvas(new_manager.canvas)
-    fig.show()
-    plt.show()
-
-
-pw.show = show_figure
-
-
 from . import basic
 
 
