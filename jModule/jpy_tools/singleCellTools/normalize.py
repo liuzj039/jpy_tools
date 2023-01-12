@@ -390,11 +390,12 @@ def getHvgGeneFromSctAdata(ls_ad, nTopGenes=3000, nTopGenesEachAd=3000):
     df_remainGeneRank = pd.DataFrame(index=list(set(ls_allGenes) - set(ls_usedHvg)))
     for i,ad in enumerate(ls_ad):
         df_remainGeneRank[f"{i}"] = ad.var['highly_variable_rank']
+    df_remainGeneRank = df_remainGeneRank.sort_index()
     df_remainGeneRank['count'] = pd.notna(df_remainGeneRank).sum(1)
     df_remainGeneRank['median'] = df_remainGeneRank.drop(columns='count').apply('median', axis=1)
     df_remainGeneRank = df_remainGeneRank.sort_values(['count', 'median'], ascending=[False, True])
     ls_usedHvg.extend(df_remainGeneRank.iloc[:needAnotherCounts].index.to_list())
-    return ls_usedHvg
+    return ls_usedHvg, df_remainGeneRank
 
 def normalizeBySCT(
     adata: anndata.AnnData,
