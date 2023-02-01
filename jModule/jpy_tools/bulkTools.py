@@ -72,6 +72,28 @@ def counts2tpm(ad, layer, bed_path, fc_logScale:Optional[Callable] = None):
 
 
 def deByDeseq2(ad, layer, group_design: str, threads=1):
+    '''> For each pair of groups in the `group_design` column, run DESeq2 and store the results in `ad.uns[f"deseq2_{group_design}"]`
+
+    The function is a bit long, but it's not too complicated. 
+
+    The first part of the function is a nested function called `_twoGroup`. This function takes in the `ad`, `layer`, `grp1`, `grp2`, and `group_design` and returns the results of DESeq2. 
+
+    The second part of the function is a loop that loops through all the possible pairs of groups in the `group_design` column. For each pair of groups, it calls the `_twoGroup` function and stores the results in a dictionary. 
+
+    The dictionary is then stored in `ad.uns[f"deseq2_{group_design}"]`
+
+    Parameters
+    ----------
+    ad
+        AnnData object
+    layer
+        the layer of the AnnData object that you want to use for differential expression analysis.
+    group_design : str
+        the column name of the column in ad.obs that contains the group information
+    threads, optional
+        number of threads to use for parallelization
+
+    '''
     def _twoGroup(ad, layer, grp1, grp2, group_design):
         importr('DESeq2')
         ad_sub = ad[ad.obs[group_design].isin([grp1, grp2])]
@@ -95,7 +117,7 @@ def deByDeseq2(ad, layer, group_design: str, threads=1):
         return (grp1, grp2), res
 
     ls_groups = []
-    ls_group = ad.obs[group_design].unique().tolist()
+    ls_group = list(ad.obs['diffxpy_temp'].cat.categories)
     for i, j in product(range(len(ls_group)), range(len(ls_group))):
         if i >= j:
             continue
