@@ -121,6 +121,13 @@ def umapMultiBatch(
             )
             plt.close()
             ls_ax.append(ax)
+
+        ax_add_count = len(ls_ax)%ncols
+        if ax_add_count != 0:
+            for count in range(ncols - ax_add_count):
+                ax_add = pw.Brick(figsize=figsize)
+                ax_add.axis('off')
+                ls_ax.append(ax_add)
         ls_ax = chunked(ls_ax, ncols) | F(list)
 
         _bc = pw.param["margin"]
@@ -128,10 +135,8 @@ def umapMultiBatch(
         if len(ls_ax) == 1:
             axs = pw.stack(ls_ax[0])
         else:
-            axs = pw.stack([pw.stack(x) for x in ls_ax[:-1]], operator="/")
+            axs = pw.stack([pw.stack(x) for x in ls_ax], operator="/")
             ls_name = list(axs.bricks_dict.keys())
-            for i, ax in enumerate(ls_ax[-1]):
-                axs = axs[ls_name[i]] / ax
 
         cmap = mpl.cm.get_cmap(cmap)
         norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
