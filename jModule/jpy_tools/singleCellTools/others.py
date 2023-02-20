@@ -30,6 +30,7 @@ from tempfile import NamedTemporaryFile
 import collections
 from xarray import corr
 import sys
+import snapatac2 as snap
 from . import basic
 
 
@@ -682,3 +683,19 @@ def saveAdToLmdb(ad, outputPath, ls_saveObsKey, ls_pseudoBulkUse, forceDense, ba
 
     txn.commit()
     env.close()
+
+
+def subsetBackedAd(ad:snap.AnnData, ls_obs, ls_var) -> sc.AnnData:
+    from tempfile import NamedTemporaryFile
+    tempFile = NamedTemporaryFile()
+
+    if isinstance(ls_obs, str):
+        ls_obs = [ls_obs]
+    if isinstance(ls_var, str):
+        ls_var = [ls_var]
+        
+    ad1 = ad.subset(ls_obs, ls_var, tempFile.name)
+    ad_subset = ad1.to_memory()
+    ad1.close()
+    tempFile.close()
+    return ad_subset
