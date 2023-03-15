@@ -948,3 +948,85 @@ def plotGeneModuleByNetworkx(
         nx.draw_networkx_labels(G, pos, dt_needLabelNodes, ax=ax, **dt_labelOptions)
     ax = plt.gca()
     return ax
+
+def makeEllipseForCluster(ad, key='Cluster', ls_cluster=None, std=3, ax=None, **dt_args):
+    '''> This function takes a `AnnData` object, a key in the `obs` attribute, a list of clusters, a standard deviation, and a matplotlib axis object, and returns a matplotlib axis object with ellipses drawn on it
+
+    Parameters
+    ----------
+    ad
+        AnnData object
+    key, optional
+        the column name of the cluster labels
+    ls_cluster
+        list of clusters to plot. If None, plot all clusters.
+    std, optional
+        the number of standard deviations to determine the ellipse's radiuses.
+    ax
+        the axis to plot on
+
+    '''
+    from matplotlib.patches import Ellipse
+    import matplotlib.transforms as transforms
+
+    def confidence_ellipse(x, y, ax, n_std=3.0, facecolor='none', edgecolor='black', **kwargs):
+        """
+        Create a plot of the covariance confidence ellipse of *x* and *y*.
+
+        Parameters
+        ----------
+        x, y : array-like, shape (n, )
+            Input data.
+
+        ax : matplotlib.axes.Axes
+            The axes object to draw the ellipse into.
+
+        n_std : float
+            The number of standard deviations to determine the ellipse's radiuses.
+
+        **kwargs
+            Forwarded to `~matplotlib.patches.Ellipse`
+
+        Returns
+        -------
+        matplotlib.patches.Ellipse
+        """
+        if x.size != y.size:
+            raise ValueError("x and y must be the same size")
+
+        cov = np.cov(x, y)
+        pearson = cov[0, 1]/np.sqrt(cov[0, 0] * cov[1, 1])
+        # Using a special case to obtain the eigenvalues of this
+        # two-dimensional dataset.
+        ell_radius_x = np.sqrt(1 + pearson)
+        ell_radius_y = np.sqrt(1 - pearson)
+        ellipse = Ellipse((0, 0), width=ell_radius_x * 2, height=ell_radius_y * 2,
+                        facecolor=facecolor, edgecolor=edgecolor, **kwargs)
+
+        # Calculating the standard deviation of x from
+        # the squareroot of the variance and multiplying
+        # with the given number of standard deviations.
+        scale_x = np.sqrt(cov[0, 0]) * n_std
+        mean_x = np.mean(x)
+
+        # calculating the standard deviation of y ...
+        scale_y = np.sqrt(cov[1, 1]) * n_std
+        mean_y = np.mean(y)
+
+        transf = transforms.Affine2D() \
+            .rotate_deg(45) \
+            .scale(scale_x, scale_y) \
+            .translate(mean_x, mean_y)
+
+        ellipse.set_transform(transf + ax.transData)
+        return ax.add_patch(ellipse)
+    assert ax, 'Please provide an axis object'
+    if ls_cluster is None:
+        ls_cluster = ad.obs[key].unique().tolist()
+    if isinstance(ls_cluster, str):
+        ls_cluster = [ls_cluster]
+    for cluster in ls_cluster:
+        _ad = ad[ad.obs.eval("Cluster == @cluster")]
+
+        confidence_ellipse(_ad.obsm['X_umap'][:, 0], _ad.obsm['X_umap'][:, 1], ax, std, **dt_args)
+    return ax
