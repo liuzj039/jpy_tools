@@ -964,6 +964,7 @@ def getAUCellScore(
     calcThreshold=False,
     thresholdsHistCol=5,
     dt_kwargs2aucell={},
+    chunksize=10000,
     **dt_kwargs,
 ):
     '''It takes a list of gene sets, and calculates the AUCell score for each gene set
@@ -1005,8 +1006,6 @@ def getAUCellScore(
     ), "aucMaxRank and aucMaxPropotion cannot be specified at the same time"
     if not aucMaxRank is None:
         aucMaxPropotion = aucMaxRank / ad.shape[1]
-    
-    df_mtx = basic.ad2df(ad, layer)
 
     df_pseudoMotif = pd.DataFrame(
         columns=[
@@ -1059,15 +1058,36 @@ def getAUCellScore(
         >> F(list)
     )
 
-    df_auc = aucell(
-        df_mtx,
-        signatures=ls_reg,
-        auc_threshold=aucMaxPropotion,
-        num_workers=threads,
-        noweights=True,
-        seed=0,
-        **dt_kwargs2aucell,
-    )
+    if chunksize is None:
+        df_mtx = basic.ad2df(ad, layer)
+        df_auc = aucell(
+            df_mtx,
+            signatures=ls_reg,
+            auc_threshold=aucMaxPropotion,
+            num_workers=threads,
+            noweights=True,
+            seed=0,
+            **dt_kwargs2aucell,
+        )
+    else:
+        maxIter = int(np.ceil(ad.shape[0] / chunksize))
+        lsDf_auc = []
+        for i in tqdm(range(0, ad.shape[0], chunksize)):
+            _df_mtx = basic.ad2df(ad[i:i+chunksize], layer)
+            # _df_mtx = _df_mtx.iloc[i:i+chunksize]
+            _df_auc = aucell(
+                _df_mtx,
+                signatures=ls_reg,
+                auc_threshold=aucMaxPropotion,
+                num_workers=threads,
+                noweights=True,
+                seed=0,
+                **dt_kwargs2aucell,
+            )
+            lsDf_auc.append(_df_auc)
+            import gc;gc.collect()
+        df_auc = pd.concat(lsDf_auc)
+
     # import pdb;pdb.set_trace()
     ad.obsm[label] = df_auc.reindex(ad.obs.index)
 
