@@ -340,13 +340,18 @@ def normalizeBySCT_r(
     ls_hvg <- so_sct[['SCT']]@var.features
     """
     )
+    so_sct = rEnv["so_sct"]
     setSctVstToAd(ad, rEnv)
     ls_hvg = list(rEnv["ls_hvg"])
-    ad.var['highly_variable'] = ad.var.index.isin(ls_hvg)
+    
+    ls_var =  R("VariableFeatures")(so_sct, assay='SCT') >> F(list)
+    dt_var = {ls_var[i]:i for i in range(len(ls_var))}
+    ad.var['highly_variable'] = ad.var.index.isin(dt_var)
+    ad.var['highly_variable_rank'] = ad.var.index.map(lambda x:dt_var.get(x, np.nan))
     if runSctOnly:
         return ad
 
-    so_sct = rEnv["so_sct"]
+    
     md_sct = so2md(so_sct)
     md_sct['SCT_scale.data'].var['highly_variable'] = md_sct['SCT_scale.data'].var.index.isin(ls_hvg)
     md_sct['SCT_scale.data'].X = md_sct['SCT_scale.data'].layers['SCT_scale.data']
