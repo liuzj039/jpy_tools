@@ -252,6 +252,7 @@ def normalizeBySCT_r(
     returnSo = False,
     rEnv = None,
     debug = False,
+    runSctOnly = False,
     **dt_kwargsToSct,
 ):
     '''`normalizeBySCT_r` is a function that takes in a single-cell RNA-seq dataset and returns a
@@ -280,6 +281,7 @@ def normalizeBySCT_r(
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
+    import pickle
     from ..rTools import ad2so, so2ad, so2md
     from ..otherTools import F
 
@@ -290,6 +292,33 @@ def normalizeBySCT_r(
 
     R = ro.r
     setSeed()
+    def setSctVstToAd(ad, rEnv):
+        model = R("levels(x = so_sct[['SCT']])")
+        assert len(list(model)) == 1, "model must be 1"
+        R("""
+        SCTModel_to_vst <- function(SCTModel) {
+            feature.params <- c("theta", "(Intercept)",  "log_umi")
+            feature.attrs <- c("residual_mean", "residual_variance" )
+            vst_out <- list()
+            vst_out$model_str <- slot(object = SCTModel, name = "model")
+            vst_out$model_pars_fit <- as.matrix(x = slot(object = SCTModel, name = "feature.attributes")[, feature.params])
+            vst_out$gene_attr <- slot(object = SCTModel, name = "feature.attributes")[, feature.attrs]
+            vst_out$cell_attr <- slot(object = SCTModel, name = "cell.attributes")
+            vst_out$arguments <- slot(object = SCTModel, name = "arguments")
+            return(vst_out)
+            }
+
+        model = levels(x = so_sct[['SCT']])
+
+        clip_range = SCTResults(object = so_sct[["SCT"]], slot = "clips", model = "model1")$sct
+        vst_out <- SCTModel_to_vst(SCTModel = slot(object = so_sct[['SCT']], name = "SCTModel.list")[[model]])
+        """)
+        vst_out = rEnv['vst_out']
+        ad.uns['sct_vst_pickle'] = str(pickle.dumps(vst_out))
+        ad.uns['sct_clip_range'] = list(rEnv['clip_range'])
+
+
+
     so = ad2so(ad, layer=layer, lightMode=True)
     if debug:
         import pdb;pdb.set_trace()
@@ -311,17 +340,26 @@ def normalizeBySCT_r(
     ls_hvg <- so_sct[['SCT']]@var.features
     """
     )
-    so_sct = rEnv["so_sct"]
+    setSctVstToAd(ad, rEnv)
     ls_hvg = list(rEnv["ls_hvg"])
+    ad.var['highly_variable'] = ad.var.index.isin(ls_hvg)
+    if runSctOnly:
+        return ad
+
+    so_sct = rEnv["so_sct"]
     md_sct = so2md(so_sct)
     md_sct['SCT_scale.data'].var['highly_variable'] = md_sct['SCT_scale.data'].var.index.isin(ls_hvg)
     md_sct['SCT_scale.data'].X = md_sct['SCT_scale.data'].layers['SCT_scale.data']
+    md_sct.uns["sct_vst_pickle"] = ad.uns["sct_vst_pickle"]
+    md_sct.uns["sct_clip_range"] = ad.uns["sct_clip_range"]
+
     sc.tl.pca(md_sct['SCT_scale.data'])
     ad.obsm['X_pca_sct'] = md_sct['SCT_scale.data'].obsm['X_pca'].copy()
     ad.uns['pca_sct'] = md_sct['SCT_scale.data'].uns['pca'].copy()
-    ad.var['highly_variable'] = ad.var.index.isin(ls_hvg)
     ad.obsm['SCT_data'] = md_sct['SCT'].layers['SCT_data']
     ad.uns['SCT_data_features'] = md_sct['SCT'].var.index.to_list()
+    
+
 
     # ad_sct = so2ad(so_sct, verbose=0)
     # ad_sct.var['highly_variable'] = ad_sct.var.index.isin(ls_hvg)
@@ -463,7 +501,6 @@ def normalizeBySCT(
     Optional[anndata.AnnData]
         [description]
     """
-
     import scipy.sparse as ss
     import pysctransform
     import scanpy as sc
@@ -535,6 +572,36 @@ def normalizeBySCT(
             basic.setLayerInfo(adata, sct_corrected="log-normalized")
     if copy:
         return adata
+
+def getSctResiduals(ad, ls_gene, layer='raw', forceOverwrite=False):
+    import pickle
+    from ..rTools import py2r, r2py
+    from ..otherTools import F
+
+    basic.testAllCountIsInt(ad, layer)
+    assert 'sct_vst_pickle' in ad.uns, "sct_vst_pickle not found in adata.uns"
+    assert 'sct_clip_range' in ad.uns, "sct_clip_range not found in adata.layers"
+    import rpy2.robjects as ro
+    R = ro.r
+
+    if ('sct_residual' not in ad.obsm.keys()) or forceOverwrite:
+        ls_gene = ls_gene
+    else:
+        ls_gene = list(set(ls_gene) - set(ad.obsm['sct_residual'].columns))
+    if len(ls_gene) == 0:
+        return None
+
+    fcR_getResiduals = R("sctransform::get_residuals")
+    vst_out = pickle.loads(eval(ad.uns['sct_vst_pickle']))
+    ls_clipRange = list(ad.uns['sct_clip_range'])
+    df_residuals = fcR_getResiduals(vst_out, umi=ad[:, ls_gene].to_df(layer).T >> F(py2r) >> F(R("data.matrix")) >> F(R("Matrix::Matrix")), res_clip_range=R.c(*ls_clipRange)) >> F(R("as.data.frame")) >> F(r2py)
+    df_residuals = df_residuals.T
+    df_residuals = df_residuals - df_residuals.mean()
+    if ('sct_residual' not in ad.obsm.keys()) or forceOverwrite:
+        ad.obsm['sct_residual'] = df_residuals
+    else:
+        ad.obsm['sct_residual'] = pd.concat([ad.obsm['sct_residual'], df_residuals], axis=1)
+
 
 @rcontext
 def integrateBySeurat(
