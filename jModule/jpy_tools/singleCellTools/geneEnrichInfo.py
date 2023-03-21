@@ -498,7 +498,24 @@ def calculateEnrichScoreByCellex(
                 right_on=["gene", clusterName],
             )
         )
+
+        _lsSr = []
+        for key, _df in eso.results.items():
+            _ls = key.split('.')
+            if len(_ls) == 1:
+                continue
+            method, attr = _ls
+            if attr not in ['pvals', 'esw_s']:
+                continue
+            _lsSr.append(_df.stack().rename(f"{method}_{attr}"))
+        df_others = pd.concat(_lsSr,axis=1).reset_index().rename({'level_0': 'gene', 'level_1': clusterName}, axis=1)
+        df_others['significantCounts'] = (df_others.filter(like='pvals') < 0.05).sum(1)
+        df_result = df_result.merge(df_others, left_on=['gene', clusterName], right_on=['gene', clusterName], how='left')
+        df_result[clusterName] = df_result[clusterName].astype('category').cat.set_categories(ls_cluster)
+        # adata.uns[f"{kayAddedPrefix}_cellex_all"] = df_others.copy()
+
         adata.uns[f"{kayAddedPrefix}_cellexES"] = df_result.copy()
+
 
     adata = adata.copy() if copy else adata
     basic.testAllCountIsInt(adata, layer)
