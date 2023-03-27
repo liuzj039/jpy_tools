@@ -949,6 +949,34 @@ def plotGeneModuleByNetworkx(
     ax = plt.gca()
     return ax
 
+def makeKdeForCluster(ad, key='Cluster', ls_cluster=None, levels=[0.1], ax=None, **dt_args):
+    '''> This function takes a `AnnData` object, a key in the `obs` attribute, a list of clusters, a list of levels, and a matplotlib axis object, and returns a matplotlib axis object with kdes drawn on it
+
+    Parameters
+    ----------
+    ad
+        AnnData object
+    key, optional
+        the column name of the cluster labels
+    ls_cluster
+        list of clusters to plot. If None, plot all clusters.
+    levels, optional
+        the levels to draw the kde
+    ax
+        the axis to plot on
+
+    '''
+    assert ax, 'Please provide an axis object'
+    if ls_cluster is None:
+        ls_cluster = ad.obs[key].unique().tolist()
+    if isinstance(ls_cluster, str):
+        ls_cluster = [ls_cluster]
+
+    dt_colors = basic.getadataColor(ad, key)
+    _ad = ad[ad.obs.eval(f"{key} in @ls_cluster")]
+    df_umap = _ad.obs[[key]].assign(UMAP_1=list(_ad.obsm['X_umap'][:,0]), UMAP_2=list(_ad.obsm['X_umap'][:,1]))
+    sns.kdeplot(df_umap, x='UMAP_1', y='UMAP_2', hue=key, levels=[0.1], common_norm=False, ax=ax, palette=dt_colors)
+
 def makeEllipseForCluster(ad, key='Cluster', ls_cluster=None, std=3, ax=None, **dt_args):
     '''> This function takes a `AnnData` object, a key in the `obs` attribute, a list of clusters, a standard deviation, and a matplotlib axis object, and returns a matplotlib axis object with ellipses drawn on it
 
