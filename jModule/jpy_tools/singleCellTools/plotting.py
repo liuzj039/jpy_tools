@@ -949,7 +949,7 @@ def plotGeneModuleByNetworkx(
     ax = plt.gca()
     return ax
 
-def makeKdeForCluster(ad, key='Cluster', ls_cluster=None, levels=[0.1], ax=None, **dt_args):
+def makeKdeForCluster(ad, key='Cluster', ls_cluster=None, levels=[0.1], ax=None, palette=None, **dt_args):
     '''> This function takes a `AnnData` object, a key in the `obs` attribute, a list of clusters, a list of levels, and a matplotlib axis object, and returns a matplotlib axis object with kdes drawn on it
 
     Parameters
@@ -972,7 +972,11 @@ def makeKdeForCluster(ad, key='Cluster', ls_cluster=None, levels=[0.1], ax=None,
     if isinstance(ls_cluster, str):
         ls_cluster = [ls_cluster]
 
-    dt_colors = basic.getadataColor(ad, key)
+    if palette is None:
+        dt_colors = basic.getadataColor(ad, key)
+    else:
+        dt_colors = palette
+        
     _ad = ad[ad.obs.eval(f"{key} in @ls_cluster")]
     df_umap = _ad.obs[[key]].assign(UMAP_1=list(_ad.obsm['X_umap'][:,0]), UMAP_2=list(_ad.obsm['X_umap'][:,1]))
     sns.kdeplot(df_umap, x='UMAP_1', y='UMAP_2', hue=key, levels=levels, common_norm=False, ax=ax, palette=dt_colors, **dt_args)
