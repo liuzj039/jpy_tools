@@ -975,7 +975,7 @@ def makeKdeForCluster(ad, key='Cluster', ls_cluster=None, levels=[0.1], ax=None,
     dt_colors = basic.getadataColor(ad, key)
     _ad = ad[ad.obs.eval(f"{key} in @ls_cluster")]
     df_umap = _ad.obs[[key]].assign(UMAP_1=list(_ad.obsm['X_umap'][:,0]), UMAP_2=list(_ad.obsm['X_umap'][:,1]))
-    sns.kdeplot(df_umap, x='UMAP_1', y='UMAP_2', hue=key, levels=[0.1], common_norm=False, ax=ax, palette=dt_colors)
+    sns.kdeplot(df_umap, x='UMAP_1', y='UMAP_2', hue=key, levels=levels, common_norm=False, ax=ax, palette=dt_colors, **dt_args)
 
 def makeEllipseForCluster(ad, key='Cluster', ls_cluster=None, std=3, ax=None, **dt_args):
     '''> This function takes a `AnnData` object, a key in the `obs` attribute, a list of clusters, a standard deviation, and a matplotlib axis object, and returns a matplotlib axis object with ellipses drawn on it
