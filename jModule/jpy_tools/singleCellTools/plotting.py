@@ -980,7 +980,7 @@ def makeKdeForCluster(ad, key='Cluster', ls_cluster=None, levels=[0.1], ax=None,
     _ad = ad[ad.obs.eval(f"{key} in @ls_cluster")]
     df_umap = _ad.obs[[key]].assign(UMAP_1=list(_ad.obsm['X_umap'][:,0]), UMAP_2=list(_ad.obsm['X_umap'][:,1]))
     nobs = min(nobs, df_umap.shape[0])
-    df_umap = df_umap.groupby(key, group_keys=False).apply(lambda x: x.sample(frac=nobs/df_umap.shape[0]))
+    df_umap = df_umap.groupby(key, group_keys=False).apply(lambda x: x.sample(frac=nobs/df_umap.shape[0], random_state=39))
 
     sns.kdeplot(df_umap, x='UMAP_1', y='UMAP_2', hue=key, levels=levels, common_norm=False, ax=ax, palette=dt_colors, **dt_args)
 
