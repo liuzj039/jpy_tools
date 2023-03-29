@@ -736,3 +736,10 @@ def r2py_re(objR):
     del rEnv["temp_r2py"]
     return obj
 
+def RR(script):
+    R = ro.r
+    return R(f"\(x) {script}")
+
+def FR(script):
+    R = ro.r
+    return F(R(script))
