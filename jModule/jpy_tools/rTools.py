@@ -42,10 +42,10 @@ from .otherTools import Capturing, F
 # pyarrow.Table.from_pandas(pd.DataFrame([1,2,3])) # this package should be imported before arrow(R)
 
 R = ro.r
-seo = importr("SeuratObject")
+# seo = importr("SeuratObject")
 rBase = importr("base")
 rUtils = importr("utils")
-importr("magrittr")
+# importr("magrittr")
 
 
 def rcontext(func):
