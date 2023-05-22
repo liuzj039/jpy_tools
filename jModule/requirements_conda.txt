@@ -12,7 +12,7 @@ httplib2>0.19,<0.20
 
 # scientific calculation
 numpy
-pandas
+pandas<2.0
 statsmodels
 scipy
 xarray
@@ -38,7 +38,7 @@ matplotlib
 seaborn
 
 # R package
-r-base>=4.1,<4.2
+r-base>=4.1
 r-arrow
 r-reticulate
 r-sctransform
@@ -52,6 +52,7 @@ bioconductor-sc3
 bioconductor-scdblfinder
 bioconductor-scran
 bioconductor-singlecellexperiment
+bioconductor-clusterprofiler
 
 # pip only
 # muon
