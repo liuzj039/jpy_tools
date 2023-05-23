@@ -976,3 +976,119 @@ class MuteInfo:
         sys.stdout = self.orgout
         sys.stderr = self.orgerr
         self.f.close()
+class FigConcate(object):
+    def __init__(self, fig):
+        """
+        初始化函数，将输入的Matplotlib图形转换为numpy数组，并保存在self.figAr中
+
+        参数：
+        fig：Matplotlib图形对象
+        """
+        self.fig = fig
+        self.figAr = self.figureToArray(fig)
+
+    def __or__(self, other):
+        """
+        重载 | 运算符，将两个FigConcate对象沿着水平方向拼接
+
+        参数：
+        other：另一个FigConcate对象
+
+        返回：
+        拼接后的FigConcate对象
+        """
+        ar_concate = self.padAndConcate([self.figAr, other.figAr], axis=1)
+        fig = plt.figure()
+        plt.imshow(ar_concate)
+        plt.axis('off')
+        plt.close()
+        fig_concate = FigConcate(fig)
+        fig_concate.figAr = ar_concate
+        return fig_concate
+    
+    def __truediv__(self, other):
+        """
+        重载 / 运算符，将两个FigConcate对象沿着垂直方向拼接
+
+        参数：
+        other：另一个FigConcate对象
+
+        返回：
+        拼接后的FigConcate对象
+        """
+        ar_concate = self.padAndConcate([self.figAr, other.figAr], axis=0)
+        fig = plt.figure()
+        plt.imshow(ar_concate)
+        plt.axis('off')
+        plt.close()
+        fig_concate = FigConcate(fig)
+        fig_concate.figAr = ar_concate
+        return fig_concate
+    
+    def show(self, figsize=(10, 10)):
+        fig = plt.figure(figsize=figsize)
+        plt.imshow(self.figAr)
+        plt.axis('off')
+        plt.close()
+        return fig
+
+    @staticmethod
+    def figureToArray(fig):
+        """
+        将Matplotlib图形转换为numpy数组
+
+        参数：
+        fig：Matplotlib图形对象
+
+        返回：
+        numpy数组
+        """
+        from io import BytesIO
+        import PIL
+
+        buf = BytesIO()
+        fig.savefig(buf, format="png", bbox_inches='tight')
+        buf.seek(0)
+        img = PIL.Image.open(buf)
+        return np.array(img)
+
+    @staticmethod
+    def padAndConcate(ls_arrs, axis):
+        """
+        将多个numpy数组沿着指定轴拼接，并进行补齐
+
+        参数：
+        ls_arrs：包含多个numpy数组的列表
+        axis：指定拼接的轴，0表示垂直方向，1表示水平方向
+
+        返回：
+        拼接后的numpy数组
+        """
+        from functools import reduce
+
+        def concatenate_along_axis(arr1, arr2, axis=axis):
+            # 获取 arr1 和 arr2 的形状
+            paddingAxis = 1-axis
+            shape1, shape2 = arr1.shape, arr2.shape
+            n1 = shape1[paddingAxis]
+            n2 = shape2[paddingAxis]
+            max_n = max(n1, n2)
+
+            # 确定需要补齐的维度和补齐的大小
+            pad_shape1 = [(0, 0)] * len(shape1)
+            pad_shape2 = [(0, 0)] * len(shape1)
+
+            padding_n1 = max_n - n1
+            padding_n2 = max_n - n2
+
+            pad_shape1[paddingAxis] = (padding_n1//2, padding_n1 - padding_n1//2)
+            pad_shape2[paddingAxis] = (padding_n2//2, padding_n2 - padding_n2//2)
+
+            # 补齐 arr1 和 arr2
+            arr1 = np.pad(arr1, pad_shape1, mode='constant', constant_values=255)
+            arr2 = np.pad(arr2, pad_shape2, mode='constant', constant_values=255)
+
+            # 沿着指定轴拼接 arr1 和 arr2
+            return np.concatenate((arr1, arr2), axis=axis)
+
+        return reduce(concatenate_along_axis, ls_arrs)
