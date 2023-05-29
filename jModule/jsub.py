@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/public/home/liuzj/softwares/anaconda3/bin/python
 import click
 import datetime
 import re
@@ -44,7 +44,7 @@ def getScriptContent(snakemake, inline, contents, name, cluster, noMessage):
     return contents
 
 
-def getServerScriptContent(cluster, node, time, queue, name, mem, threads, gpu):
+def getServerScriptContent(cluster, node, time, queue, name, mem, threads, gpu, condaEnv):
     homePath = os.environ["HOME"]
 
     if cluster == "pbs":
@@ -75,9 +75,12 @@ cd $PBS_O_WORKDIR
         serverContents = serverContents.strip() + "\n"
         if gpu != 0:
             serverContents = (
-                serverContents + f"#BSUB -gpu 'num={gpu}'\nmodule load cuda/11.1\n"
+                serverContents + f"#BSUB -gpu 'num={gpu}'\nmodule load cuda/10.0\n"
             )
-
+    if not condaEnv is None:
+        serverContents = (
+            serverContents + f"source activate {condaEnv}\n"
+        )
     return serverContents
 
 
@@ -146,6 +149,7 @@ def parseLsfJobStatus():
 @click.argument("contents", nargs=-1)
 # sendMessage or not
 @click.option("--no-message", "noMessage", is_flag=True, help="send message or not")
+@click.option("--env", 'condaEnv', default=None, help='conda environment')
 def main(
     contents,
     cluster,
@@ -159,6 +163,7 @@ def main(
     gpu,
     node,
     noMessage,
+    condaEnv
 ):
     """
     submit a job. compatible with lsf / pbs server.
@@ -194,7 +199,7 @@ def main(
         snakemake, inline, contents, name, cluster, noMessage
     )
     serverScriptContent = getServerScriptContent(
-        cluster, node, time, queue, name, mem, threads, gpu
+        cluster, node, time, queue, name, mem, threads, gpu, condaEnv
     )
     finalContent = serverScriptContent + scriptContent
 
@@ -225,3 +230,4 @@ def main(
 
 
 main()
+
