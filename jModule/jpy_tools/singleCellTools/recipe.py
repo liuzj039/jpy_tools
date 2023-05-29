@@ -250,3 +250,34 @@ def multiBatch(
         ad.X = ad.layers["normalize_log"].copy()
         sc.pl.embedding(ad, f"X_umap_{method}_{normalization}", color=batch)
     return ad
+
+def aprRecipe(ad, obsKey, layer, n_top_genes=5000):
+    """
+    This function performs APR (analytic pearson residual) on the input AnnData object
+    ad: AnnData object containing gene expression data
+    obsKey: name of the observation key to group cells by
+
+
+    ## details
+    The function first creates a new AnnData object containing only genes detected in all samples
+    It then splits the data by the observation key and calculates the Pearson residuals for each sample
+    The Pearson residuals are converted to a DataFrame and added to a list
+    The PCA is performed on the combined DataFrame of all samples
+    The PCA results are added to the original AnnData object as uns and obsm attributes
+    """
+    ls_detectedGeneInAllSamples = basic.filterGeneBasedOnSample(ad, obsKey, layer=layer)
+    ad_apr = ad[:, ls_detectedGeneInAllSamples].copy()
+    sc.experimental.pp.highly_variable_genes(ad_apr, n_top_genes=n_top_genes, batch_key=obsKey, layer=layer, chunksize=5000, subset=True)
+
+    lsDf_apr = []
+    for sample, _ad in basic.splitAdata(ad_apr, obsKey, needName=True):
+        x = sc.experimental.pp.normalize_pearson_residuals(_ad, inplace=False, layer=layer)
+        df_apr = pd.DataFrame(x['X'], index=_ad.obs.index, columns=_ad.var.index)
+        lsDf_apr.append(df_apr)
+    df_apr = pd.concat(lsDf_apr)
+    tp_aprPca = sc.tl.pca(df_apr.loc[ad.obs.index].values, return_info=True)
+
+    ad.uns['pca'] = {}
+    ad.obsm['X_pca'] = tp_aprPca[0]
+    ad.uns['pca']['variance_ratio'] = tp_aprPca[2]
+    ad.uns['pca']['variance'] = tp_aprPca[3]

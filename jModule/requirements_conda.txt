@@ -36,7 +36,6 @@ scanorama
 # visualization
 matplotlib
 seaborn
-matplotlib_venn
 
 # R package
 r-base>=4.1

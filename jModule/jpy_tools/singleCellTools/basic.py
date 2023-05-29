@@ -1099,3 +1099,26 @@ def setLayerInfo(adata: anndata.AnnData, **dt_layerInfo):
         adata.uns["layerInfo"] = {}
     for key, value in dt_layerInfo.items():
         adata.uns["layerInfo"][key] = value
+
+def filterGeneBasedOnSample(ad, obsKey, minSample=None, layer='raw'):
+    """
+    This function filters genes based on the number of samples they are expressed in
+    ad: AnnData object containing gene expression data
+    obsKey: name of the observation key to group cells by
+    minSample: minimum number of samples a gene must be expressed in to be kept (default is all samples)
+    layer: name of the layer to use for filtering (default is 'raw')
+ 
+    The number of samples each gene is expressed in is calculated and added as a variable
+    Genes are filtered based on the minimum number of samples they are expressed in
+    The filtered genes are returned as a list
+    """
+    from . import geneEnrichInfo
+    ad.layers['binarized'] = ad.layers[layer] > 0
+    ad_merged = geneEnrichInfo._mergeData(ad, obsKey, layer='binarized')
+    ad.var['nSamples'] = (ad_merged.X > 0).sum(axis=0)
+    if minSample is None:
+        minSample = ad_merged.shape[0]
+    sc.pp.filter_genes(ad_merged, min_cells=minSample)
+    ls_filteredGenes = ad_merged.var.index.to_list()
+    return ls_filteredGenes
+
