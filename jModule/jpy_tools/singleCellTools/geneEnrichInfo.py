@@ -39,6 +39,44 @@ from . import basic, diffxpy
 from ..rTools import rcontext
 from ..otherTools import F, pwStack, pwShow, MuteInfo
 
+def getGeneEnrichmentScore(ad:sc.AnnData, genes:Union[str, list], cluster:str, layer:str = 'normalize_log', permuteTime:int=1000, seed:int=39) -> pd.DataFrame:
+    '''This function calculates the enrichment score of a given set of genes in a specific cluster of cells using a permutation-based approach.
+    Reimplementation of Enrichment score defined in 10.1038/s41477-021-00922-0
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+        `ad` is an AnnData object, which is a data structure commonly used in single-cell genomics to store and manipulate gene expression data along with associated metadata.
+    genes : Union[str, list]
+        The genes of interest that will be used to calculate the enrichment score. It can be either a single gene or a list of genes.
+    cluster : str
+        The `cluster` parameter is a string that specifies the name of the column in the `ad.obs` dataframe that contains the cluster labels for each cell. The function groups the cells by their cluster labels and calculates the mean expression of the specified genes for each cluster. It then compares this to the mean
+    layer : str, optional
+        The layer parameter specifies which layer of gene expression data to use for the analysis. It has a default value of 'normalize_log', which suggests that the data has been normalized and log-transformed.
+    permuteTime : int, optional
+        permuteTime is an integer parameter that specifies the number of times to permute the cluster labels and calculate the enrichment score. The higher the value of permuteTime, the more accurate the enrichment score will be, but it will also take longer to compute.
+    seed : int, optional
+        The seed parameter is an integer used to initialize the random number generator. It ensures that the random permutations generated during the permutation test are reproducible.
+
+    Returns
+    -------
+        a pandas DataFrame containing the enrichment score (z-score) for the specified genes in the specified cluster, calculated using the method described in the paper with the DOI 10.1038/s41477-021-00922-0. The enrichment score is calculated by comparing the mean expression of the genes in the true cluster to the mean expression of the genes in permuted clusters, and
+
+    '''
+    ad = ad[:, genes]
+    df_mtx = ad.to_df(layer).join(ad.obs[cluster])
+    df_true = df_mtx.groupby(cluster).agg('mean')
+    ls_permuteAr = []
+    for i in range(permuteTime):
+        df_mtx[cluster] = df_mtx[cluster].sample(frac=1, random_state=seed).values
+        df_permuted = df_mtx.groupby(cluster).agg('mean')
+        ls_permuteAr.append(df_permuted.values)
+    ar_permute = np.stack(ls_permuteAr)
+    ar_meanPermute = ar_permute.mean(0)
+    ar_stdPermute = ar_permute.std(0)
+    zscore = (df_true - ar_meanPermute) / ar_stdPermute
+    return zscore
+
 
 def getBgGene(
     ad,
