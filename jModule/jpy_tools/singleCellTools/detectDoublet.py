@@ -120,6 +120,7 @@ def byScDblFinder(
     doubletRatio: Optional[float] = None,
     skipCheck: bool = False,
     dropDoublet: bool = True,
+    BPPARAM=None
 ) -> Optional[anndata.AnnData]:
     """
     use ScDblFinder detect doublets.
@@ -149,6 +150,8 @@ def byScDblFinder(
     R = ro.r
     Seurat = importr('Seurat')
     rBase = importr("base")
+    BiocParallel = importr("BiocParallel")
+    scDblFinder = importr("scDblFinder")
 
     ls_obsInfo = []
     if not batch_key:
@@ -157,8 +160,10 @@ def byScDblFinder(
         ls_obsInfo.append(batch_key)
     if not doubletRatio:
         doubletRatio = R("NULL")
-
-    scDblFinder = importr("scDblFinder")
+    if not BPPARAM:
+        BPPARAM = BiocParallel.SerialParam()
+    else:
+        BPPARAM = BiocParallel.MulticoreParam(BPPARAM)
 
     if not skipCheck:
         basic.testAllCountIsInt(adata, layer)
@@ -174,7 +179,7 @@ def byScDblFinder(
 
     logger.info("start to calculate doublet score")
 
-    tempAdr = scDblFinder.scDblFinder(tempAdr, samples=batch_key, dbr=doubletRatio)
+    tempAdr = scDblFinder.scDblFinder(tempAdr, samples=batch_key, dbr=doubletRatio, BPPARAM=BPPARAM)
 
     logger.info("start to intergrate result with adata")
     # scDblFinderResultDf = r2py(R.as_data_frame(tempAdr.slots["colData"]))

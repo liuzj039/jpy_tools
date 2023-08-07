@@ -1092,3 +1092,38 @@ class FigConcate(object):
             return np.concatenate((arr1, arr2), axis=axis)
 
         return reduce(concatenate_along_axis, ls_arrs)
+
+def cld(df, p, lvl_order=None):
+    '''The function `cld` performs a post-hoc analysis using the multcomp package in R to determine significant differences between groups based on a given p-value threshold.
+
+    Parameters
+    ----------
+    df
+        The parameter `df` is a pandas DataFrame that contains the data for which you want to perform the cld (comparisons of least significant difference) analysis.
+    p
+        The parameter "p" represents the significance level for the p-values. It is used to determine which p-values are considered statistically significant.
+    lvl_order
+        The `lvl_order` parameter is used to specify the order of levels in the output. It is a list or tuple that contains the levels in the desired order. If `lvl_order` is not provided, the levels will be sorted in ascending order.
+
+    Returns
+    -------
+        a dictionary where the keys are the names of the comparisons and the values are the corresponding letters.
+
+    '''
+    from rpy2 import robjects as ro
+    from rpy2.robjects.packages import importr
+    from .rTools import py2r
+
+    multcomp = importr('multcomp')
+    R = ro.r
+    if lvl_order is None:
+        lvl_order = (df['row'] >> F(set) | df['col'] >> F(set)) >> F(sorted)
+
+    signif = (df['p-adj'] < p).values
+    mycomps = df[['row', 'col']].values
+    res = multcomp.insert_absorb(R.c(*signif.tolist()), decreasing=False, comps=py2r(mycomps), lvl_order=lvl_order)
+    dt_cld = R("""\(x){
+    x$Letters
+    }
+    """)(res) >> F(lambda _: {x:y for x,y in zip(_.names, _)})
+    return dt_cld

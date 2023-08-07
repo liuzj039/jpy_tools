@@ -33,6 +33,93 @@ import sys
 import snapatac2 as snap
 from . import basic
 
+def addSctAssayToSeuratObject(so, ad, ls_feature=[], layer='raw', setDefaultAssay=True):
+    '''The function `addSctAssayToSeuratObject` adds a SCT assay to a Seurat object.
+
+    Parameters
+    ----------
+    so
+        The parameter "so" is a Seurat object, which is a data structure used in the Seurat package in R for single-cell RNA sequencing (scRNA-seq) analysis. It contains the scRNA-seq data along with various annotations and analysis results.
+    ad
+        anndata
+    ls_feature
+        The parameter `ls_feature` is a list of features (genes) that will be used for creating the SCT assay object. If `ls_feature` is not provided, it will default to using the highly variable genes from the Seurat object (`ad.var.loc[lambda _: _.highly_variable].
+    layer, optional
+        The 'layer' parameter is an optional parameter that specifies the layer used for SCT.
+
+    Returns
+    -------
+        the Seurat object `so` with the added SCT assay.
+
+    '''
+    import pickle
+    from . import normalize
+    from ..rTools import py2r, r2py
+    from ..otherTools import F
+
+    basic.testAllCountIsInt(ad, layer)
+    assert 'sct_vst_pickle' in ad.uns, "sct_vst_pickle not found in adata.uns"
+    assert 'sct_clip_range' in ad.uns, "sct_clip_range not found in adata.layers"
+    assert 'SCT_data' in ad.obsm
+    import rpy2.robjects as ro
+    R = ro.r
+
+    vst_out = pickle.loads(eval(ad.uns['sct_vst_pickle']))
+    arR_sctData = py2r(ad.obsm['SCT_data'].T)
+    arR_sctData = R("""\(x,y,z){
+    colnames(x) <- y
+    rownames(x) <- z
+    x
+    }
+    """)(arR_sctData, R.c(*ad.obs.index), R.c(*ad.uns['SCT_data_features']))
+
+    assay_out = R.CreateAssayObject(counts=arR_sctData, check_matrix=False)
+    if not ls_feature:
+        ls_hvgFeatures = ad.var.sort_values('highly_variable_rank').loc[lambda _: _.highly_variable].index.to_list()
+    normalize.getSctResiduals(ad, ls_hvgFeatures)
+    dfR_sctRes = py2r(ad.obsm['sct_residual'].loc[:, ls_hvgFeatures].T)
+    dfR_sctRes = R('as.matrix')(dfR_sctRes)
+    dfR_sctRes = R("""\(x,y,z){
+    colnames(x) <- y
+    rownames(x) <- z
+    x
+    }
+    """)(dfR_sctRes, R.c(*ad.obs.index), R.c(*ls_hvgFeatures))
+
+    assay_out = R("""\(assay.out, features, scale.data, vst.out){
+    VariableFeatures(object=assay.out) <- features
+    assay.out <- SetAssayData(
+        object = assay.out,
+        slot = 'data',
+        new.data = log1p(x = GetAssayData(object = assay.out, slot = 'counts'))
+    )
+    assay.out <- SetAssayData(
+        object = assay.out,
+        slot = 'scale.data',
+        new.data = scale.data
+    )
+    Misc(object = assay.out, slot = 'vst.out') <- vst.out
+    assay.out <- as(object = assay.out, Class = "SCTAssay")
+    assay.out@assay.orig <- 'RNA'
+    slot(object = slot(object = assay.out, name = "SCTModel.list")[[1]], name = "umi.assay") <- 'RNA'  
+    assay.out
+    }
+    """)(assay_out, ls_hvgFeatures, dfR_sctRes, vst_out)
+    so = R("""\(x, y){
+    x[['SCT']] <- y
+    x
+    }
+    """)(so, assay_out)
+    if setDefaultAssay:
+        so = R("""\(x, y){
+        DefaultAssay(object = x) <- y
+        x
+        }
+        """)(so, 'SCT')
+    return so
+
+
+
 
 def starsolo_transferMtxToH5ad(starsoloMtxDir, force=False) -> sc.AnnData:
     import scipy.sparse as ss

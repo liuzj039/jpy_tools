@@ -416,8 +416,7 @@ def getHvgGeneFromSctAdata(ls_ad, nTopGenes=3000, nTopGenesEachAd=3000):
 
     ls_allHvg = []
     for ad in ls_ad:
-        _t = True
-        ls_allHvg.extend(ad.var.query("highly_variable == @_t").sort_values('highly_variable_rank').index[:nTopGenesEachAd].to_list())
+        ls_allHvg.extend(ad.var.sort_values('highly_variable_rank').loc[lambda _: _.highly_variable].index[:nTopGenesEachAd].to_list())
     ls_allHvg = [x for x in ls_allHvg if x in ls_allGenes]
     assert len(set(ls_allHvg)) > nTopGenes, "nTopGenes must be smaller than total number of HVGs"
     ls_hvgCounts = pd.Series(ls_allHvg).value_counts()
@@ -598,7 +597,7 @@ def getSctResiduals(ad, ls_gene, layer='raw', forceOverwrite=False):
 
     fcR_getResiduals = R("sctransform::get_residuals")
     vst_out = pickle.loads(eval(ad.uns['sct_vst_pickle']))
-    ls_clipRange = list(ad.uns['sct_clip_range'])
+    ls_clipRange = [float(x) for x in list(ad.uns['sct_clip_range'])]
     df_residuals = fcR_getResiduals(vst_out, umi=ad[:, ls_gene].to_df(layer).T >> F(py2r) >> F(R("data.matrix")) >> F(R("Matrix::Matrix")), res_clip_range=R.c(*ls_clipRange)) >> F(R("as.data.frame")) >> F(r2py)
     df_residuals = df_residuals.T
     df_residuals = df_residuals - df_residuals.mean()

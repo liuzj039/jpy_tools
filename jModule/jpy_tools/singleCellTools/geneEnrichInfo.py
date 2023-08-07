@@ -67,7 +67,7 @@ def getGeneEnrichmentScore(ad:sc.AnnData, genes:Union[str, list], cluster:str, l
     df_mtx = ad.to_df(layer).join(ad.obs[cluster])
     df_true = df_mtx.groupby(cluster).agg('mean')
     ls_permuteAr = []
-    for i in range(permuteTime):
+    for i in tqdm(range(permuteTime)):
         df_mtx[cluster] = df_mtx[cluster].sample(frac=1, random_state=seed).values
         df_permuted = df_mtx.groupby(cluster).agg('mean')
         ls_permuteAr.append(df_permuted.values)
@@ -546,6 +546,7 @@ def calculateEnrichScoreByCellex(
             if attr not in ['pvals', 'esw_s']:
                 continue
             _lsSr.append(_df.stack().rename(f"{method}_{attr}"))
+        # import pdb; pdb.set_trace()  # XXX BREAKPOINT
         df_others = pd.concat(_lsSr,axis=1).reset_index().rename({'level_0': 'gene', 'level_1': clusterName}, axis=1)
         df_others['significantCounts'] = (df_others.filter(like='pvals') < 0.05).sum(1)
         df_result = df_result.merge(df_others, left_on=['gene', clusterName], right_on=['gene', clusterName], how='left')
@@ -554,7 +555,7 @@ def calculateEnrichScoreByCellex(
 
         adata.uns[f"{kayAddedPrefix}_cellexES"] = df_result.copy()
 
-
+    adata.var = adata.var.rename_axis(index=None)
     adata = adata.copy() if copy else adata
     basic.testAllCountIsInt(adata, layer)
 
@@ -1691,6 +1692,60 @@ def scWGCNA(
     # rlc.__exit__(None, None, None)
     ro.r.gc()
     return ad_meta
+
+
+def useDiffxpyFindDegs(
+        ad: sc.AnnData, obsKey: str, testName: str, backgroundName: Union[List[str], str, None] = None, layer:Union[None, str] = None,
+        sizefactor:Union[None, str]=None, removeNotConv: bool = True, minCells=3, quickScale=True, category: Literal['both', 'up', 'down']='both',
+    ) -> pd.DataFrame:
+    import diffxpy.api as de
+    if sizefactor is None:
+        pass
+    else:
+        assert sizefactor in ad.obs.columns, f"sizefactor {sizefactor} not in ad.obs.columns"
+    assert obsKey in ad.obs.columns, f"obsKey {obsKey} not in ad.obs.columns"
+    if layer is None:
+        pass
+    else:
+        assert layer in ad.layers.keys(), f"layer {layer} not in ad.layers.keys()"
+    ls_allSamples = ad.obs[obsKey].unique().tolist()
+    if isinstance(backgroundName, str):
+        backgroundName = [backgroundName]
+    elif backgroundName is None:
+        backgroundName = [x for x in ls_allSamples if x != testName]
+    
+    _ls = [testName, *backgroundName]
+    ad = ad[ad.obs.eval(f"{obsKey}.isin(@_ls)")].copy()
+    if layer is None:
+        ad = ad.copy()
+    else:
+        ad.X = ad.layers[layer].copy()
+    del(ad.raw)
+    sc.pp.filter_genes(ad, min_cells=minCells)
+    ad.obs["diffxpy_temp"] = np.where(ad.obs[obsKey]==testName, 1, 0)
+    ad.obs["diffxpy_temp"] = ad.obs["diffxpy_temp"].astype('category').cat.set_categories([0, 1])
+    # if category == 'both':a
+    #     pass
+    # elif category == 'up': # reduce resource required
+    #     ls_removeGene = adata.var.query("mean(adata.X[adata.obs.diffxpyUse=='b',:]) > mean(adata.X[adata.obs.diffxpyUse=='a',:])").index.to_list()
+    #     adata = ad[:, ~ad.var.index.isin(ls_removeGene)].copy()
+    # elif category == 'down':
+    #     ls_removeGene = adata.var.query("mean(adata.X[adata.obs.diffxpyUse=='b',:]) < mean(adata.X[adata.obs.diffxpyUse=='a',:])").index.to_list()
+    #     adata = adata[:, ~adata.var.index.isin(ls_removeGene)].copy()
+    # else:
+    #     raise ValueError(f"category {category} not supported")
+    diffxpyTestResult = de.test.wald(
+        ad,
+        formula_loc="~1 + diffxpy_temp",
+        coef_to_test=f"diffxpy_temp[T.1]",
+        quick_scale=quickScale,
+        size_factors=sizefactor,
+        noise_model='nb'
+    )
+    df_diffxpyResult = diffxpyTestResult.summary()
+    if removeNotConv:
+        df_diffxpyResult = df_diffxpyResult.query("coef_sd > 2.222759e-162") # based on https://www.nature.com/articles/s41467-022-32229-9 and Delineating mouse β-cell identity during lifetime and in diabetes with a single cell atlas
+    return df_diffxpyResult
 
 
 def _mergeData(ad, obsKey, layer="raw"):
