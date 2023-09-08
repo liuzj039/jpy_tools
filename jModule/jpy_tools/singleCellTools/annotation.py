@@ -536,6 +536,96 @@ def labelTransferByScanpy(
 
 @rcontext
 def labelTransferBySeurat(
+    ad_ref,
+    refLabel,
+    refLayer,
+    ad_query,
+    queryLayer,
+    nTopGenes=2000,
+    kScore=30,
+    dims=30,
+    kWeight=100,
+    kFilter=200,
+    returnSoRef=False,
+    so_prevRef=None,
+    rEnv=None,
+):
+    import rpy2
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
+    from ..rTools import py2r, r2py, r_inline_plot, rHelp, trl, rGet, rSet, so2ad, ad2so
+    from ..otherTools import setSeed
+
+    rBase = importr("base")
+    rUtils = importr("utils")
+    R = ro.r
+    seurat = importr("Seurat")
+    seuratObject = importr("SeuratObject")
+    setSeed(0)
+ 
+    so_query = ad2so(ad_query, layer=queryLayer)
+    if so_prevRef:
+        so_ref = so_prevRef
+        rEnv['so.list'] = R.list(so_query)
+    else:
+        so_ref= ad2so(ad_ref, layer=refLayer)
+        rEnv['so.list'] = R.list(so_ref, so_query)
+    rEnv['nfeatures'] = nTopGenes
+    rEnv["k.score"] = kScore
+    rEnv["dims"] = dims
+    rEnv["k.weight"] = kWeight
+    rEnv["k.filter"] = kFilter
+
+    R("""
+    for (i in 1:length(so.list)) {
+        so.list[[i]] <- NormalizeData(so.list[[i]], verbose=F)
+        so.list[[i]] <- FindVariableFeatures(so.list[[i]], selection.method = "vst", nfeatures = nfeatures, verbose=F)
+    }
+    """)
+
+    if so_prevRef:
+        R("""
+        so.query <- so.list[[1]]
+        """)
+        rEnv['so.ref'] = so_ref
+    else:
+
+        R(f"""
+        so.ref <- so.list[[1]]
+        so.query <- so.list[[2]]
+
+        so.ref <- ScaleData(so.ref, verbose=F)
+        so.ref <- RunPCA(so.ref, npcs=dims, verbose=F)
+        so.ref <- RunUMAP(so.ref, reduction = "pca", dims = 1:dims, verbose=F)
+        """)
+
+    R(f"""
+    anchors <- FindTransferAnchors(reference = so.ref, query = so.query,
+        dims = 1:dims, k.score=k.score, reference.reduction = "pca", k.filter=k.filter)
+    predictions <- TransferData(anchorset = anchors, refdata = so.ref${refLabel},
+        dims = 1:dims)
+    so.ref <- RunUMAP(so.ref, dims = 1:30, reduction = "pca", return.model = TRUE)
+    so.query <- MapQuery(anchorset = anchors, reference = so.ref, query = so.query,
+        refdata = list({refLabel} = "{refLabel}"), reference.reduction = "pca", reduction.model = "umap")
+    """)
+    ad_refFromSeurat = so2ad(R("so.ref"))
+    ad_queryFromSeurat = so2ad(R("so.query"))
+    df_prediction = r2py(R("predictions"))
+    df_prediction = df_prediction.rename(columns=lambda _: _.split('.score.')[-1])
+    ad_query.obsm['X_seurat_ref_umap'] = ad_queryFromSeurat.obsm['X_ref.umap']
+    ad_query.obsm[f'seurat_labelTransfer_{refLabel}'] = df_prediction
+    ad_ref.obsm['X_seurat_ref_umap'] = ad_refFromSeurat.obsm['X_umap']
+    sc.pl.embedding(ad_ref, 'seurat_ref_umap', color=f'{refLabel}')
+    ad_query.obs[f'seurat_labelTransfer_{refLabel}'] = ad_query.obsm[f'seurat_labelTransfer_{refLabel}']['predicted.id']
+    basic.setadataColor(ad_query, f'seurat_labelTransfer_{refLabel}', 
+                                        basic.getadataColor(ad_ref, f'{refLabel}'))
+    sc.pl.embedding(ad_query, 'seurat_ref_umap', color=f'seurat_labelTransfer_{refLabel}')
+    if returnSoRef:
+        return rEnv['so.ref']
+
+
+@rcontext
+def labelTransferBySeuratOld(
     ad_ref: sc.AnnData,
     refLabel: str,
     refLayer,

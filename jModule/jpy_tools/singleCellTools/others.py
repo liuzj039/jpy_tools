@@ -786,3 +786,42 @@ def subsetBackedAd(ad:snap.AnnData, ls_obs, ls_var) -> sc.AnnData:
     ad1.close()
     tempFile.close()
     return ad_subset
+
+def clusteringAndCalculateShilouetteScore(
+        ad:sc.AnnData, ls_res: List[float], obsm: Union[str, np.ndarray], subsample=None, metric='euclidean'
+    ) -> Dict[str, float]:
+    '''The function performs clustering using the Leiden algorithm on an AnnData object and calculates the silhouette score for each clustering result.
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+        The parameter `ad` is an AnnData object, which is a data structure commonly used in single-cell RNA sequencing (scRNA-seq) analysis. It contains the gene expression data and associated metadata for each cell.
+    ls_res : List[float]
+        A list of resolution values to use for the Leiden clustering algorithm.
+    obsm : Union[str, np.ndarray]
+        The parameter `obsm` is the name of the key in the `ad` object's `.obsm` attribute that contains the data matrix used for clustering. It can be either a string representing the key name or a numpy array containing the data matrix itself.
+    subsample
+        The `subsample` parameter is an optional parameter that specifies the fraction of cells to subsample from the input `ad` AnnData object. If provided, only a fraction of cells will be used for calculating the silhouette score. If not provided, all cells in the `ad` Ann
+    metric, optional
+        The `metric` parameter specifies the distance metric to be used for calculating pairwise distances between observations. The default value is 'euclidean', which calculates the Euclidean distance between two points. Other possible values include 'manhattan' for Manhattan distance, 'cosine' for cosine similarity, and many more
+
+    Returns
+    -------
+        a dictionary where the keys are the resolution values from the input list `ls_res` and the values are the corresponding silhouette scores calculated using the Leiden clustering algorithm.
+
+    '''
+    import sklearn
+    import tqdm
+    for res in tqdm.tqdm(ls_res, desc="res"):
+        sc.tl.leiden(ad, resolution=res, key_added=f"leiden_{res}")
+    if subsample:
+        _ad = sc.pp.subsample(ad, fraction=subsample, copy=True)
+    else:
+        _ad = ad
+    if isinstance(obsm, str):
+        obsm = _ad.obsm[obsm]
+    ar_dist = sklearn.metrics.pairwise_distances(obsm, metric=metric)
+    dt_score = {}
+    for res in tqdm.tqdm(ls_res, desc="silhouette_score"):
+        dt_score[res] = sklearn.metrics.silhouette_score(ar_dist, _ad.obs[f"leiden_{res}"], metric='precomputed')
+    return dt_score
