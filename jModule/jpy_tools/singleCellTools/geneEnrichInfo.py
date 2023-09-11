@@ -911,6 +911,9 @@ def getDEGByScvi(
     -------
     Tuple[scvi.model.SCVI, pd.DataFrame]
     """
+    logger.warning("Based on ' single-cell RNA-seq differential expression tests within a sample should use pseudo-bulk data of pseudo-replicates', it would be better\
+                   to use a pseudo-replicate based manner without biological replicates, and Based on 'Confronting false discoveries in single-cell differential expression', it would be better to use\
+                   a pseudo-bulk based manner with biological replicates")
     scvi.settings.seed = 39
     scvi.settings.num_threads = threads
 
@@ -1698,6 +1701,10 @@ def useDiffxpyFindDegs(
         ad: sc.AnnData, obsKey: str, testName: str, backgroundName: Union[List[str], str, None] = None, layer:Union[None, str] = None,
         sizefactor:Union[None, str]=None, removeNotConv: bool = True, minCells=3, quickScale=True, category: Literal['both', 'up', 'down']='both',
     ) -> pd.DataFrame:
+    # Deprecated
+    logger.warning("Based on ' single-cell RNA-seq differential expression tests within a sample should use pseudo-bulk data of pseudo-replicates', it would be better\
+                   to use a pseudo-replicate based manner without biological replicates, and Based on 'Confronting false discoveries in single-cell differential expression', it would be better to use\
+                   a pseudo-bulk based manner with biological replicates")
     import diffxpy.api as de
     if sizefactor is None:
         pass
