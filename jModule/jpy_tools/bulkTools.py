@@ -5,14 +5,15 @@ from rpy2.robjects.functions import Function
 import scanpy as sc
 from itertools import product
 from joblib import Parallel, delayed
-from typing import Collection, Tuple, Optional, Union, Callable
-
+from typing import Collection, Tuple, Optional, Union, Callable, Literal
+from loguru import logger
 import rpy2
 import rpy2.robjects as ro
 from rpy2.robjects.packages import importr
 import rpy2.ipython.html
 rpy2.ipython.html.init_printing()
 from .rTools import py2r, r2py, r_inline_plot, rHelp, trl, rSet, rGet, ad2so, so2ad
+from .otherTools import F
 from . import loadPkl, toPkl
 rBase = importr('base')
 rUtils = importr('utils')
@@ -71,7 +72,68 @@ def counts2tpm(ad, layer, bed_path, fc_logScale:Optional[Callable] = None):
         ad.layers['tpm'] = df_tpm
 
 
-def deByDeseq2(ad, layer, group_design: str, threads=1):
+def deByEdger(ad, layer, obsKey, contrast):
+    importr("edgeR")
+    dfR_exp = py2r(ad.to_df(layer).T)
+    vtR_group = py2r(ad.obs[obsKey])
+    from statsmodels.stats.multitest import fdrcorrection
+    funcR_callEdgeRContrast = R(
+        f"""
+    \(dfR_exp,{obsKey}, contrast) {{
+        y <- DGEList(counts=dfR_exp,group={obsKey})
+        keep <- filterByExpr(y)
+        y <- y[keep,,keep.lib.sizes=FALSE]
+        y <- calcNormFactors(y)
+        design <- model.matrix(~0+{obsKey})
+        contrast <- do.call(makeContrasts, list(contrast, levels=design))
+        y <- estimateDisp(y,design)
+        fit <- glmFit(y,design,)
+        lrt <- glmLRT(fit, contrast=contrast)
+        lrt <- as.data.frame(lrt)
+        return(lrt)
+    }}
+    """
+    )
+
+    renv = ro.Environment()
+    with ro.local_context(renv) as rl:
+        df_lrt = funcR_callEdgeRContrast(dfR_exp, vtR_group, contrast) >> F(
+            r2py
+        )
+        df_lrt["fdr"] = fdrcorrection(df_lrt["PValue"])[1]
+    return df_lrt
+
+def deByDeseq2(ad, layer, groupDesign, ls_obs, contrast, shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None):
+    "coef only worked for apeglm shrink"
+    importr("DESeq2")
+    renv = ro.Environment()
+    assert (shrink=='ashr') or (shrink is None), 'Unsupported shrink method'
+
+    shrink = R("NULL") if shrink is None else shrink
+    with ro.local_context(renv) as rl:
+        rl['df_mtx'] = py2r(ad.to_df(layer).T)
+        rl['df_design'] = py2r(ad.obs[ls_obs])
+        rl['group_design'] = groupDesign
+        rl['contrast'] = contrast
+        rl['shrink'] = shrink
+        R("""
+        dds <- DESeqDataSetFromMatrix(countData = df_mtx,
+                                    colData = df_design,
+                                    design = group_design)
+        dds <- DESeq(dds)
+        res <- results(dds, contrast=contrast)
+        if (shrink %>% is.null) {
+            invisible()
+        } else {
+            res <- lfcShrink(dds, type=shrink, res=res)
+        }
+        
+        res <- data.frame(res)
+        """)
+        res = r2py(rl['res'])
+    return res
+
+def deByDeseq2_old(ad, layer, group_design: str, threads=1):
     '''> For each pair of groups in the `group_design` column, run DESeq2 and store the results in `ad.uns[f"deseq2_{group_design}"]`
 
     The function is a bit long, but it's not too complicated. 
@@ -94,6 +156,7 @@ def deByDeseq2(ad, layer, group_design: str, threads=1):
         number of threads to use for parallelization
 
     '''
+    logger.warning("Deprecated")
     def _twoGroup(ad, layer, grp1, grp2, group_design):
         importr('DESeq2')
         ad_sub = ad[ad.obs[group_design].isin([grp1, grp2])]

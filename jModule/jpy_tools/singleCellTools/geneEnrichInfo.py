@@ -2188,3 +2188,130 @@ def getGeneMeanAndExpressedRatioGroups(ad:sc.AnnData, groupby:Union[str, List[st
             ad.var.loc[_ad.var.index, f'{group}_{sample}_mean'] = _ad.var[f'{group}_{sample}_mean']
             ad.var.loc[_ad.var.index, f'{group}_{sample}_expressedRatio'] = _ad.var[f'{group}_{sample}_expressedRatio']
             ad.var.loc[_ad.var.index, f'{group}_{sample}_expressedCount'] = _ad.var[f'{group}_{sample}_expressedCount']
+
+def findDegUsePseudobulk(
+        ad:sc.AnnData, layer:str, compareKey:str, replicateKey:str, method:Literal['DESeq2', 'edgeR'], groups:Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]=None, 
+        shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None
+    ) -> pd.DataFrame:
+    '''The function `findDegUsePseudobulk` performs differential expression analysis using either DESeq2 or edgeR methods on single-cell RNA-seq data, comparing groups specified by a compareKey and replicateKey.
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+        The parameter `ad` is an AnnData object, which is a data structure commonly used in single-cell RNA sequencing analysis. It contains the gene expression data and associated metadata for each cell.
+    layer : str
+        The `layer` parameter is a string that specifies the layer of the AnnData object to use for the analysis.
+    compareKey : str
+        The `compareKey` parameter is a string that represents the key in the `ad.obs` dataframe of the AnnData object. It is used to specify the column that contains the groups to compare.
+    replicateKey : str
+        The `replicateKey` parameter is a string that represents the key in the AnnData object that identifies the replicates of the samples.
+    method : Literal['DESeq2', 'edgeR']
+        edgeR are recommended
+        The `method` parameter specifies the statistical method to be used for differential expression analysis. It can take two possible values: 'DESeq2' or 'edgeR'.
+    groups : Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]
+        The `groups` parameter in the `findDegUsePseudobulk` function is used to specify the groups within the `compareKey` column that you want to compare. It can take three different forms:
+            None: If `groups` is None, all groups within the `compareKey` column will be compared.
+            Tuple[str, ...]: If `groups` is a tuple of strings, the groups specified by the strings will be compared.
+            Tuple[str, Tuple[str, ...]]: If `groups` is a tuple of tuples, the first element of the tuple will be used as the control group, and the rest of the elements will be compared to the control group.
+    Returns
+    -------
+        a pandas DataFrame containing the results of differential expression analysis.
+
+    '''
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
+    from itertools import combinations
+    from . import geneEnrichInfo
+    from ..bulkTools import deByDeseq2, deByEdger
+    R = ro.r
+
+    if method == 'DESeq2':
+        importr("DESeq2")
+        logger.info("Wald test wrapped with DESeq2")
+    elif method == 'edgeR':
+        importr("edgeR")
+        logger.info("LRT test wrapped with edgeR")
+    else:
+        assert False, "wrong method"
+    ad_merged = geneEnrichInfo._mergeData(ad, [replicateKey, compareKey], layer=layer)
+    ad_merged.layers['raw'] = ad_merged.X.copy()
+    allGroups = tuple(ad.obs[compareKey].unique())
+    if groups is None:
+        logger.info("All groups within the compareKey will be compared")
+        groups = allGroups
+    if len(groups) <= 1:
+        assert False, "Only one group found"
+    elif isinstance(groups[1], str):
+        logger.info("Pairwise mode")
+        assert len([x for x in groups if x in allGroups]) == len(groups), "Some group not found in compareKey"
+        ls_res = []
+        for a,b in combinations(groups, 2):
+            if method == 'DESeq2':
+                df_res = deByDeseq2(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, a, b), shrink=shrink).assign(a=a, b=b)
+                ls_res.append(df_res)
+            else:
+                df_res = deByEdger(ad_merged, 'raw', compareKey, f"{compareKey}{a}-{compareKey}{b}").assign(a=a, b=b)
+                ls_res.append(df_res)
+    elif isinstance(groups[1], (tuple, list)):
+        control = groups[0]
+        groups = groups[1]
+        logger.info(f"Control mode: {control}")
+        assert len([x for x in groups if x in allGroups]) == len(groups), "Some group not found in compareKey"
+        a = control
+        ls_res = []
+        for b in groups:
+            if method == 'DESeq2':
+                df_res = deByDeseq2(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, a, b), shrink=shrink).assign(a=a, b=b)
+                ls_res.append(df_res)
+            else:
+                df_res = deByEdger(ad_merged, 'raw', compareKey, f"{compareKey}{a}-{compareKey}{b}").assign(a=a, b=b)
+                ls_res.append(df_res)
+    df_res = pd.concat(ls_res)
+    return df_res
+
+
+def findDegUsePseudoRep(
+        ad:sc.AnnData, layer:str, compareKey:str, npseudoRep:int, method:Literal['DESeq2', 'edgeR'], groups:Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]=None, 
+        randomSeed:int=39, shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None
+    ) -> pd.DataFrame:
+    '''The function `findDegUsePseudoRep` generates pseudoreplicates for each sample in an AnnData object and then uses these pseudoreplicates to perform differential expression analysis.
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+        The parameter `ad` is an AnnData object, which is a data structure used in single-cell RNA sequencing (scRNA-seq) analysis. It contains the gene expression data and associated metadata for each cell.
+    layer : str
+        The `layer` parameter is a string that specifies the layer of the AnnData object to use for differential expression analysis.
+    compareKey : str
+        The `compareKey` parameter is a string that represents the column name in the `ad.obs` dataframe of the AnnData object. This column contains the sample labels or groups that will be used for comparison in the differential expression analysis.
+    npseudoRep : int
+        The parameter `npseudoRep` represents the number of pseudoreplicates that you want to generate for each sample.
+    method : Literal['DESeq2', 'edgeR']
+        DESeq2 are recommended
+        The `method` parameter in the `findDegUsePseudoRep` function is used to specify the method for differential expression analysis. It can take two possible values: 'DESeq2' or 'edgeR'. These are popular R packages for differential expression analysis in single-cell RNA-seq data
+    groups : Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]
+        The `groups` parameter in the `findDegUsePseudobulk` function is used to specify the groups within the `compareKey` column that you want to compare. It can take three different forms:
+            None: If `groups` is None, all groups within the `compareKey` column will be compared.
+            Tuple[str, ...]: If `groups` is a tuple of strings, the groups specified by the strings will be compared.
+            Tuple[str, Tuple[str, ...]]: If `groups` is a tuple of tuples, the first element of the tuple will be used as the control group, and the rest of the elements will be compared to the control group.
+    randomSeed : int, optional
+        The `randomSeed` parameter is an integer that is used to set the random seed for reproducibility. It ensures that the random sampling of pseudoreplicates is consistent across different runs of the function.
+
+    Returns
+    -------
+        a pandas DataFrame containing the results of differential expression analysis using pseudoreplicates.
+
+    '''
+    ad.obs['pseudoRep'] = np.nan
+    for sampleName, sampleCount in ad.obs.value_counts(compareKey).items():
+        assert sampleCount >= npseudoRep, f"sample {sampleName} has {sampleCount} cells, less than {npseudoRep} pseudoreplicates"
+        eachRepCount = sampleCount // npseudoRep
+        ls_pseudoRep = []
+        for i in range(65, 65+npseudoRep-1):
+            ls_pseudoRep.extend([f"{chr(i)}"] * eachRepCount)
+        ls_pseudoRep.extend([f"{chr(i+1)}"] * (sampleCount - len(ls_pseudoRep)))
+        ad.obs.loc[lambda _: _[compareKey] == sampleName, 'pseudoRep'] = pd.Series(ls_pseudoRep).sample(frac=1, random_state=randomSeed).values
+    print(ad.obs.value_counts([compareKey, 'pseudoRep'], dropna=False))
+
+    df_res = findDegUsePseudobulk(ad, layer, compareKey, 'pseudoRep', method, groups, shrink=shrink)
+    return df_res

@@ -546,10 +546,54 @@ def labelTransferBySeurat(
     dims=30,
     kWeight=100,
     kFilter=200,
+    plot=True,
+    hvgMethod = 'vst',
+    integrateembeddings_args = {},
+    transferdata_args = {},
     returnSoRef=False,
     so_prevRef=None,
     rEnv=None,
 ):
+    '''The function `labelTransferBySeurat` performs label transfer using the Seurat package in R, integrating reference and query datasets and transferring labels from the reference to the query dataset.
+
+    Parameters
+    ----------
+    ad_ref
+        The reference Anndata object containing the reference dataset.
+    refLabel
+        The `refLabel` parameter is the name of the label in the reference dataset that you want to transfer to the query dataset.
+    refLayer
+        The `refLayer` parameter specifies the layer of the reference dataset to use for label transfer.
+    ad_query
+        The query Anndata object containing the cells for which you want to transfer labels.
+    queryLayer
+        The `queryLayer` parameter specifies the layer of the query dataset that will be used for label transfer.
+    nTopGenes, optional
+        The number of top genes to select for analysis.
+    kScore, optional
+        The `kScore` parameter determines the number of nearest neighbors used to calculate the K-nearest neighbor (KNN) graph.
+    dims, optional
+        The parameter "dims" specifies the number of dimensions to use for dimensionality reduction. It is used in the RunPCA and RunUMAP functions in Seurat.
+    kWeight, optional
+        The `kWeight` parameter is used to control the weight of the transfer data in the label transfer process. It determines the influence of the reference data on the query data during the transfer. Higher values of `kWeight` will result in a stronger influence of the reference data on the query data,
+    kFilter, optional
+        The `kFilter` parameter is used in the `FindTransferAnchors` function from the Seurat package. It specifies the number of anchors to select from the reference dataset. Anchors are data points that are shared between the reference and query datasets and are used to align the two datasets.
+    integrateembeddings_args
+        The `integrateembeddings_args` parameter is a dictionary that contains arguments for the `integrateEmbeddings` function in Seurat. These arguments control the integration of the reference and query datasets. Some possible arguments include:
+    transferdata_args
+        The `transferdata_args` parameter is a dictionary that contains arguments for the `TransferData` function in Seurat. These arguments control the behavior of the label transfer algorithm. Some possible arguments include:
+    returnSoRef, optional
+        A boolean parameter that determines whether to return the Seurat object of the reference dataset after label transfer. If set to True, the function will return the Seurat object; if set to False, the function will not return anything.
+    so_prevRef
+        A Seurat object containing the reference dataset. If provided, the function will use this object as the reference instead of creating a new one from the reference dataset.
+    rEnv
+        The `rEnv` parameter is a dictionary that contains the R environment variables used in the function. It is used to pass R variables and arguments to the R code within the function.
+
+    Returns
+    -------
+        The function does not explicitly return anything. However, if the `returnSoRef` parameter is set to `True`, it will return the `so.ref` object.
+
+    '''
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
@@ -575,11 +619,15 @@ def labelTransferBySeurat(
     rEnv["dims"] = dims
     rEnv["k.weight"] = kWeight
     rEnv["k.filter"] = kFilter
+    rEnv['integrateembeddings.args'] = R.list(**integrateembeddings_args)
+    transferdata_args['k.weight'] = kWeight
+    rEnv['transferdata.args'] = R.list(**transferdata_args)
+    rEnv['selection.method'] = hvgMethod
 
     R("""
     for (i in 1:length(so.list)) {
         so.list[[i]] <- NormalizeData(so.list[[i]], verbose=F)
-        so.list[[i]] <- FindVariableFeatures(so.list[[i]], selection.method = "vst", nfeatures = nfeatures, verbose=F)
+        so.list[[i]] <- FindVariableFeatures(so.list[[i]], selection.method = selection.method, nfeatures = nfeatures, verbose=F)
     }
     """)
 
@@ -602,10 +650,10 @@ def labelTransferBySeurat(
     R(f"""
     anchors <- FindTransferAnchors(reference = so.ref, query = so.query,
         dims = 1:dims, k.score=k.score, reference.reduction = "pca", k.filter=k.filter)
-    predictions <- TransferData(anchorset = anchors, refdata = so.ref${refLabel},
+    predictions <- TransferData(anchorset = anchors, refdata = so.ref${refLabel}, k.weight=k.weight,
         dims = 1:dims)
     so.ref <- RunUMAP(so.ref, dims = 1:30, reduction = "pca", return.model = TRUE)
-    so.query <- MapQuery(anchorset = anchors, reference = so.ref, query = so.query,
+    so.query <- MapQuery(anchorset = anchors, reference = so.ref, query = so.query, integrateembeddings.args = integrateembeddings.args, transferdata.args = transferdata.args,
         refdata = list({refLabel} = "{refLabel}"), reference.reduction = "pca", reduction.model = "umap")
     """)
     ad_refFromSeurat = so2ad(R("so.ref"))
@@ -615,11 +663,12 @@ def labelTransferBySeurat(
     ad_query.obsm['X_seurat_ref_umap'] = ad_queryFromSeurat.obsm['X_ref.umap']
     ad_query.obsm[f'seurat_labelTransfer_{refLabel}'] = df_prediction
     ad_ref.obsm['X_seurat_ref_umap'] = ad_refFromSeurat.obsm['X_umap']
-    sc.pl.embedding(ad_ref, 'seurat_ref_umap', color=f'{refLabel}')
     ad_query.obs[f'seurat_labelTransfer_{refLabel}'] = ad_query.obsm[f'seurat_labelTransfer_{refLabel}']['predicted.id']
     basic.setadataColor(ad_query, f'seurat_labelTransfer_{refLabel}', 
                                         basic.getadataColor(ad_ref, f'{refLabel}'))
-    sc.pl.embedding(ad_query, 'seurat_ref_umap', color=f'seurat_labelTransfer_{refLabel}')
+    if plot:
+        sc.pl.embedding(ad_ref, 'seurat_ref_umap', color=f'{refLabel}')
+        sc.pl.embedding(ad_query, 'seurat_ref_umap', color=f'seurat_labelTransfer_{refLabel}')
     if returnSoRef:
         return rEnv['so.ref']
 

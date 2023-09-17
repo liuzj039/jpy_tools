@@ -406,11 +406,13 @@ def getHvgGeneFromSctAdata(ls_ad, nTopGenes=3000, nTopGenesEachAd=3000):
         A list of genes that are highly variable across all adatas.
 
     '''
+    import pickle
     for ad in ls_ad:
         assert 'highly_variable_rank' in ad.var.columns, "adata must have highly_variable_rank"
     ls_allGenes = []
     for ad in ls_ad:
-        ls_allGenes.extend(ad.var.index.to_list())
+        vst_out = pickle.loads(eval(ad.uns['sct_vst_pickle']))
+        ls_allGenes.extend(list(vst_out[2].rownames))
     ls_allGenes = pd.Series(ls_allGenes).value_counts().loc[lambda x: x == len(ls_ad)].index.to_list()
     
 
