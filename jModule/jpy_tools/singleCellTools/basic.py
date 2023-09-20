@@ -33,7 +33,7 @@ from typing import (
 import collections
 import scipy.sparse as ss
 
-def ad2df(ad:sc.AnnData, layer=None, forceDense = False) -> pd.DataFrame:
+def ad2df(ad:sc.AnnData, layer=None, forceDense = False, dtype=np.float32) -> pd.DataFrame:
     '''> If the data is sparse, return a sparse dataframe, otherwise return a dense dataframe
     
     Parameters
@@ -50,20 +50,46 @@ def ad2df(ad:sc.AnnData, layer=None, forceDense = False) -> pd.DataFrame:
         A pandas dataframe
     
     '''
-    if forceDense:
-        df = ad.to_df(layer)
+    if layer is None:
+        mtx = ad.X.copy()
     else:
-        if layer is None:
-            if ss.issparse(ad.X):
-                df = pd.DataFrame.sparse.from_spmatrix(ad.X, index = ad.obs.index, columns=ad.var.index)
-            else:
-                df = ad.to_df()
-        else:
-            if ss.issparse(ad.layers[layer]):
-                df = pd.DataFrame.sparse.from_spmatrix(ad.layers[layer], index = ad.obs.index, columns=ad.var.index)
-            else:
-                df = ad.to_df(layer)
+        mtx = ad.layers[layer].copy()
+
+    # if dtype != np.float32:
+    #     forceDense = True
+    #     logger.warning("forceDense is set to True because dtype is not float32")
+    
+    
+    if ss.issparse(mtx):
+        df = pd.DataFrame.sparse.from_spmatrix(mtx, index = ad.obs.index, columns=ad.var.index)
+        if dtype != np.float32:
+            df = df.astype(dtype)
+        if forceDense:
+            df = df.sparse.to_dense()
+    else:
+        df = pd.DataFrame(mtx, index = ad.obs.index, columns=ad.var.index, dtype=dtype)  
+
     return df
+    
+
+
+    # if dtype != np.float32:
+    #     assert forceDense, "forceDense must be True if dtype is not float32"
+    # if forceDense:
+    #     if 
+    #     df = ad.to_df(layer)
+    # else:
+    #     if layer is None:
+    #         if ss.issparse(ad.X):
+    #             df = pd.DataFrame.sparse.from_spmatrix(ad.X, index = ad.obs.index, columns=ad.var.index)
+    #         else:
+    #             df = ad.to_df()
+    #     else:
+    #         if ss.issparse(ad.layers[layer]):
+    #             df = pd.DataFrame.sparse.from_spmatrix(ad.layers[layer], index = ad.obs.index, columns=ad.var.index)
+    #         else:
+    #             df = ad.to_df(layer)
+    # return df.astype(dtype)
 
 def initLayer(ad:sc.AnnData, layer=None, total=1e4, needScale=False, logbase=None):
     """
