@@ -2191,7 +2191,7 @@ def getGeneMeanAndExpressedRatioGroups(ad:sc.AnnData, groupby:Union[str, List[st
 
 def findDegUsePseudobulk(
         ad:sc.AnnData, layer:str, compareKey:str, replicateKey:str, method:Literal['DESeq2', 'edgeR'], groups:Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]=None, 
-        shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None
+        shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None, njobs:int=1
     ) -> pd.DataFrame:
     '''The function `findDegUsePseudobulk` performs differential expression analysis using either DESeq2 or edgeR methods on single-cell RNA-seq data, comparing groups specified by a compareKey and replicateKey.
 
@@ -2235,6 +2235,7 @@ def findDegUsePseudobulk(
         assert False, "wrong method"
     ad_merged = geneEnrichInfo._mergeData(ad, [replicateKey, compareKey], layer=layer)
     ad_merged.layers['raw'] = ad_merged.X.copy()
+    # ad_merged = ad_merged.copy()
     allGroups = tuple(ad.obs[compareKey].unique())
     if groups is None:
         logger.info("All groups within the compareKey will be compared")
@@ -2244,35 +2245,47 @@ def findDegUsePseudobulk(
     elif isinstance(groups[1], str):
         logger.info("Pairwise mode")
         assert len([x for x in groups if x in allGroups]) == len(groups), "Some group not found in compareKey"
-        ls_res = []
-        for a,b in combinations(groups, 2):
-            if method == 'DESeq2':
-                df_res = deByDeseq2(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, a, b), shrink=shrink).assign(a=a, b=b)
-                ls_res.append(df_res)
-            else:
-                df_res = deByEdger(ad_merged, 'raw', compareKey, f"{compareKey}{a}-{compareKey}{b}").assign(a=a, b=b)
-                ls_res.append(df_res)
+        if method == 'DESeq2':
+            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByDeseq2)(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, a, b), shrink=shrink) for a,b in combinations(groups, 2))
+        else:
+            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByEdger)(ad_merged, 'raw', compareKey, f"{compareKey}{a}-{compareKey}{b}") for a,b in combinations(groups, 2))
+        for i,(a,b) in enumerate(combinations(groups, 2)):
+            ls_res[i] = ls_res[i].assign(a=a, b=b)
+        # ls_res = []
+        # for a,b in combinations(groups, 2):
+        #     if method == 'DESeq2':
+        #         df_res = deByDeseq2(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, a, b), shrink=shrink).assign(a=a, b=b)
+        #         ls_res.append(df_res)
+        #     else:
+        #         df_res = deByEdger(ad_merged, 'raw', compareKey, f"{compareKey}{a}-{compareKey}{b}").assign(a=a, b=b)
+        #         ls_res.append(df_res)
     elif isinstance(groups[1], (tuple, list)):
         control = groups[0]
         groups = groups[1]
         logger.info(f"Control mode: {control}")
         assert len([x for x in groups if x in allGroups]) == len(groups), "Some group not found in compareKey"
         a = control
-        ls_res = []
-        for b in groups:
-            if method == 'DESeq2':
-                df_res = deByDeseq2(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, a, b), shrink=shrink).assign(a=a, b=b)
-                ls_res.append(df_res)
-            else:
-                df_res = deByEdger(ad_merged, 'raw', compareKey, f"{compareKey}{a}-{compareKey}{b}").assign(a=a, b=b)
-                ls_res.append(df_res)
+        if method == 'DESeq2':
+            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByDeseq2)(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, a, b), shrink=shrink) for b in groups)
+        else:
+            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByEdger)(ad_merged, 'raw', compareKey, f"{compareKey}{a}-{compareKey}{b}") for b in groups)
+        for i,b in enumerate(groups):
+            ls_res[i] = ls_res[i].assign(a=a, b=b)
+        # ls_res = []
+        # for b in groups:
+        #     if method == 'DESeq2':
+        #         df_res = deByDeseq2(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, a, b), shrink=shrink).assign(a=a, b=b)
+        #         ls_res.append(df_res)
+        #     else:
+        #         df_res = deByEdger(ad_merged, 'raw', compareKey, f"{compareKey}{a}-{compareKey}{b}").assign(a=a, b=b)
+        #         ls_res.append(df_res)
     df_res = pd.concat(ls_res)
     return df_res
 
 
 def findDegUsePseudoRep(
         ad:sc.AnnData, layer:str, compareKey:str, npseudoRep:int, method:Literal['DESeq2', 'edgeR'], groups:Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]=None, 
-        randomSeed:int=39, shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None
+        randomSeed:int=39, shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None, njobs:int=1
     ) -> pd.DataFrame:
     '''The function `findDegUsePseudoRep` generates pseudoreplicates for each sample in an AnnData object and then uses these pseudoreplicates to perform differential expression analysis.
 
@@ -2313,5 +2326,5 @@ def findDegUsePseudoRep(
         ad.obs.loc[lambda _: _[compareKey] == sampleName, 'pseudoRep'] = pd.Series(ls_pseudoRep).sample(frac=1, random_state=randomSeed).values
     print(ad.obs.value_counts([compareKey, 'pseudoRep'], dropna=False))
 
-    df_res = findDegUsePseudobulk(ad, layer, compareKey, 'pseudoRep', method, groups, shrink=shrink)
+    df_res = findDegUsePseudobulk(ad, layer, compareKey, 'pseudoRep', method, groups, shrink=shrink, njobs=njobs)
     return df_res

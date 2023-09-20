@@ -73,10 +73,15 @@ def counts2tpm(ad, layer, bed_path, fc_logScale:Optional[Callable] = None):
 
 
 def deByEdger(ad, layer, obsKey, contrast):
+    # import rpy2.robjects as ro
+    # from rpy2.robjects.packages import importr
+    # R = ro.r
+    from statsmodels.stats.multitest import fdrcorrection
+
     importr("edgeR")
     dfR_exp = py2r(ad.to_df(layer).T)
     vtR_group = py2r(ad.obs[obsKey])
-    from statsmodels.stats.multitest import fdrcorrection
+    
     funcR_callEdgeRContrast = R(
         f"""
     \(dfR_exp,{obsKey}, contrast) {{
@@ -101,10 +106,14 @@ def deByEdger(ad, layer, obsKey, contrast):
             r2py
         )
         df_lrt["fdr"] = fdrcorrection(df_lrt["PValue"])[1]
-    return df_lrt
+    return df_lrt.copy()
 
 def deByDeseq2(ad, layer, groupDesign, ls_obs, contrast, shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None):
     "coef only worked for apeglm shrink"
+    # import rpy2.robjects as ro
+    # from rpy2.robjects.packages import importr
+    # R = ro.r
+
     importr("DESeq2")
     renv = ro.Environment()
     assert (shrink=='ashr') or (shrink is None), 'Unsupported shrink method'
@@ -131,7 +140,7 @@ def deByDeseq2(ad, layer, groupDesign, ls_obs, contrast, shrink:Optional[Literal
         res <- data.frame(res)
         """)
         res = r2py(rl['res'])
-    return res
+    return res.copy()
 
 def deByDeseq2_old(ad, layer, group_design: str, threads=1):
     '''> For each pair of groups in the `group_design` column, run DESeq2 and store the results in `ad.uns[f"deseq2_{group_design}"]`
