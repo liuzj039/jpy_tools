@@ -32,6 +32,7 @@ from xarray import corr
 import sys
 import snapatac2 as snap
 from . import basic
+from ..otherTools import F
 
 def addSctAssayToSeuratObject(so, ad, ls_feature=[], layer='raw', setDefaultAssay=True):
     '''The function `addSctAssayToSeuratObject` adds a SCT assay to a Seurat object.
@@ -825,3 +826,61 @@ def clusteringAndCalculateShilouetteScore(
     for res in tqdm.tqdm(ls_res, desc="silhouette_score"):
         dt_score[res] = sklearn.metrics.silhouette_score(ar_dist, _ad.obs[f"leiden_{res}"], metric='precomputed')
     return dt_score
+
+
+def sketchBasedLabelTransfer(
+        ad_sketch:sc.AnnData, ad_full:sc.AnnData, sketchEmbedding:str, fullEmbedding:str, sketchLabels:Union[str, List[str]],
+        metric:str='cosine', nNeighbors:int=30, minDist:float=0.3, sketchUmapKey:str='X_umap', fullUmapKey:str='X_umap', fullLabelKey:str='ingest'
+    ):
+    '''The function `sketchBasedLabelTransfer` performs label transfer from a sketch dataset to a full dataset using a specified embedding method and metric.
+    similar with `ProjectData` in Seurat
+
+    Parameters
+    ----------
+    ad_sketch : sc.AnnData
+        Anndata object containing the sketch dataset.
+    ad_full : sc.AnnData
+        Anndata object containing the full dataset with embeddings and labels.
+    sketchEmbedding : str
+        The name of the embedding in the `ad_sketch` AnnData object that will be used for sketch-based label transfer.
+    fullEmbedding : str
+        The `fullEmbedding` parameter is a string that specifies the key in `ad_full.obsm` where the full dataset embedding is stored. This embedding should be a matrix of shape (n_samples, n_features).
+    sketchLabels : Union[str, List[str]]
+        The `sketchLabels` parameter is the label(s) that you want to transfer from the sketch dataset to the full dataset. It can be either a single label or a list of labels.
+    metric : str, optional
+        The metric parameter specifies the distance metric to be used for calculating the nearest neighbors. The default value is 'cosine', which calculates the cosine similarity between vectors. Other options include 'euclidean', 'manhattan', and 'correlation'.
+    nNeighbors : int, optional
+        The `nNeighbors` parameter specifies the number of nearest neighbors to consider when constructing the neighborhood graph for the sketch data.
+    minDist : float
+        The `minDist` parameter in the `sketchBasedLabelTransfer` function is a float value that controls the minimum distance between points in the UMAP embedding. It determines how tightly the points are clustered together in the UMAP plot. A smaller value of `minDist` will result in more
+    sketchUmapKey : str, optional
+        The parameter `sketchUmapKey` is a string that specifies the key in the `ad_sketch.obsm` dictionary where the UMAP embedding of the sketch data will be stored. This embedding is computed using the `sc.tl.umap` function and is used for label transfer.
+    fullUmapKey : str, optional
+        The parameter `fullUmapKey` is a string that specifies the key in the `ad_full.obsm` dictionary where the UMAP embedding of the full dataset will be stored.
+    fullLabelKey : str, optional
+        The `fullLabelKey` parameter is a string that specifies the key in the `ad_full` AnnData object where the transferred labels will be stored. This key will be used to access the transferred labels later on.
+
+    '''
+    if isinstance(sketchLabels, str):
+        sketchLabels = [sketchLabels]
+    for x in sketchLabels:
+        assert x in ad_sketch.obs.columns, f"{x} not in ad_sketch.obs.columns"
+
+    ad_sketchRpca = sc.AnnData(
+        X=ad_sketch.obsm[sketchEmbedding].values, obs=ad_sketch.obs, var=ad_sketch.obsm[sketchEmbedding] >> F(lambda _: range(_.shape[1])) >> F(map, lambda _: f"embedding_{_}") >> F(list) >> F(lambda _: pd.DataFrame(index=_))
+        )
+    ad_sketchRpca.obsm['X_pca'] = ad_sketchRpca.X
+
+    ad_fullRpca = sc.AnnData(
+        X=ad_full.obsm[fullEmbedding].values, obs=ad_full.obs, var=ad_full.obsm[fullEmbedding] >> F(lambda _: range(_.shape[1])) >> F(map, lambda _: f"embedding_{_}") >> F(list) >> F(lambda _: pd.DataFrame(index=_))
+        )
+    ad_fullRpca.obsm['X_pca'] = ad_fullRpca.X
+
+    sc.pp.neighbors(ad_sketchRpca, n_pcs=ad_sketchRpca.obsm['X_pca'].shape[1], metric=metric, n_neighbors=nNeighbors, use_rep='X_pca')
+    sc.tl.umap(ad_sketchRpca, min_dist=minDist)
+    sc.tl.ingest(ad_fullRpca, ad_sketchRpca, obs=sketchLabels, embedding_method='umap')
+
+    ad_sketch.obsm[sketchUmapKey] = ad_sketchRpca.obsm['X_umap'].copy()
+    ad_full.obsm[fullUmapKey] = ad_fullRpca.obsm['X_umap'].copy()
+
+    ad_full.obsm[fullLabelKey] = ad_fullRpca.obs[sketchLabels].copy()
