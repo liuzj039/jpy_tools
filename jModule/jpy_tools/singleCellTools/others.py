@@ -788,6 +788,59 @@ def subsetBackedAd(ad:snap.AnnData, ls_obs, ls_var) -> sc.AnnData:
     tempFile.close()
     return ad_subset
 
+def mergeClusterUseScshc(ad: sc.AnnData, ls_hvg: List[str], clusterKey:str, newClusterKey:str, batchKey:Optional[str]=None, layer:str='raw', **kwargs):
+    '''The function `mergeClusterUseScshc` merges clusters in an AnnData object using the scSHC package in R.
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+        The `ad` parameter is an AnnData object, which is a data structure used in single-cell RNA sequencing analysis. It contains the gene expression data, cell metadata, and other information.
+    ls_hvg : List[str]
+        The `ls_hvg` parameter is a list of genes that are considered highly variable genes (HVGs). These genes are typically used to identify cell clusters in single-cell RNA sequencing data.
+    clusterKey : str
+        The `clusterKey` parameter is a string that represents the key in the `ad.obs` object of the AnnData object that contains the cluster labels for each cell.
+    newClusterKey : str
+        The `newClusterKey` parameter is a string that represents the key for the new cluster assignment in the `ad.obs` object. This parameter is used to store the new cluster assignments after merging clusters using the scSHC algorithm.
+    batchKey : Optional[str]
+        The `batchKey` parameter is an optional parameter that specifies the key in the `ad.obs` dataframe that contains the batch information for each cell. If provided, the batch information will be used in the clustering analysis. If not provided, the clustering analysis will be performed without considering batch information.
+    layer : str, optional
+        The `layer` parameter specifies the layer of the AnnData object that contains the count data. It can be set to 'raw' or any other valid layer name.
+
+    '''
+    from joblib import Parallel, delayed
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
+    from ..rTools import py2r, r2py
+    R = ro.r
+
+    def fc(**kwargs):
+        scSHC = importr("scSHC")
+        rBase = importr("base")
+        rBase.set_seed(39)
+        lsR_clusterRes, r_nodeInfo = scSHC.testClusters(**kwargs)
+        return lsR_clusterRes, r_nodeInfo
+    
+    scSHC = importr("scSHC")
+    ssR_count = ad.layers[layer] >> F(py2r)
+    ssR_count = R("""\(x, rN, cN) {
+        rownames(x) = rN
+        colnames(x) = cN
+        t(x)
+    }""")(ssR_count, ad.obs.index >> F(lambda _: R.c(*_)), ad.var.index >> F(lambda _: R.c(*_)))
+    if batchKey:
+        batch = ad.obs[batchKey].values >> F(py2r)
+    else:
+        batch = R("NULL")
+    cluster=ad.obs[clusterKey].values >> F(py2r)
+    var_genes = ls_hvg >> F(py2r)
+    dt_kwargs = dict(
+        data=ssR_count, batch=batch, cluster=cluster, **kwargs
+    )
+    lsR_clusterRes, r_nodeInfo = Parallel(2)(delayed(fc)(**x) for x in [dt_kwargs])[0] # seems uncompatable with other imported packages, bypass use another process here
+    print(r_nodeInfo)
+    ad.obs[newClusterKey] = list(lsR_clusterRes) >> F(map, lambda _: _.split('new')[-1]) >> F(list)
+
+
 def clusteringAndCalculateShilouetteScore(
         ad:sc.AnnData, ls_res: List[float], obsm: Union[str, np.ndarray], subsample=None, metric='euclidean'
     ) -> Dict[str, float]:
