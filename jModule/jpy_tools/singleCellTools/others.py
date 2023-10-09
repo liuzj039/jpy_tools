@@ -788,6 +788,53 @@ def subsetBackedAd(ad:snap.AnnData, ls_obs, ls_var) -> sc.AnnData:
     tempFile.close()
     return ad_subset
 
+def clusterUseScshc(ad: sc.AnnData, clusterKey:str, batchKey:Optional[str]=None, layer:str='raw', **kwargs):
+    '''The function `clusterUseScshc` clusters single-cell RNA sequencing data using the scSHC algorithm and assigns the cluster labels to a specified key in the AnnData object.
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+        Anndata object containing the single-cell RNA-seq data.
+    clusterKey : str
+        The `clusterKey` parameter is a string that specifies the key in the `ad.obs` dataframe where the cluster labels will be stored.
+    batchKey : Optional[str]
+        The `batchKey` parameter is an optional parameter that specifies the key in the `ad.obs` dataframe that contains the batch information for each cell. If provided, the clustering algorithm will take into account the batch information when performing clustering. If not provided, the clustering algorithm will ignore batch information.
+    layer : str, optional
+        The `layer` parameter specifies the layer of the AnnData object that contains the count data. By default, it is set to 'raw'.
+
+    '''
+    from joblib import Parallel, delayed
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
+    from ..rTools import py2r, r2py
+    R = ro.r
+
+    def fc(**kwargs):
+        scSHC = importr("scSHC")
+        rBase = importr("base")
+        rBase.set_seed(39)
+        lsR_clusterRes, r_nodeInfo = scSHC.scSHC(**kwargs)
+        return lsR_clusterRes, r_nodeInfo
+    
+    scSHC = importr("scSHC")
+    ssR_count = ad.layers[layer] >> F(py2r)
+    ssR_count = R("""\(x, rN, cN) {
+        rownames(x) = rN
+        colnames(x) = cN
+        t(x)
+    }""")(ssR_count, ad.obs.index >> F(lambda _: R.c(*_)), ad.var.index >> F(lambda _: R.c(*_)))
+    if batchKey:
+        batch = ad.obs[batchKey].values >> F(py2r)
+    else:
+        batch = R("NULL")
+
+    dt_kwargs = dict(
+        data=ssR_count, batch=batch, **kwargs
+    )
+    lsR_clusterRes, r_nodeInfo = Parallel(2)(delayed(fc)(**x) for x in [dt_kwargs])[0] # seems uncompatable with other imported packages, bypass use another process here
+    print(r_nodeInfo)
+    ad.obs[clusterKey] = list(lsR_clusterRes)
+
 def mergeClusterUseScshc(ad: sc.AnnData, ls_hvg: List[str], clusterKey:str, newClusterKey:str, batchKey:Optional[str]=None, layer:str='raw', **kwargs):
     '''The function `mergeClusterUseScshc` merges clusters in an AnnData object using the scSHC package in R.
 
@@ -832,14 +879,173 @@ def mergeClusterUseScshc(ad: sc.AnnData, ls_hvg: List[str], clusterKey:str, newC
     else:
         batch = R("NULL")
     cluster=ad.obs[clusterKey].values >> F(py2r)
-    var_genes = ls_hvg >> F(py2r)
+    if not ls_hvg is None:
+        var_genes = R.c(*ls_hvg)
+    else:
+        var_genes = R("NULL")
     dt_kwargs = dict(
-        data=ssR_count, batch=batch, cluster=cluster, **kwargs
+        data=ssR_count, batch=batch, cluster=cluster, var_genes=var_genes, **kwargs
     )
     lsR_clusterRes, r_nodeInfo = Parallel(2)(delayed(fc)(**x) for x in [dt_kwargs])[0] # seems uncompatable with other imported packages, bypass use another process here
     print(r_nodeInfo)
     ad.obs[newClusterKey] = list(lsR_clusterRes) >> F(map, lambda _: _.split('new')[-1]) >> F(list)
 
+def calucatePvalueForEachSplitUseScshc(ad: sc.AnnData, ls_hvg: List[str], clusterKey: str, batchKey: Optional[str]=None, layer: str='raw', alpha: float=0.05, posthoc: bool=True, num_PCs: int=30, cores: int=12):
+    '''The function `calucatePvalueForEachSplitUseScshc` calculates p-values for each split in a hierarchical clustering dendrogram using the scSHC package in R.
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+        The `ad` parameter is an AnnData object, which is a data structure commonly used in single-cell RNA sequencing (scRNA-seq) analysis. It contains the gene expression data and associated metadata for each cell.
+    ls_hvg : List[str]
+        A list of highly variable genes (HVGs) that will be used for calculating the p-values for each split. These genes should be selected based on their high variability across cells.
+    clusterKey : str
+        The `clusterKey` parameter is a string that specifies the key in the `ad.obs` dataframe that contains the cluster labels for each cell.
+    batchKey : Optional[str]
+        The `batchKey` parameter is an optional parameter that specifies the key in the `ad.obs` dataframe that represents the batch information. If provided, the function will perform batch correction before calculating the p-values for each split. If not provided, a temporary batch key will be created with all values set
+    layer : str, optional
+        The `layer` parameter specifies the layer of the AnnData object to use for the analysis. It can be set to 'raw' or any other layer present in the AnnData object.
+    alpha : float
+        The alpha parameter is the significance level used for hypothesis testing. It determines the threshold below which the p-value is considered statistically significant. The default value is 0.05, which corresponds to a 5% significance level.
+    posthoc : bool, optional
+        The `posthoc` parameter determines whether to perform post-hoc analysis after calculating the p-values for each split. If `posthoc` is set to `True`, post-hoc analysis will be performed. If `posthoc` is set to `False`, post-hoc analysis will not be
+    num_PCs : int, optional
+        The parameter `num_PCs` is the number of principal components to use for dimensionality reduction in the scSHC algorithm. It determines the number of dimensions in which the data will be projected before clustering.
+    cores : int, optional
+        The "cores" parameter specifies the number of CPU cores to use for parallel processing. It determines how many parallel jobs can be executed simultaneously.
+
+    Returns
+    -------
+        a dictionary `dt_p` which contains the p-values for each split in the hierarchical clustering. The keys of the dictionary are tuples representing the left and right clusters resulting from each split, and the values are the corresponding p-values.
+
+    '''
+    from joblib import Parallel, delayed
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
+    from ..rTools import py2r, r2py
+    from .geneEnrichInfo import _mergeData
+    from .basic import initLayer
+    R = ro.r
+    import scipy
+
+    # get each node's element
+    def getNodeContents(node, dt_preRenameCluster):
+        if node.is_leaf():
+            return dt_preRenameCluster[node.id],
+        else:
+            _ls = []
+            _ls.extend(getNodeContents(node.left, dt_preRenameCluster))
+            _ls.extend(getNodeContents(node.right, dt_preRenameCluster))
+            return tuple(_ls)
+
+    def getNodeLeftAndRight(node, dt_preRenameCluster):
+        return getNodeContents(node.left, dt_preRenameCluster), getNodeContents(node.right, dt_preRenameCluster)
+
+    def fc(**kwargs):
+        scSHC = importr("scSHC")
+        rBase = importr("base")
+        rBase.set_seed(39)
+        calc = kwargs.pop('calc')
+        nodeCellNum = kwargs.pop('node_cell_num')
+        totalCellNum = kwargs.pop('total_cell_num')
+        if calc:
+            pval = scSHC.test_split(**kwargs)[0]
+            pval = min(round(pval*(totalCellNum-1)/(nodeCellNum-1), 2), 1)
+        else:
+            pval = 1
+        
+        return pval
+
+    scSHC = importr('scSHC')
+    if posthoc:
+        posthoc = R.T
+    else:
+        posthoc = R.F
+
+    if batchKey is None:
+        ad.obs['temp_batch'] = 'a'
+    else:
+        ad.obs['temp_batch'] = ad.obs[batchKey]
+
+    ad_pseudobulk = _mergeData(ad, clusterKey, layer)
+    initLayer(ad_pseudobulk, logbase=2)
+    ad_pseudobulk.obs.index = range(ad_pseudobulk.shape[0])
+    dt_preRenameCluster = ad_pseudobulk.obs[clusterKey].to_dict()
+    X = ad_pseudobulk[:, ls_hvg].to_df(layer)
+    X = X.apply(lambda _: _/_.sum(), axis=1)
+    linkage = scipy.cluster.hierarchy.linkage(X, method='ward', optimal_ordering=True)
+    fig = plt.figure(figsize=(15, 5))
+    dn = scipy.cluster.hierarchy.dendrogram(linkage, color_threshold=0)
+    plt.show()
+    nd_root, lsNd_sub = scipy.cluster.hierarchy.to_tree(linkage, rd=True)
+    lsNd_sub = [x for x in lsNd_sub if not x.is_leaf()]
+    ssR_count = ad.layers[layer] >> F(py2r)
+    ssR_count = R("""\(x, rN, cN) {
+        rownames(x) = rN
+        colnames(x) = cN
+        t(x)
+    }""")(ssR_count, ad.obs.index >> F(lambda _: R.c(*_)), ad.var.index >> F(lambda _: R.c(*_)))
+
+    arR_batch = R.c(*ad.obs['temp_batch'].astype(str))
+    arR_batch.names = R.c(*ad.obs.index)
+
+    ls_kwargs = []
+    for _nd in lsNd_sub:
+        ls_leftCluster, ls_rightCluster = getNodeLeftAndRight(_nd, dt_preRenameCluster)
+        ad.obs['temp_split'] = np.select(
+            [ad.obs[clusterKey].isin(ls_leftCluster), ad.obs[clusterKey].isin(ls_rightCluster)],
+            ['left', 'right'],
+            None
+        )
+        ls_keep = ad.obs.value_counts(['temp_batch', 'temp_split']).unstack().min(1).loc[lambda _: _ > 20].index.to_list()
+        ls_ids1 = ad.obs.query("temp_split == 'left' & temp_batch in @ls_keep").index.to_list()
+        ls_ids2 = ad.obs.query("temp_split == 'right' & temp_batch in @ls_keep").index.to_list()
+        nodeCellNum = ad.obs.query("temp_split.notna()").shape[0]
+        totalCellNum = ad.shape[1]
+        alphaLevel = alpha * (nodeCellNum - 1) / (totalCellNum - 1)
+        _dt = {}
+        _dt['data'] = ssR_count
+        _dt['ids1'] = R.c(*ls_ids1)
+        _dt['ids2'] = R.c(*ls_ids2)
+        _dt['var_genes'] = R.c(*ls_hvg)
+        _dt['num_PCs'] = num_PCs
+        _dt['batch'] = arR_batch
+        _dt['alpha_level'] = alphaLevel
+        _dt['cores'] = 1
+        _dt['posthoc'] = posthoc
+        _dt['node_cell_num'] = nodeCellNum
+        _dt['total_cell_num'] = totalCellNum
+        if len(ls_keep) == 0:
+            _dt['calc'] = False
+        else:
+            _dt['calc'] = True
+        ls_kwargs.append(_dt)
+    ls_p = Parallel(cores)(delayed(fc)(**x) for x in ls_kwargs)
+    ls_p = [x if isinstance(x, (float, int)) else x[0] for x in ls_p]
+    dt_p = {}
+    for _nd, _p in zip(lsNd_sub, ls_p):
+        ls_leftCluster, ls_rightCluster = getNodeLeftAndRight(_nd, dt_preRenameCluster)
+        dt_p[(ls_leftCluster, ls_rightCluster)] = _p
+
+
+    fig, ax = plt.subplots(figsize=(15, 5))
+    dn = scipy.cluster.hierarchy.dendrogram(linkage, color_threshold=0, ax=ax)
+    ls_signPos = []
+    for ls_x, ls_y in zip(dn['icoord'], dn['dcoord']):
+        ls_signPos.append([(ls_x[0]+ls_x[-1]) / 2, ls_y[1]])
+    ls_signPos = sorted(ls_signPos, key=lambda _: _[1])
+    for (x, y), p in zip(ls_signPos, ls_p):
+        if p < 0.01:
+            sign = '**'
+        elif p < 0.05:
+            sign = '*'
+        else:
+            sign = ''
+        ax.text(x, y, sign, ha='center')
+
+    plt.show()
+
+    return dt_p
 
 def clusteringAndCalculateShilouetteScore(
         ad:sc.AnnData, ls_res: List[float], obsm: Union[str, np.ndarray], subsample=None, metric='euclidean'
