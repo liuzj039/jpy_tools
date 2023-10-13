@@ -37,6 +37,8 @@ from more_itertools import chunked
 import patchworklib as pw
 import scipy.sparse as ss
 from joblib import Parallel, delayed
+import marsilea as ma
+import marsilea.plotter as mp
 from . import basic
 
 
@@ -1065,3 +1067,80 @@ def makeEllipseForCluster(ad, key='Cluster', ls_cluster=None, std=3, ax=None, **
 
         confidence_ellipse(_ad.obsm['X_umap'][:, 0], _ad.obsm['X_umap'][:, 1], ax, std, **dt_args)
     return ax
+
+def dotplotByMa(
+        ad: sc.AnnData, ls_gene: List[str], groupby: str, layer:str, geneSymbol:Optional[str]=None, minMaxScale: bool=False, cmap='Reds',
+        sizes=(0,1), dotsizes=(0,200), width=None, height=None, colorLegKws=dict(title='Mean expression\nin group', orientation='horizontal'),
+        logExpInput: bool = True, sizeLegKws=dict(title='Fraction of cells\nin group', spacing='uniform', labelspacing=0.1), **kwargs
+    ) -> ma.base.ClusterBoard:
+    '''The function `dotplotByMa` creates a dot plot visualization of gene expression data in an AnnData object, grouped by a specified variable.
+
+    Parameters
+    ----------
+    ad : sc.AnnData
+        Anndata object containing the gene expression data.
+    ls_genes : List[str]
+        A list of gene names or symbols that you want to plot in the dotplot.
+    groupby : str
+        The `groupby` parameter is used to specify the column in the AnnData object that contains the grouping information. This column is used to group the cells for calculating mean expression and fraction of cells in each group.
+    layer : str
+        The `layer` parameter specifies the layer of the AnnData object that contains the gene expression values.
+    geneSymbol : Optional[str]
+        geneSymbol is an optional parameter that specifies the column name in the AnnData object's var attribute that contains the gene symbols. If provided, the function will use this column to map the gene symbols to the corresponding gene names in the dotplot visualization.
+    minMaxScale : bool, optional
+        The `minMaxScale` parameter is a boolean flag that determines whether to perform min-max scaling on the mean expression values. If set to `True`, the mean expression values will be scaled to the range [0, 1] using the minimum and maximum values in each column. If set to
+    sizes
+        The `sizes` parameter is a tuple that specifies the range of values to use for sizing the dots in the dot plot. The first value in the tuple represents the minimum size, and the second value represents the maximum size.
+    dotsizes
+        The `dotsizes` parameter in the `dotplotByMa` function is used to specify the size range of the dots in the dot plot. It is a tuple with two values, where the first value represents the minimum dot size and the second value represents the maximum dot size. The dots in
+    width
+        The width of the dot plot.
+    height
+        The `height` parameter is used to specify the height of the dot plot in pixels. It determines the vertical size of the dot plot visualization.
+    colorLegKws
+        The `colorLegKws` parameter is a dictionary that contains keyword arguments for customizing the color legend. It can include the following keys:
+    sizeLegKws
+        The `sizeLegKws` parameter is a dictionary that contains keyword arguments for configuring the size legend in the dot plot. It can include the following keys:
+
+    Returns
+    -------
+        a `ma.base.ClusterBoard` object.
+
+    '''
+    from matplotlib.colors import Normalize
+
+    if geneSymbol:
+        _dt = ad.var.rename_axis("index").reset_index().set_index(geneSymbol)['index'].to_dict()
+        ls_name = ls_gene
+        ls_gene = [_dt[x] for x in ls_gene] 
+    else:
+        ls_name = ls_gene
+
+    if logExpInput:
+        logger.info('logExpInput is set to True. Please make sure that the input expression values is log2 transformed.')
+        _df = np.exp2(ad[:, ls_gene].to_df(layer)) - 1
+        df_meanExp = _df.groupby(ad.obs[groupby]).agg('mean')
+        df_meanExp = np.log2(df_meanExp + 1)
+    else:
+        df_meanExp = ad[:, ls_gene].to_df(layer).groupby(ad.obs[groupby]).agg('mean')
+        
+    df_proExp = (ad[:, ls_gene].to_df(layer) > 0).groupby(ad.obs[groupby]).agg('mean').T.clip(*sizes)
+
+    if minMaxScale:
+        df_meanExp = (df_meanExp - df_meanExp.min(0)) / (df_meanExp.max(0) - df_meanExp.min(0))
+    df_meanExp = df_meanExp.T
+
+
+    h = ma.SizedHeatmap(
+        df_proExp.values, color=df_meanExp.values, cmap=cmap,
+        color_legend_kws=colorLegKws,
+        size_legend_kws=sizeLegKws,
+        width=width,
+        height=height,
+        sizes=dotsizes
+    )
+    h.add_left(mp.Labels(ls_name), pad=0.1)
+    h.add_bottom(mp.Labels(df_proExp.columns), pad=0.1)
+    h.add_legends()
+
+    return h

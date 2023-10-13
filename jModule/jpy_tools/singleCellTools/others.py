@@ -1045,7 +1045,7 @@ def calucatePvalueForEachSplitUseScshc(ad: sc.AnnData, ls_hvg: List[str], cluste
 
     plt.show()
 
-    return dt_p
+    return dt_p, linkage
 
 def clusteringAndCalculateShilouetteScore(
         ad:sc.AnnData, ls_res: List[float], obsm: Union[str, np.ndarray], subsample=None, metric='euclidean'
