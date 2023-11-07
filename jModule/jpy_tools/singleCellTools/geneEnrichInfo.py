@@ -1785,6 +1785,9 @@ def _mergeData(ad, obsKey, layer="raw"):
     )
     ad_merge.obs = ad_merge.obs.index.to_series().str.split("\|\|", expand=True)
     ad_merge.obs.columns = obsKey
+    for key in obsKey:
+        ls_category = ad.obs[key].astype('category').cat.categories
+        ad_merge.obs[key] = ad_merge.obs[key].astype('category').cat.set_categories(ls_category)
     del ad.obs["temp_merge"]
     return ad_merge
 

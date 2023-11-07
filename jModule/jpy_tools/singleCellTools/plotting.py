@@ -39,7 +39,9 @@ import scipy.sparse as ss
 from joblib import Parallel, delayed
 import marsilea as ma
 import marsilea.plotter as mp
-from . import basic
+import legendkit
+import seaborn.objects as so
+from . import basic, geneEnrichInfo
 
 
 def umapMultiBatch(
@@ -1144,3 +1146,223 @@ def dotplotByMa(
     h.add_legends()
 
     return h
+
+class PlotAnndata(object):
+    """
+    The PlotAnndata class provides methods for visualizing single-cell RNA sequencing data using AnnData objects.
+
+    Attributes
+    ----------
+    ad : AnnData object
+        The AnnData object containing the single-cell RNA sequencing data.
+    rawLayer : str
+        The name of the layer in the AnnData object containing the raw gene expression data.
+
+    Methods
+    -------
+    __init__(self, ad, rawLayer)
+        Initializes a new instance of the PlotAnndata class.
+    __repr__(self)
+        Returns a string representation of the PlotAnndata object.
+    getAdColors(self, label)
+        Returns a dictionary mapping categorical observation values to colors.
+    getPb(self, ls_group)
+        Returns a new AnnData object containing the pseudobulk data for the specified groups.
+    heatmapGeneExpInPb(self, ls_group, ls_leftAnno, dt_genes, layer='normalize_log', height=10, width=10, cmap='Reds', standardScale=None, showGeneCounts=False)
+        Generates a heatmap of gene expression in a single-cell RNA sequencing dataset.
+    embedding(self, embed, color=None, title=None, layer=None, groupby=None, wrap=4, size=2, cmap='Reds', vmin=0, vmax=None, ncol=1, figsize=(4,3), titleInFig=False, dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3})
+        Generates a scatter plot of data points based on a specified embedding.
+    """
+    
+    def __init__(self, ad, rawLayer):
+        self.ad = ad
+        self.rawLayer = rawLayer
+        self.dtAd_pb = {}
+    def __repr__(self):
+        contents = [self.ad.__repr__()]
+        contents.append('Pseudobulk AnnData:')
+        for groups, ad_pb in self.dtAd_pb.items():
+            contents.append(f"\t\t{groups}")
+        return '\n'.join(contents)
+
+    def getAdColors(self, label):
+        ad = self.ad
+        if f"{label}_colors" not in ad.uns:
+            sc.pl._utils._set_default_colors_for_categorical_obs(ad, label)
+        return {
+            x: y
+            for x, y in zip(ad.obs[label].cat.categories, ad.uns[f"{label}_colors"])
+        }
+
+    def getPb(self, ls_group):
+        ad = self.ad
+        if isinstance(ls_group, str):
+            ls_group = [ls_group]
+        ls_group = sorted(ls_group)
+        pbKey = ','.join(ls_group)
+        if pbKey in self.dtAd_pb.keys():
+            return self.dtAd_pb[pbKey]
+        
+        ad_pb = geneEnrichInfo._mergeData(ad, ls_group, layer=self.rawLayer)
+        basic.initLayer(ad_pb, total=1e6, logbase=2)
+        ad_pb.layers['normalize'] = np.exp(ad_pb.layers['normalize_log']) - 1
+        self.dtAd_pb[pbKey] = ad_pb
+        return ad_pb
+    
+    def heatmapGeneExpInPb(self, ls_group, ls_leftAnno, dt_genes, layer='normalize_log', height=10, width=10, cmap='Reds', standardScale=None, showGeneCounts=False):
+        '''The `heatmapGeneExpInPb` function generates a heatmap of gene expression in a single-cell RNA sequencing dataset, with options for customization such as color mapping, scaling, and showing gene counts.
+
+        Parameters
+        ----------
+        ls_group
+            A list of groups to include in the heatmap. These groups will be used to subset the data and create separate heatmaps for each group.
+        ls_leftAnno
+            A list of column names in the dataframe `ad_pb` that will be used to group the data for the left annotation labels in the heatmap.
+        dt_genes
+            The `dt_genes` parameter is a dictionary where the keys represent gene categories and the values are lists of genes belonging to each category.
+        layer, optional
+            The 'layer' parameter specifies the layer of gene expression data to use for creating the heatmap. The default value is 'normalize_log'.
+        height, optional
+            The height parameter determines the height of the heatmap in inches.
+        width, optional
+            The width parameter determines the width of the heatmap in inches.
+        cmap, optional
+            cmap stands for colormap. It is used to specify the color map for the heatmap. The default value is 'Reds', which is a sequential colormap ranging from light to dark red.
+        standardScale
+            The `standardScale` parameter is used to specify whether or not to standardize the data before creating the heatmap. If `standardScale` is set to `None`, the data will not be standardized. If `standardScale` is set to a value other than `None`, the data will be
+        showGeneCounts, optional
+            A boolean parameter that determines whether to show the gene counts in the heatmap. If set to True, the gene counts will be displayed next to the gene labels in the heatmap. If set to False, only the gene labels will be displayed.
+
+        Returns
+        -------
+            a heatmap object.
+
+        '''
+        ad_pb = self.getPb(ls_group)
+        ad_pb = ad_pb[ad_pb.obs.sort_values(ls_leftAnno).index]
+        ls_genes = sum(list(dt_genes.values()), [])
+        ls_geneCate = [x for x,y in dt_genes.items() for z in y]
+        df_exp = ad_pb[:, ls_genes].to_df(layer)
+        if standardScale is None:
+            df_heatmap = df_exp
+        else: 
+            df_heatmap = df_exp.apply(lambda _: (_-_.min())/(_.max()-_.min()), axis=standardScale)
+
+        h = ma.Heatmap(df_heatmap.values, cmap=cmap, height=height, width=width, cluster_data=df_heatmap.values)
+
+        pad = 0.1
+        for group in ls_leftAnno[::-1]:
+            ls_obsGroup = ad_pb.obs[group]
+            h.add_left(
+                mp.Colors(ls_obsGroup, palette=self.getadataColor(group), label=group), size=0.15, pad=pad, name=group
+            )
+            pad=0
+
+        h.vsplit(labels=ls_geneCate, order=list(dt_genes.keys()))
+        if showGeneCounts:
+            ls_geneLabel = dt_genes.keys() >> F(map, lambda _: f"{_}\n({len(dt_genes[_])})") >> F(list)
+        else:
+            ls_geneLabel = dt_genes.keys() >> F(list)
+        h.add_top(
+            mp.Chunk(ls_geneLabel, props={'rotation': 90})
+        )
+        h.add_legends()
+        return h
+    
+    def embedding(self, embed, color=None, title=None, layer=None, groupby=None, wrap=4, size=2, cmap='Reds', vmin=0, vmax=None, ncol=1,
+                  figsize=(4,3), titleInFig=False, dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
+        '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
+
+        Parameters
+        ----------
+        embed
+            The `embed` parameter is a string that specifies the embedding to use for plotting. It should be in the format "X_embedding_name", where "embedding_name" is the name of the embedding stored in the `obsm` attribute of the `AnnData` object.
+        color
+            The "color" parameter is used to specify the variable that will be used to color the points in the embedding plot. It can be either a column name in the `ad.obs` dataframe or a layer name in the `ad` object.
+        title
+            The title parameter is used to specify the title of the plot. If it is not provided, the value of the color parameter will be used as the title.
+        layer
+            The "layer" parameter is used to specify the layer of the AnnData object that should be used for plotting. It is an optional parameter and if not provided, the default layer will be used.
+        groupby
+            The `groupby` parameter is used to specify a column in the AnnData object's `obs` attribute that will be used to group the data points in the plot. This can be useful for visualizing different groups or clusters in the data.
+        wrap, optional
+            The `wrap` parameter determines the number of subplots to display per row when using the `groupby` parameter for faceting the plots. It specifies the maximum number of subplots to display in a single row before wrapping to the next row.
+        size, optional
+            The `size` parameter determines the size of the points in the scatter plot. It is used to control the size of the dots in the plot.
+        cmap, optional
+            The `cmap` parameter in the `embedding` function is used to specify the colormap for the color mapping in the plot. It determines the range of colors that will be used to represent different values of the `color` variable. The default value is `'Reds'`, which is a colormap
+        vmin, optional
+            The parameter `vmin` is used to set the minimum value for the color scale in the plot. It determines the lower bound of the color range.
+        vmax
+            The parameter `vmax` is used to set the maximum value for the color scale in the plot. If not specified, it defaults to the maximum value in the `color` column of the data.
+        figsize
+            The `figsize` parameter is used to specify the size of the figure (plot) in inches. It takes a tuple of two values, where the first value represents the width and the second value represents the height of the figure. For example, `figsize=(4, 3)` will
+        titleInFig, optional
+            The `titleInFig` parameter is a boolean flag that determines whether the title of the plot should be displayed within the figure itself. If `titleInFig` is set to `True`, the title will be displayed as a text annotation within the plot. If `titleInFig` is set
+        dt_theme
+            The `dt_theme` parameter is a dictionary that allows you to customize the appearance of the plot. It contains key-value pairs where the key is a string representing a specific plot element (e.g., 'ytick.left' for left y-axis ticks) and the value is a boolean indicating whether to
+
+        Returns
+        -------
+            two values: `g` and `fig`. `g` is an instance of the `so.Plot` class, which represents the plot object, and `fig` is the matplotlib figure object.
+
+        '''
+        ad = self.ad
+        embed = 'X_' + embed.split('X_', 1)[-1]
+        embedLabel = embed.split('X_', 1)[-1].upper()
+        assert embed in self.ad.obsm.keys(), f"Embedding {embed} not found in AnnData"
+        if title is None:
+            title = color
+
+        if color in ad.obs.columns:
+            useObs = True
+            dt_colors = self.getAdColors(color)
+        else:
+            useObs = False
+            
+        if useObs:
+            df = ad.obs[[color]].copy()
+            legend = False
+        else:
+            df = ad[:, color].to_df(layer)
+            legend = True
+
+        df['x'] = ad.obsm[embed][:,0]
+        df['y'] = ad.obsm[embed][:,1]
+        df = df.sort_values(color)
+
+        if groupby:
+            df['groupby'] = ad.obs[groupby]
+
+        if useObs:
+            df_clusterLabelLoc = df.groupby(color)[['x', 'y']].agg('median').reset_index()
+
+        g = (
+            so.Plot(df, x='x', y='y')
+            .add(so.Dots(fillalpha=1, pointsize=size), color=color, legend=legend)
+            .theme(dt_theme)
+            .label(x=f'{embedLabel} 1', y=f'{embedLabel} 2', color='')
+            .layout(size=figsize)
+        )
+
+        if useObs:
+            if titleInFig:
+                g = g.add(so.Text(halign='center', valign='center', artist_kws={'weight':'bold'}), data=df_clusterLabelLoc, x='x', y='y', text=color)
+            g = g.scale(color=dt_colors)
+        else:
+            if vmax is None:
+                vmax = df[color].max()
+            g = g.scale(color=so.Continuous(cmap, norm=(vmin, vmax)))
+
+        if groupby:
+            g = g.facet(row='groupby', wrap=wrap)
+
+        p = g.plot()
+        p._repr_png_()
+        fig = p._figure 
+
+        if useObs:
+            fig.legend(handles=[legendkit.handles.CircleItem(color=x) for x in dt_colors.values()], labels=dt_colors.keys(), loc='center left', bbox_to_anchor=(1, 0.5), ncol=ncol)
+        
+        fig.suptitle(color, y=1, va='baseline')
+        return g, fig
