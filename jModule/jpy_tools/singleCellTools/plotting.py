@@ -1421,3 +1421,56 @@ class PlotAnndata(object):
         if recoverDefaultRc:
             plt.rcdefaults()
         return ax
+    
+    def geneCompare(self, g1, g2, min_g1=0, max_g1=None, min_g2=0, max_g2=None, cellSize=2, layer='normalize_log', figsize=(10, 6)):
+        _ad = ad[:, [g1, g2]]
+        df_for2dScatter = _ad.to_df(layer)
+        df_for2dScatter['total'] = df_for2dScatter[g1] + df_for2dScatter[g2]
+        if max_g1 is None:
+            max_g1 = df_for2dScatter[g1].max()
+        if max_g2 is None:
+            max_g2 = df_for2dScatter[g2].max()
+        
+        df_for2dScatter['x'] = ad.obsm['X_umap'][:, 0]
+        df_for2dScatter['y'] = ad.obsm['X_umap'][:, 1]
+        df_for2dScatter = df_for2dScatter.sort_values('total')
+
+        lowestRgb = 0.9
+        def getRgb(x, y, min_g1, max_g1, min_g2, max_g2):
+            b = lowestRgb - (x - min_g1) / (max_g1 - min_g1) * lowestRgb
+            r = lowestRgb - (y - min_g2) / (max_g2 - min_g2) * lowestRgb
+            g = lowestRgb - (x - min_g1) / (max_g1 - min_g1) * lowestRgb * 0.5 - (y - min_g2) / (max_g2 - min_g2) * lowestRgb * 0.5
+            return r,g,b
+        ufunc_getRgb = lambda x,y, min_g1, max_g1, min_g2, max_g2:np.clip(np.dstack(np.frompyfunc(getRgb, 6, 3)(x, y, min_g1, max_g1, min_g2, max_g2)).astype(np.float32), 0, 1)
+
+        c1 = np.clip(df_for2dScatter[g1], min_g1,max_g1)
+        c2 = np.clip(df_for2dScatter[g2], min_g2,max_g2)
+        fig, ax1 = plt.subplots(figsize=figsize)
+        plt.sca(ax1)
+
+        plt.scatter(df_for2dScatter['x'], df_for2dScatter['y'], c=ufunc_getRgb(c1.values, c2.values, min_g1, max_g1, min_g2, max_g2)[0], s=cellSize)
+        ax1.spines['top'].set_visible(False)
+        ax1.spines['right'].set_visible(False)
+
+        ax2 = plt.axes([0.95, 0.4, 0.15, 0.2])
+        x,y = np.meshgrid(
+            np.linspace(min_g1,max_g1,100),
+            np.linspace(min_g2,max_g2,100),
+        )
+        ax1.spines['bottom'].set_visible(False)
+        ax1.spines['left'].set_visible(False)
+        ax1.set_xticks([])
+        ax1.set_yticks([])
+
+        ax2.imshow(
+            ufunc_getRgb(x, y, min_g1, max_g1, min_g2, max_g2),
+            aspect = 'auto',
+            origin = 'lower',
+        )
+        ax2.spines['top'].set_visible(False)
+        ax2.spines['right'].set_visible(False)
+        ax2.spines['bottom'].set_visible(False)
+        ax2.spines['left'].set_visible(False)
+        ax2.set(xticks=[0, 100], xticklabels=[min_g1, max_g1], yticks=[0, 100], yticklabels=[min_g2, max_g2], xlabel=g1, ylabel=g2)
+        fig.suptitle(f"{g1} vs {g2}", fontsize=12)
+        return fig
