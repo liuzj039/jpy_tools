@@ -1269,7 +1269,7 @@ class PlotAnndata(object):
         h.add_legends()
         return h
     
-    def embedding(self, embed, color=None, title=None, layer=None, groupby=None, wrap=4, size=2, cmap='Reds', vmin=0, vmax=None, ncol=1,
+    def embedding(self, embed, color=None, title=None, layer=None, groupby=None, wrap=4, size=2, cmap='Reds', vmin=0, vmax=None, ncol=1, ls_group=None, includingNa=False,
                   figsize=(4,3), titleInFig=False, dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
 
@@ -1317,6 +1317,9 @@ class PlotAnndata(object):
         if color in ad.obs.columns:
             useObs = True
             dt_colors = self.getAdColors(color)
+            dt_colors['None'] = 'silver'
+            if ls_group is None:
+                ls_group = ad.obs[color].unique().tolist()
         else:
             useObs = False
             
@@ -1329,13 +1332,17 @@ class PlotAnndata(object):
 
         df['x'] = ad.obsm[embed][:,0]
         df['y'] = ad.obsm[embed][:,1]
-        df = df.sort_values(color)
-
+        
         if groupby:
             df['groupby'] = ad.obs[groupby]
 
         if useObs:
-            df_clusterLabelLoc = df.groupby(color)[['x', 'y']].agg('median').reset_index()
+            df[color].cat.add_categories('None', inplace=True)
+            df[color] = df[color].cat.reorder_categories(df[color].cat.categories[::-1])
+            df.loc[lambda _: ~_[color].isin(ls_group), color] = 'None'
+            df_clusterLabelLoc = df.dropna(subset=[color]).groupby(color)[['x', 'y']].agg('median').reset_index()
+        
+        df = df.sort_values(color)
 
         g = (
             so.Plot(df, x='x', y='y')
@@ -1362,7 +1369,55 @@ class PlotAnndata(object):
         fig = p._figure 
 
         if useObs:
+            if includingNa:
+                pass
+            else:
+                dt_colors.pop('None')
             fig.legend(handles=[legendkit.handles.CircleItem(color=x) for x in dt_colors.values()], labels=dt_colors.keys(), loc='center left', bbox_to_anchor=(1, 0.5), ncol=ncol)
         
-        fig.suptitle(color, y=1, va='baseline')
+        fig.suptitle(title, y=1, va='baseline')
         return g, fig
+    
+    def clusterPercentage(self, x, y, addCounts=True, figsize=(5, 4), dt_theme={}):
+        ad = self.ad
+        dt_colors = self.getAdColors(y)
+
+        sr_counts = ad.obs.value_counts([x, y]).unstack().fillna(0).astype(int).sum(1)
+        df_ratio = ad.obs.value_counts([x, y]).unstack().fillna(0).astype(int).apply(lambda x: x/x.sum(), 1) * 100
+        df_ratio = df_ratio.stack().rename('ratio').reset_index()
+
+        g = (
+            so.Plot(df_ratio, x, y='ratio', color=y)
+            .add(so.Bar(alpha=1), so.Stack())
+            .label(y='Percentage (%)')
+            .scale(color=dt_colors)
+            .layout(size=figsize)
+            .theme(dt_theme)
+        )
+        if addCounts:
+            g = g.add(so.Text(artist_kws={'rotation': 90}, valign='baseline'), data={}, x=sr_counts.keys(), y=[100] * len(sr_counts), text=[f"N = {x}" for x in sr_counts], color=None)
+
+        p = g.plot()
+        p._repr_png_()
+        fig = p._figure
+        ax = fig.axes[0]
+        for text in ax.texts:
+            text.set(clip_on=False)
+        return g, fig
+    
+    def clusterSankey(self, source, target, recoverDefaultRc=True, **dt_args):
+        ad = self.ad
+        df_anno = ad.obs[[source, target]]
+        df_anno[source] = df_anno[source].map(lambda _: _ + ' ')
+        df_anno[target] = df_anno[target].map(lambda _: ' ' + _)
+
+        _dt = self.getAdColors(source)
+        _dt = {f"{x} ":y for x,y in _dt.items()}
+        dt_colors = self.getAdColors(target)
+        dt_colors = {f" {x}":y for x,y in dt_colors.items()}
+        dt_colors = dict(**dt_colors, **_dt)
+
+        ax = pysankey.sankey(df_anno[source], df_anno[target], colorDict=dt_colors, **dt_args)
+        if recoverDefaultRc:
+            plt.rcdefaults()
+        return ax
