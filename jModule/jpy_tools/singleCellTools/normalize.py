@@ -63,6 +63,8 @@ def normalizeByScran(
     needNormalizePre: bool = True,
     resolutionPre: float = 0.7,
     clusterInfo: Optional[str] = None,
+    threads = 1, 
+    calculate = True,
     copy: bool = False,
 ) -> anndata.AnnData:
     """
@@ -97,9 +99,14 @@ def normalizeByScran(
 
     R = ro.r
     importr("scran")
+    bp = importr("BiocParallel")
     logger.info("Initialization")
     adata = adata.copy() if copy else adata
     layer = "X" if layer is None else layer
+    if threads == 1:
+        BPPARAM = bp.SerialParam()
+    else:
+        BPPARAM = bp.MulticoreParam(threads)
 
     if not clusterInfo:
         adataPP = basic.getPartialLayersAdata(adata, layer)
@@ -125,25 +132,33 @@ def normalizeByScran(
         logger.info("transfer data to R")
         inputGroupDf_r = py2r(adata.obs[clusterInfo])
 
-    se = py2r(adata)
+    # se = py2r(adata)
 
+    mtx_R = py2r(adata.layers[layer].T)
     logger.info("calculate size factor")
-    sizeFactorSr_r = R.sizeFactors(
-        R.computeSumFactors(
-            se,
-            clusters=inputGroupDf_r,
-            **{"min.mean": 0.1, "assay.type": layer},
-        )
+    sizeFactorSr_r = R.calculateSumFactors(
+        mtx_R,
+        clusters=inputGroupDf_r,
+        BPPARAM=BPPARAM,
+        **{"min.mean": 0.1}
     )
+    # sizeFactorSr_r = R.sizeFactors(
+    #     R.computeSumFactors(
+    #         se,
+    #         clusters=inputGroupDf_r,
+    #         **{"min.mean": 0.1, "assay.type": layer},
+    #     )
+    # )
     sizeFactorSr = r2py(sizeFactorSr_r).copy()
 
     logger.info("process result")
-    rawMtx = adata.X if layer == "X" else adata.layers[layer]
-    rawMtx = rawMtx.A if isspmatrix(rawMtx) else rawMtx
     adata.obs["sizeFactor"] = sizeFactorSr
-    adata.layers["scran"] = rawMtx / adata.obs["sizeFactor"].values.reshape([-1, 1])
+    if calculate:
+        rawMtx = adata.X if layer == "X" else adata.layers[layer]
+        rawMtx = rawMtx.A if isspmatrix(rawMtx) else rawMtx
+        adata.layers["scran"] = rawMtx / adata.obs["sizeFactor"].values.reshape([-1, 1])
+        basic.setLayerInfo(adata, scran="raw")
 
-    basic.setLayerInfo(adata, scran="raw")
     if logScaleOut:
         logger.warning("output is logScaled")
         basic.setLayerInfo(adata, scran="log")
@@ -798,3 +813,47 @@ def integrateBySeurat(
     sc.tl.pca(ad_combined, use_highly_variable=False)
     ad.obsm["X_pca_seurat"] = ad_combined.obsm["X_pca"].copy()
     return ad_combined
+
+class NormAnndata(object):
+    def __init__(self, ad:sc.AnnData, rawLayer:str):
+        self.ad = ad
+        self.rawLayer = rawLayer
+    
+    def getSizeFactorByScran(self, resolution:float=2, preCluster:Optional[str]=None, threads:int=1, dt_kwargs2scran:dict={"min.mean": 0.1}):
+        import rpy2.robjects as ro
+        from rpy2.robjects.packages import importr
+        from scipy.sparse import csr_matrix, isspmatrix
+        from ..rTools import py2r, r2py
+
+        R = ro.r
+        importr("scran")
+        bp = importr("BiocParallel")
+
+        ad = self.ad
+
+        if preCluster is None:
+            logger.info(f"cluster information is not specified, `connectivity` stored in anndata and reslution {resolution} will be used to cluster cells")
+            logger.warning("I strongly recommend you to specify `preCluster` to avoid repeated clustering")
+            sc.tl.leiden(ad, resolution=resolution, key_added="scran_used_cluster")
+        else:
+            ad.obs["scran_used_cluster"] = self.ad.obs[preCluster]
+        
+        if threads == 1:
+            BPPARAM = bp.SerialParam()
+        else:
+            BPPARAM = bp.MulticoreParam(threads)
+        
+        dfR_clusterInfo = py2r(ad.obs['scran_used_cluster'])
+        mtxR = py2r(ad.layers[self.rawLayer].T)
+
+        logger.info("calculate size factor")
+        vtR_sizeFactor = R.calculateSumFactors(
+            mtxR,
+            clusters=dfR_clusterInfo,
+            BPPARAM=BPPARAM,
+            **dt_kwargs2scran
+        )
+        sr_sizeFactor = r2py(vtR_sizeFactor).copy()
+        logger.info("process result")
+        ad.obs["scran_sizeFactor"] = sr_sizeFactor
+        ad.layers['scran_norm_count'] = csr_matrix(ad.layers['raw'].multiply(1 / ad.obs['scran_sizeFactor'].values.reshape(-1, 1)))

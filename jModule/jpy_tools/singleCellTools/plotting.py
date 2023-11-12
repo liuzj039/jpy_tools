@@ -1254,7 +1254,7 @@ class PlotAnndata(object):
         for group in ls_leftAnno[::-1]:
             ls_obsGroup = ad_pb.obs[group]
             h.add_left(
-                mp.Colors(ls_obsGroup, palette=self.getadataColor(group), label=group), size=0.15, pad=pad, name=group
+                mp.Colors(ls_obsGroup, palette=self.getAdColors(group), label=group), size=0.15, pad=pad, name=group
             )
             pad=0
 
@@ -1406,6 +1406,7 @@ class PlotAnndata(object):
         return g, fig
     
     def clusterSankey(self, source, target, recoverDefaultRc=True, **dt_args):
+        import pysankey
         ad = self.ad
         df_anno = ad.obs[[source, target]]
         df_anno[source] = df_anno[source].map(lambda _: _ + ' ')
@@ -1423,6 +1424,7 @@ class PlotAnndata(object):
         return ax
     
     def geneCompare(self, g1, g2, min_g1=0, max_g1=None, min_g2=0, max_g2=None, cellSize=2, layer='normalize_log', figsize=(10, 6)):
+        ad = self.ad
         _ad = ad[:, [g1, g2]]
         df_for2dScatter = _ad.to_df(layer)
         df_for2dScatter['total'] = df_for2dScatter[g1] + df_for2dScatter[g2]

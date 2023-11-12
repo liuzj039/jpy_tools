@@ -1698,7 +1698,7 @@ def scWGCNA(
 
 
 def useDiffxpyFindDegs(
-        ad: sc.AnnData, obsKey: str, testName: str, backgroundName: Union[List[str], str, None] = None, layer:Union[None, str] = None,
+        ad: sc.AnnData, obsKey: str, testName: str, backgroundName: Union[List[str], str, None] = None, layer:Union[None, str] = None, batchKey:Union[None, str]=None,
         sizefactor:Union[None, str]=None, removeNotConv: bool = True, minCells=3, quickScale=True, category: Literal['both', 'up', 'down']='both',
     ) -> pd.DataFrame:
     # Deprecated
@@ -1731,6 +1731,14 @@ def useDiffxpyFindDegs(
     sc.pp.filter_genes(ad, min_cells=minCells)
     ad.obs["diffxpy_temp"] = np.where(ad.obs[obsKey]==testName, 1, 0)
     ad.obs["diffxpy_temp"] = ad.obs["diffxpy_temp"].astype('category').cat.set_categories([0, 1])
+    if batchKey is None:
+        formulaLoc="~1 + diffxpy_temp"
+        constraintsLoc = None
+    else:
+        ad.obs['diffxpy_temp_batch'] = ad.obs["diffxpy_temp"].astype(str) + '_' + ad.obs[batchKey].astype(str)
+        formulaLoc="~1 + diffxpy_temp + diffxpy_temp_batch"
+        constraintsLoc = {'diffxpy_temp_batch': 'diffxpy_temp'}
+        
     # if category == 'both':a
     #     pass
     # elif category == 'up': # reduce resource required
@@ -1743,8 +1751,9 @@ def useDiffxpyFindDegs(
     #     raise ValueError(f"category {category} not supported")
     diffxpyTestResult = de.test.wald(
         ad,
-        formula_loc="~1 + diffxpy_temp",
+        formula_loc=formulaLoc,
         coef_to_test=f"diffxpy_temp[T.1]",
+        constraints_loc=constraintsLoc,
         quick_scale=quickScale,
         size_factors=sizefactor,
         noise_model='nb'
@@ -1753,7 +1762,6 @@ def useDiffxpyFindDegs(
     if removeNotConv:
         df_diffxpyResult = df_diffxpyResult.query("coef_sd > 2.222759e-162") # based on https://www.nature.com/articles/s41467-022-32229-9 and Delineating mouse β-cell identity during lifetime and in diabetes with a single cell atlas
     return df_diffxpyResult
-
 
 def _mergeData(ad, obsKey, layer="raw"):
     basic.testAllCountIsInt(ad, layer)
