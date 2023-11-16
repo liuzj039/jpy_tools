@@ -90,7 +90,7 @@ class SnakeHeader(object):
                 'pipelineDir', 'resultDir'
         """
         self.path = configPath
-        self.yaml = yaml.load(open(self.path))
+        self.yaml = yaml.load(open(self.path), Loader=yaml.Loader)
         self.snakeFile = snakeFile
         self.snakeFile.addHeader(self)
         if not (("pipelineDir" in self.yaml) & ("resultDir" in self.yaml)):

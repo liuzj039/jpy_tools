@@ -816,10 +816,31 @@ def integrateBySeurat(
 
 class NormAnndata(object):
     def __init__(self, ad:sc.AnnData, rawLayer:str):
+        """
+        Initialize a Normalizer object with the given AnnData object and raw layer name.
+
+        Parameters:
+        ad (sc.AnnData): AnnData object containing the raw data.
+        rawLayer (str): Name of the layer containing the raw data.
+        """
         self.ad = ad
         self.rawLayer = rawLayer
     
     def getSizeFactorByScran(self, resolution:float=2, preCluster:Optional[str]=None, threads:int=1, dt_kwargs2scran:dict={"min.mean": 0.1}):
+        '''The `getSizeFactorByScran` function calculates size factors for each cell in an AnnData object using the scran package in R, and stores the results in the AnnData object.
+
+        Parameters
+        ----------
+        resolution : float, optional
+            The `resolution` parameter is used to specify the resolution for clustering cells. It is a float value that determines the granularity of the clustering. Higher values result in fewer clusters, while lower values result in more clusters. The default value is 2.
+        preCluster : Optional[str]
+            The `preCluster` parameter is used to specify the cluster information for the cells in the `anndata` object. If `preCluster` is not specified, the function will use the `connectivity` stored in the `anndata` object and the specified `resolution` to cluster the cells
+        threads : int, optional
+            The `threads` parameter specifies the number of threads to be used for parallel processing. It determines how many parallel processes can be executed simultaneously.
+        dt_kwargs2scran : dict
+            The `dt_kwargs2scran` parameter is a dictionary that contains additional arguments to be passed to the `calculateSumFactors` function from the `scran` package in R. These arguments control the behavior of the size factor calculation. In the code snippet, the default value for `dt_kwargs
+
+        '''
         import rpy2.robjects as ro
         from rpy2.robjects.packages import importr
         from scipy.sparse import csr_matrix, isspmatrix
@@ -857,3 +878,15 @@ class NormAnndata(object):
         logger.info("process result")
         ad.obs["scran_sizeFactor"] = sr_sizeFactor
         ad.layers['scran_norm_count'] = csr_matrix(ad.layers['raw'].multiply(1 / ad.obs['scran_sizeFactor'].values.reshape(-1, 1)))
+    
+    def useAnalyticalPearson(self):
+        pass
+
+    def useSctransform(self):
+        pass
+    
+    def getSctHvg(self):
+        pass
+
+    def getSctRes(self):
+        pass
