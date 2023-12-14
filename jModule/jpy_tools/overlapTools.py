@@ -82,6 +82,8 @@ class GeneOverlapBase(object):
                 math.comb(N, i) * math.comb(N - i, n1 - i) * math.comb(N - n1, n2 - i)
             )
             p += numerator / denominator
+        if p < 1e-323:
+            p = 1e-323
         return p
     
     def getSmodParameter(self, df_comp1, df_comp2, geneKey, categoryKey, categoryTarget):
@@ -111,15 +113,23 @@ class GeneOverlapBase(object):
             The number of genes in the target category in the first group.
         n2 : int
             The number of genes in the target category in the second group.
+        N-n1: int
+            The number of genes in the non-target category in the first group.
+        n1-n2 : int
+            The number of genes in the target category in the first group but not in the second group.
         """
         ls_sharedGenes = list(set(df_comp1[geneKey]) & set(df_comp2[geneKey]))
         N = len(ls_sharedGenes)
-        m = len(set(df_comp1.query(f"{categoryKey} == @categoryTarget")[geneKey]) & set(df_comp2.query(f"{categoryKey} == @categoryTarget")[geneKey]))
-        n1 = df_comp1.query(f"{categoryKey} == @categoryTarget & {geneKey} in @ls_sharedGenes").shape[0]
-        n2 = df_comp2.query(f"{categoryKey} == @categoryTarget & {geneKey} in @ls_sharedGenes").shape[0]
-        return N, m, n1, n2
+        set_n1 = set(df_comp1.query(f"{categoryKey} == @categoryTarget & {geneKey} in @ls_sharedGenes")[geneKey])
+        set_n2 = set(df_comp2.query(f"{categoryKey} == @categoryTarget & {geneKey} in @ls_sharedGenes")[geneKey])
+        m = len(set_n1 & set_n2)
+        n1 = len(set_n1)
+        n2 = len(set_n2)
+        N_n1 = N - n1
+        n1_n2 = len(set_n1 - set_n2)
+        return N, m, n1, n2, N_n1, n1_n2
         
-    def getOverlapInfo(self, ls_groups=None, diagS=1, diagQ=1):
+    def getOverlapInfo(self, ls_groups=None, diagS=1e-323, diagQ=1, additionalTest=False):
         """
         Computes overlap statistics between all pairs of groups.
 
@@ -134,6 +144,7 @@ class GeneOverlapBase(object):
         """
         from itertools import product
         from tqdm import tqdm
+        from scipy.stats import chi2_contingency, fisher_exact
 
         df = self.df
         geneKey = self.geneKey
@@ -145,29 +156,44 @@ class GeneOverlapBase(object):
             ls_groups = df[groupKey].unique().tolist()
         
         ls_res = []
-        for comp1, comp2 in tqdm(product(ls_groups, ls_groups)):
-            df_comp1 = df.query(f"{groupKey} == @comp1")
-            df_comp2 = df.query(f"{groupKey} == @comp2")
-            N, m, n1, n2 = self.getSmodParameter(df_comp1, df_comp2, geneKey, categoryKey, categoryTarget)
-            if comp1 == comp2:
-                smodP = diagS
-                qmod = diagQ
-            else:
-                try:
-                    smodP = self.sMod(N, m, n1, n2)
-                except:
-                    print(comp1, comp2, N, m, n1, n2)
-                    assert False
-                qmod = m / n1 if n1 > 0 else 0
-            jaccard = m / (n1 + n2 - m)
+        for comp1, comp2 in tqdm(product(ls_groups, ls_groups), total=len(ls_groups)**2):
+            try: 
+                df_comp1 = df.query(f"{groupKey} == @comp1")
+                df_comp2 = df.query(f"{groupKey} == @comp2")
+                N, m, n1, n2, N_n1, n1_n2 = self.getSmodParameter(df_comp1, df_comp2, geneKey, categoryKey, categoryTarget)
+                if comp1 == comp2:
+                    smodP = diagS
+                    qmod = diagQ
+                    chi2P = diagS
+                    fisherP = diagS
+                else:
+                    try:
+                        smodP = self.sMod(N, m, n1, n2)
+                        if additionalTest:
+                            chi2P = chi2_contingency([[N_n1, n1], [n1_n2, m]]).pvalue
+                            chi2P = max(chi2P, diagS)
+                            fisherP = fisher_exact([[N_n1, n1], [n1_n2, m]]).pvalue
+                            fisherP = max(fisherP, diagS)
+                        else:
+                            chi2P = diagS
+                            fisherP = diagS
+                    except:
+                        print(comp1, comp2, N, m, n1, n2)
+                        assert False
+                    qmod = m / n1 if n1 > 0 else 0
+                jaccard = m / (n1 + n2 - m) if (n1 + n2 - m) > 0 else 0
 
-            ls_res.append([comp1, comp2, N, m, n1, n2, smodP, jaccard, qmod])
-        df_res = pd.DataFrame(ls_res, columns=['comp1', 'comp2', 'N', 'm', 'n1', 'n2', 'smod', 'jaccard', 'qmod'])
+                ls_res.append([comp1, comp2, N, m, n1, n2, N_n1, n1_n2, smodP, jaccard, qmod, chi2P, fisherP])
+            except:
+                assert False, f"Error in {comp1} and {comp2}"
+        df_res = pd.DataFrame(ls_res, columns=['comp1', 'comp2', 'N', 'm', 'n1', 'n2', 'N_n1', 'n1_n2', 'smod', 'jaccard', 'qmod', 'chi2P', 'fisherP'])           
         df_res['smod'] = -np.log10(df_res['smod'])
+        df_res['chi2'] = -np.log10(df_res['chi2P'])
+        df_res['fisher'] = -np.log10(df_res['fisherP'])
         self.ls_groups = ls_groups
         self.df_overlapInfo = df_res
     
-    def dotplot(self, sizeKey='m', colorKey='smod', clusterKey='smod', cmap='Reds', size_legend_kws={"title": "Intersect Counts"}, color_legend_kws={"title": "S-MOD"}, addCounts=True, **kwargs):
+    def dotplot(self, sizeKey='m', colorKey='smod', clusterKey='smod', cmap='Reds', size_legend_kws={"title": "Intersect Counts"}, color_legend_kws={"title": "S-MOD"}, addCounts=True, barColor='Red', **kwargs):
         """
         Generates a dot plot of overlap statistics.
 
@@ -209,13 +235,13 @@ class GeneOverlapBase(object):
             ls_order = df_color.index
             df_counts = df_overlapInfo.query("comp1 == comp2").set_index('comp1').loc[ls_order, 'm'].to_frame().T
             h.add_top(
-                mp.Bar(df_counts, color='Red', label='Counts'), size=1, pad=0.1
+                mp.Bar(df_counts, color=barColor, label='Counts'), size=1, pad=0.1
             )
 
         h.add_legends()
         return h
     
-    def tileplot(self, colorKey='smod', clusterKey='smod', cmap='Reds', label='S-MOD', addCounts=True, **kwargs):
+    def tileplot(self, colorKey='smod', clusterKey='smod', cmap='Reds', label='S-MOD', addCounts=True, barColor='Red', **kwargs):
         """
         Generates a tile plot of overlap statistics.
 
@@ -249,7 +275,7 @@ class GeneOverlapBase(object):
             ls_order = df_color.index
             df_counts = df_overlapInfo.query("comp1 == comp2").set_index('comp1').loc[ls_order, 'm'].to_frame().T
             h.add_top(
-                mp.Bar(df_counts, color='Red', label='Counts'), size=1, pad=0.1
+                mp.Bar(df_counts, color=barColor, label='Counts'), size=1, pad=0.1
             )
 
         h.add_legends()

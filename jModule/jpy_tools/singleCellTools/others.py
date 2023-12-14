@@ -974,20 +974,26 @@ def calucatePvalueForEachSplitUseScshc(ad: sc.AnnData, ls_hvg: List[str], cluste
     X = ad_pseudobulk[:, ls_hvg].to_df(layer)
     X = X.apply(lambda _: _/_.sum(), axis=1)
     linkage = scipy.cluster.hierarchy.linkage(X, method='ward', optimal_ordering=True)
-    fig = plt.figure(figsize=(15, 5))
-    dn = scipy.cluster.hierarchy.dendrogram(linkage, color_threshold=0)
+
+    ls_label = ad_pseudobulk.obs[clusterKey].to_list()
+    R1 = scipy.cluster.hierarchy.dendrogram(linkage, color_threshold=0, no_plot=True)
+    dt_label = {leaf: ls_label[leaf] for leaf in R1["leaves"]}
+    # print(dt_label)
+    fig, ax = plt.subplots(figsize=(15, 5))
+    dn = scipy.cluster.hierarchy.dendrogram(linkage, color_threshold=0, ax=ax, leaf_label_func=lambda x:dt_label[x])
     plt.show()
+
     nd_root, lsNd_sub = scipy.cluster.hierarchy.to_tree(linkage, rd=True)
     lsNd_sub = [x for x in lsNd_sub if not x.is_leaf()]
-    ssR_count = ad.layers[layer] >> F(py2r)
+    ssR_count = py2r(ad.layers[layer])
     ssR_count = R("""\(x, rN, cN) {
         rownames(x) = rN
         colnames(x) = cN
         t(x)
-    }""")(ssR_count, ad.obs.index >> F(lambda _: R.c(*_)), ad.var.index >> F(lambda _: R.c(*_)))
+    }""")(ssR_count, R.unlist(ad.obs.index.to_list()), R.unlist(ad.var.index.to_list()))
 
-    arR_batch = R.c(*ad.obs['temp_batch'].astype(str))
-    arR_batch.names = R.c(*ad.obs.index)
+    arR_batch = R.unlist(ad.obs['temp_batch'].astype(str).to_list())
+    arR_batch.names = R.unlist(ad.obs.index.to_list())
 
     ls_kwargs = []
     for _nd in lsNd_sub:
@@ -1005,9 +1011,9 @@ def calucatePvalueForEachSplitUseScshc(ad: sc.AnnData, ls_hvg: List[str], cluste
         alphaLevel = alpha * (nodeCellNum - 1) / (totalCellNum - 1)
         _dt = {}
         _dt['data'] = ssR_count
-        _dt['ids1'] = R.c(*ls_ids1)
-        _dt['ids2'] = R.c(*ls_ids2)
-        _dt['var_genes'] = R.c(*ls_hvg)
+        _dt['ids1'] = R.unlist(ls_ids1)
+        _dt['ids2'] = R.unlist(ls_ids2)
+        _dt['var_genes'] = R.unlist(ls_hvg)
         _dt['num_PCs'] = num_PCs
         _dt['batch'] = arR_batch
         _dt['alpha_level'] = alphaLevel
@@ -1027,9 +1033,11 @@ def calucatePvalueForEachSplitUseScshc(ad: sc.AnnData, ls_hvg: List[str], cluste
         ls_leftCluster, ls_rightCluster = getNodeLeftAndRight(_nd, dt_preRenameCluster)
         dt_p[(ls_leftCluster, ls_rightCluster)] = _p
 
-
+    ls_label = ad_pseudobulk.obs[clusterKey].to_list()
+    R1 = scipy.cluster.hierarchy.dendrogram(linkage, color_threshold=0, no_plot=True)
+    dt_label = {leaf: ls_label[leaf] for leaf in R1["leaves"]}
     fig, ax = plt.subplots(figsize=(15, 5))
-    dn = scipy.cluster.hierarchy.dendrogram(linkage, color_threshold=0, ax=ax)
+    dn = scipy.cluster.hierarchy.dendrogram(linkage, color_threshold=0, ax=ax, leaf_label_func=lambda x:dt_label[x])
     ls_signPos = []
     for ls_x, ls_y in zip(dn['icoord'], dn['dcoord']):
         ls_signPos.append([(ls_x[0]+ls_x[-1]) / 2, ls_y[1]])

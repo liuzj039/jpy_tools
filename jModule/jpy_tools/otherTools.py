@@ -664,10 +664,17 @@ class SelectByPolygon:
         plt.close()
 
 
-def pwStack(ls_ax, ncols=5, wmargin=None, hmargin=None):
+def pwStack(ls_ax, ncols=5, wmargin=None, hmargin=None, choice=0):
     import patchworklib as pw
     from more_itertools import chunked
-    from cool import F
+    if choice == 0:
+        op1 = '|'
+        op2 = '/'
+    elif choice == 1:
+        op1 = '+'
+        op2 = '-'
+    else:
+        assert False, 'Unknown choice'
 
     margin_bc = pw.param["margin"]
     if wmargin is None:
@@ -678,19 +685,19 @@ def pwStack(ls_ax, ncols=5, wmargin=None, hmargin=None):
     ls_ax = chunked(ls_ax, ncols) | F(list)
     if len(ls_ax) == 1:
         pw.param["margin"] = wmargin
-        axs = pw.stack(ls_ax[0])
+        axs = pw.stack(ls_ax[0], operator=op1)
     elif len(ls_ax[-1]) == ncols:
         pw.param["margin"] = wmargin
-        ls_axs = [pw.stack(x) for x in ls_ax]
+        ls_axs = [pw.stack(x, operator=op1) for x in ls_ax]
         pw.param["margin"] = hmargin
-        axs = pw.stack(ls_axs, operator="/")
+        axs = pw.stack(ls_axs, operator=op2)
     else:
         ls_name = [x.get_label() for x in ls_ax[-2]]
 
         pw.param["margin"] = wmargin
-        ls_axs = [pw.stack(x) for x in ls_ax[:-1]]
+        ls_axs = [pw.stack(x, operator=op1) for x in ls_ax[:-1]]
         pw.param["margin"] = hmargin
-        axs = pw.stack(ls_axs, operator="/")
+        axs = pw.stack(ls_axs, operator=op2)
         for i, ax in enumerate(ls_ax[-1]):
             axs = axs[ls_name[i]] / ax
     pw.param["margin"] = margin_bc
@@ -977,6 +984,8 @@ class MuteInfo:
         sys.stdout = self.orgout
         sys.stderr = self.orgerr
         self.f.close()
+
+
 class FigConcate(object):
     def __init__(self, fig):
         """
@@ -1093,6 +1102,22 @@ class FigConcate(object):
             return np.concatenate((arr1, arr2), axis=axis)
 
         return reduce(concatenate_along_axis, ls_arrs)
+
+class FigConcateWrap(object):
+    def __init__(self):
+        self.lsFig = []
+
+    def addFig(self, FigConcate):
+        self.lsFig.append(FigConcate)
+
+    def wrapAndGenerate(self, wrap=4) -> FigConcate:
+        from more_itertools import chunked
+        from functools import reduce
+        _ls = []
+        for ls in chunked(self.lsFig, wrap):
+            _ls.append(reduce(lambda x, y: x|y, ls))
+        return reduce(lambda x, y: x/y, _ls)
+
 
 def cld(df, p, lvl_order=None):
     '''The function `cld` performs a post-hoc analysis using the multcomp package in R to determine significant differences between groups based on a given p-value threshold.

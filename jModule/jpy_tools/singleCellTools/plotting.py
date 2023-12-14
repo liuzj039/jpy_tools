@@ -1205,12 +1205,17 @@ class PlotAnndata(object):
         
         ad_pb = geneEnrichInfo._mergeData(ad, ls_group, layer=self.rawLayer)
         basic.initLayer(ad_pb, total=1e6, logbase=2)
-        ad_pb.layers['normalize'] = np.exp(ad_pb.layers['normalize_log']) - 1
+        ad_pb.layers['normalize'] = np.exp2(ad_pb.layers['normalize_log']) - 1
         self.dtAd_pb[pbKey] = ad_pb
         return ad_pb
     
     def heatmapGeneExpInPb(self, ls_group, ls_leftAnno, dt_genes, layer='normalize_log', height=10, width=10, cmap='Reds', standardScale=None, showGeneCounts=False):
-        '''The `heatmapGeneExpInPb` function generates a heatmap of gene expression in a single-cell RNA sequencing dataset, with options for customization such as color mapping, scaling, and showing gene counts.
+        raise NameError('Please use heatmapGeneExp as alternative')
+
+    def heatmapGeneExp(
+            self, ls_group: Union[None, List[str]], ls_leftAnno:List[str], dt_genes:Dict[str, List[str]], layer='normalize_log', height=10, width=10, cmap='Reds', standardScale=None, showGeneCounts=False,
+            addGeneName:bool=False):
+        '''The `heatmapGeneExp` function generates a heatmap of gene expression in a single-cell RNA sequencing dataset, with options for customization such as color mapping, scaling, and showing gene counts.
 
         Parameters
         ----------
@@ -1238,7 +1243,7 @@ class PlotAnndata(object):
             a heatmap object.
 
         '''
-        ad_pb = self.getPb(ls_group)
+        ad_pb = self.ad if ls_group is None else self.getPb(ls_group)
         ad_pb = ad_pb[ad_pb.obs.sort_values(ls_leftAnno).index]
         ls_genes = sum(list(dt_genes.values()), [])
         ls_geneCate = [x for x,y in dt_genes.items() for z in y]
@@ -1266,11 +1271,16 @@ class PlotAnndata(object):
         h.add_top(
             mp.Chunk(ls_geneLabel, props={'rotation': 90})
         )
+        if addGeneName:
+            h.add_bottom(
+                mp.Labels(ls_genes)
+            )
         h.add_legends()
         return h
     
-    def embedding(self, embed, color=None, title=None, layer=None, groupby=None, wrap=4, size=2, cmap='Reds', vmin=0, vmax=None, ncol=1, ls_group=None, includingNa=False,
-                  figsize=(4,3), titleInFig=False, dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
+    def embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
+                  cmap='Reds', vmin=0, vmax=None, ncol=1, ls_group=None, addBackground=False, share=True, axisLabel='UMAP', useObs=None, titleLocY = 0.95,
+                  figsize=(4,3), titleInFig=False, needLegend=True, dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
 
         Parameters
@@ -1314,21 +1324,26 @@ class PlotAnndata(object):
         if title is None:
             title = color
 
-        if color in ad.obs.columns:
-            useObs = True
-            dt_colors = self.getAdColors(color)
-            dt_colors['None'] = 'silver'
-            if ls_group is None:
-                ls_group = ad.obs[color].unique().tolist()
-        else:
-            useObs = False
-            
+        if useObs is None:
+            if color in ad.obs.columns:
+                useObs = True
+            else:
+                useObs = False
         if useObs:
-            df = ad.obs[[color]].copy()
-            legend = False
+            if ad.obs[color].dtype.name == 'category':
+                dt_colors = self.getAdColors(color)
+                dt_colors['None'] = 'silver'
+                if ls_group is None:
+                    ls_group = ad.obs[color].unique().tolist()
+                df = ad.obs[[color]].copy()
+                legend = False
+            else:
+                df = ad.obs[[color]].copy()
+                legend = False
+                useObs = False
         else:
             df = ad[:, color].to_df(layer)
-            legend = True
+            legend = False
 
         df['x'] = ad.obsm[embed][:,0]
         df['y'] = ad.obsm[embed][:,1]
@@ -1341,15 +1356,27 @@ class PlotAnndata(object):
             df[color] = df[color].cat.reorder_categories(df[color].cat.categories[::-1])
             df.loc[lambda _: ~_[color].isin(ls_group), color] = 'None'
             df_clusterLabelLoc = df.dropna(subset=[color]).groupby(color)[['x', 'y']].agg('median').reset_index()
-        
+
+        if useObs & (not groupby is None) & addBackground:
+            # set cells from other groups to grey color
+            lsDf = []
+            for group in ls_group:
+                _df = df.copy()
+                _df.loc[lambda _: _['groupby'] != group, color]  = 'None'
+                _df = _df.assign(groupby=group)
+                lsDf.append(_df)
+            df = pd.concat(lsDf).reset_index(drop=True)
+            df['groupby'] = df['groupby'].astype('category').cat.set_categories(ls_group)
+
         df = df.sort_values(color)
 
         g = (
             so.Plot(df, x='x', y='y')
             .add(so.Dots(fillalpha=1, pointsize=size), color=color, legend=legend)
+            .share(x=share, y=share)
             .theme(dt_theme)
-            .label(x=f'{embedLabel} 1', y=f'{embedLabel} 2', color='')
-            .layout(size=figsize)
+            .label(x=f'{axisLabel} 1', y=f'{axisLabel} 2', color='')
+            # .layout(size=figsize)
         )
 
         if useObs:
@@ -1362,23 +1389,28 @@ class PlotAnndata(object):
             g = g.scale(color=so.Continuous(cmap, norm=(vmin, vmax)))
 
         if groupby:
-            g = g.facet(row='groupby', wrap=wrap)
+            g = g.facet(col='groupby', wrap=wrap, order=ad.obs[groupby].cat.categories)
+        fig = plt.figure(figsize=figsize)
+        p = g.on(fig).plot()
+        # p._repr_png_()
+        # fig = p._figure 
 
-        p = g.plot()
-        p._repr_png_()
-        fig = p._figure 
-
-        if useObs:
-            if includingNa:
-                pass
-            else:
+        if needLegend:
+            if useObs:
+                dt_colors = dt_colors.copy()
                 dt_colors.pop('None')
-            fig.legend(handles=[legendkit.handles.CircleItem(color=x) for x in dt_colors.values()], labels=dt_colors.keys(), loc='center left', bbox_to_anchor=(1, 0.5), ncol=ncol)
+                fig.legend(handles=[legendkit.handles.CircleItem(color=x) for x in dt_colors.values()], labels=dt_colors.keys(), loc='center left', bbox_to_anchor=(1, 0.5), ncol=ncol)
+            else:
+                from matplotlib.colors import Normalize
+                from legendkit import colorart
+                fig.transAxes = fig.transFigure
+                colorart(cmap=cmap, norm=Normalize(vmin, vmax), ax=fig, loc='out right center', deviation=-0.07, height=figsize[1] * 3)
         
-        fig.suptitle(title, y=1, va='baseline')
+        fig.suptitle(title, y=titleLocY, va='baseline')
+        plt.close()
         return g, fig
     
-    def clusterPercentage(self, x, y, addCounts=True, figsize=(5, 4), dt_theme={}):
+    def clusterPercentage(self, x, y, addCounts=True, figsize=(5, 4), fc_after = lambda _: _, dt_theme={}):
         ad = self.ad
         dt_colors = self.getAdColors(y)
 
@@ -1394,6 +1426,7 @@ class PlotAnndata(object):
             .layout(size=figsize)
             .theme(dt_theme)
         )
+        g = fc_after(g)
         if addCounts:
             g = g.add(so.Text(artist_kws={'rotation': 90}, valign='baseline'), data={}, x=sr_counts.keys(), y=[100] * len(sr_counts), text=[f"N = {x}" for x in sr_counts], color=None)
 
