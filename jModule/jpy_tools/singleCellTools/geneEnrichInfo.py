@@ -89,8 +89,26 @@ def getBgGene(
     replacement=True,
 ):
     "replacement: if True, ls_gene will be included in the result"
+
+    def sampling(df, dt_binGeneCounts, multi, seed):
+        if df.shape[0] > (dt_binGeneCounts[df["bins_ForPickMock"].iloc[0]] * multi):
+            return df.sample(
+                n=dt_binGeneCounts[df["bins_ForPickMock"].iloc[0]] * multi,
+                random_state=seed,
+            )
+        else:
+            logger.warning(
+                f"bin {df['bins_ForPickMock'].iloc[0]} has less than {dt_binGeneCounts[df['bins_ForPickMock'].iloc[0]] * multi} genes, so all genes (N={df.shape[0]}) will be returned"
+            )
+            return df
+        
     if not usePreBin:
-        ad.var["means_ForPickMock"] = ad.to_df(layer).mean()
+        # ad.var["means_ForPickMock"] = ad.to_df(layer).mean()
+        ar_mean = ad.layers['raw'].mean(0)
+        if isinstance(ar_mean, np.matrix):
+            ar_mean = ar_mean.A
+        ar_mean = ar_mean.reshape(-1)
+        ad.var["means_ForPickMock"] = ar_mean
         ad.var["bins_ForPickMock"] = pd.qcut(
             ad.var["means_ForPickMock"], bins, duplicates="drop"
         )
@@ -99,17 +117,25 @@ def getBgGene(
     dt_binGeneCounts = ad.var.loc[ls_gene]["bins_ForPickMock"].value_counts().to_dict()
     if replacement:
         ls_gene = []
+    
     ls_randomGene = (
         ad.var.query("index not in @ls_gene")
         .groupby("bins_ForPickMock", group_keys=False)
-        .apply(
-            lambda df: df.sample(
-                n=dt_binGeneCounts[df["bins_ForPickMock"].iloc[0]] * multi,
-                random_state=seed,
-            )
-        )
+        .apply(sampling, dt_binGeneCounts, multi, seed)
         .index.to_list()
     )
+        
+    # ls_randomGene = (
+    #     ad.var.query("index not in @ls_gene")
+    #     .groupby("bins_ForPickMock", group_keys=False)
+    #     .apply(
+    #         lambda df: df.sample(
+    #             n=dt_binGeneCounts[df["bins_ForPickMock"].iloc[0]] * multi,
+    #             random_state=seed,
+    #         ) if df.shape[0] > (dt_binGeneCounts[df["bins_ForPickMock"].iloc[0]] * multi) else df
+    #     )
+    #     .index.to_list()
+    # )
     return ls_randomGene
 
 

@@ -42,7 +42,7 @@ import marsilea.plotter as mp
 import legendkit
 import seaborn.objects as so
 from . import basic, geneEnrichInfo
-
+from ..soExt import Axhline, Axvline
 
 def umapMultiBatch(
     ad,
@@ -1174,12 +1174,16 @@ class PlotAnndata(object):
         Generates a scatter plot of data points based on a specified embedding.
     """
     
-    def __init__(self, ad, rawLayer):
+    def __init__(self, ad, rawLayer='raw'):
         self.ad = ad
         self.rawLayer = rawLayer
-        self.dtAd_pb = {}
+        if 'pseudobulk_anndata' in self.ad.uns:
+            pass
+        else:
+            self.ad.uns['pseudobulk_anndata'] = {}
+        self.dtAd_pb = self.ad.uns['pseudobulk_anndata']
     def __repr__(self):
-        contents = [self.ad.__repr__()]
+        contents = ['PlotAnndata:\n' + self.ad.__repr__()]
         contents.append('Pseudobulk AnnData:')
         for groups, ad_pb in self.dtAd_pb.items():
             contents.append(f"\t\t{groups}")
@@ -1194,27 +1198,143 @@ class PlotAnndata(object):
             for x, y in zip(ad.obs[label].cat.categories, ad.uns[f"{label}_colors"])
         }
 
-    def getPb(self, ls_group):
+    def getPb(self, ls_group, force=False):
         ad = self.ad
+        ad._sanitize()
         if isinstance(ls_group, str):
             ls_group = [ls_group]
         ls_group = sorted(ls_group)
         pbKey = ','.join(ls_group)
+        pbKey = pbKey + ':' + self.rawLayer
+        runPb = False
+        if force:
+            runPb = True
         if pbKey in self.dtAd_pb.keys():
-            return self.dtAd_pb[pbKey]
-        
-        ad_pb = geneEnrichInfo._mergeData(ad, ls_group, layer=self.rawLayer)
-        basic.initLayer(ad_pb, total=1e6, logbase=2)
-        ad_pb.layers['normalize'] = np.exp2(ad_pb.layers['normalize_log']) - 1
-        self.dtAd_pb[pbKey] = ad_pb
+            ad_pb = self.dtAd_pb[pbKey]
+            for group in ls_group:
+                ls_adGroupContent = ad.obs[group].cat.categories.tolist()
+                ls_pbGroupContent = ad_pb.obs[group].cat.categories.tolist()
+                if set(ls_adGroupContent) != set(ls_pbGroupContent):
+                    logger.info(f"The group {group} in the pseudobulk AnnData object is different from the group in the original AnnData object.")
+                    logger.info(f"The group in the pseudobulk AnnData object is {ls_pbGroupContent}")
+                    logger.info(f"The group in the original AnnData object is {ls_adGroupContent}")
+                    ls_overlap = list(set(ls_adGroupContent) & set(ls_pbGroupContent))
+                    logger.info(f"The overlapping groups are {ls_overlap}")
+                    if set(ls_adGroupContent) == set(ls_overlap):
+                        logger.info(f"The pseudobulk AnnData object will be updated to include only the overlapping groups")
+                        ad_pb = ad_pb[ad_pb.obs[group].isin(ls_overlap)]
+                    else:
+                        logger.warning(f"The pseudobulk AnnData object will be re-generated.")
+                        runPb = True
+                        break
+            else:        
+                self.dtAd_pb[pbKey] = ad_pb
+        else:
+            runPb = True
+            
+        if runPb:
+            ad_pb = geneEnrichInfo._mergeData(ad, ls_group, layer=self.rawLayer)
+            basic.initLayer(ad_pb, total=1e6, logbase=2)
+            ad_pb.layers['normalize'] = np.exp2(ad_pb.layers['normalize_log']) - 1
+            self.dtAd_pb[pbKey] = ad_pb
+
         return ad_pb
     
+    def histogram(
+            self, variable, groupby=None, wrap=4, bins=50, binrange=None, markLine:Optional[List[float]]=None, 
+            addStat:Optional[Literal['mean', 'median']]=None, fc_additional:Optional[Callable]=None,
+            dt_kwargsForHist={'common_norm':False, 'stat': 'percent'}
+        ):
+        '''The `plotHist` function is used to plot histograms of a variable in an AnnData object, with optional grouping and additional statistical measures.
+
+        Parameters
+        ----------
+        variable
+            The variable parameter is the name of the variable you want to plot the histogram for. It should be a column name in the AnnData object's obs dataframe.
+        groupby
+            The `groupby` parameter is used to specify a variable in the AnnData object that you want to group the data by. This can be useful if you want to create separate histograms for different groups within your data.
+        wrap, optional
+            The `wrap` parameter determines the number of columns in the facet grid when grouping the data by a variable. It specifies how many subplots should be displayed in each row before moving on to the next row.
+        bins, optional
+            The `bins` parameter specifies the number of bins to use for the histogram. It determines the width of each bin in the histogram.
+        binrange
+            The `binrange` parameter is used to specify the range of values for the bins in the histogram. It takes a tuple of two values, where the first value is the lower bound of the range and the second value is the upper bound of the range. For example, if you want the histogram
+        markLine : Optional[List[float]]
+            The `markLine` parameter is an optional list of float values that can be used to add vertical dashed lines to the histogram plot. Each value in the list represents the position of the line on the x-axis.
+        addStat : Optional[Literal['mean', 'median']]
+            The `addStat` parameter is an optional parameter that allows you to add additional statistics to the histogram plot. It accepts a list of strings, where each string represents a statistic to be added. The supported statistics are 'mean' and 'median'.
+        fc_additional : Optional[Callable]
+            The `fc_additional` parameter is an optional callable function that allows you to add additional plot elements or customize the plot further. It takes in a `Plot` object `p` as input and should return the modified `Plot` object. You can use this parameter to add any additional plot elements or
+        dt_kwargsForHist
+            The `dt_kwargsForHist` parameter is a dictionary that contains additional keyword arguments for the `Hist` plot. These arguments are used to customize the histogram plot. The available options are:
+
+        Returns
+        -------
+            The function `plotHist` returns two values: `p` and `fig`. `p` is an instance of the `so.Plot` class, which represents the plot object, and `fig` is the matplotlib figure object that can be used to display or save the plot.
+
+        '''
+        ad = self.ad
+        ad._sanitize()
+        assert variable in ad.obs.columns, f"The variable {variable} is not in the AnnData object."
+        if groupby is None:
+            df = ad.obs[[variable]]
+            # groupby = '_hist_temp'
+            # df[groupby] = 'All'
+        else:
+            assert groupby in ad.obs.columns, f"The groupby variable {groupby} is not in the AnnData object."
+            df = ad.obs[[variable, groupby]]
+        df['_hist_temp'] = 'All'
+        p = (
+            so.Plot(df.reset_index())
+            .add(
+                so.Bars(color="#9DC3E7"),
+                so.Hist(bins=bins, binrange=binrange, **dt_kwargsForHist),
+                x=variable,
+            )
+        )
+        if groupby is None:
+            pass
+        else:
+            p = p.facet(col=groupby, wrap=wrap)
+        if addStat is None:
+            pass
+        else:
+            if isinstance(addStat, str):
+                addStat = [addStat]
+            for stat in addStat:
+                p = p.add(
+                    Axvline(linestyle="--"),
+                    so.Agg(func=stat),
+                    orient="y",
+                    x=variable,
+                    group='_hist_temp'
+                )
+        if markLine is None:
+            pass
+        else:
+            if isinstance(markLine, float, int):
+                markLine = [markLine]
+            for line in markLine:
+                p = p.add(Axvline(linestyle="--", x=line), data={})
+        if fc_additional is None:
+            pass
+        else:
+            p = fc_additional(p)
+
+        fig = p.plot()._figure
+        for ax in fig.axes:
+            # ax.xaxis.label.set_visible(True)
+            ax.xaxis.set_tick_params(labelbottom=True)
+            ax.yaxis.set_tick_params(labelleft=True)
+
+        return p, fig
+
     def heatmapGeneExpInPb(self, ls_group, ls_leftAnno, dt_genes, layer='normalize_log', height=10, width=10, cmap='Reds', standardScale=None, showGeneCounts=False):
         raise NameError('Please use heatmapGeneExp as alternative')
 
     def heatmapGeneExp(
             self, ls_group: Union[None, List[str]], ls_leftAnno:List[str], dt_genes:Dict[str, List[str]], layer='normalize_log', height=10, width=10, cmap='Reds', standardScale=None, showGeneCounts=False,
-            addGeneName:bool=False):
+            addGeneName:bool=False, addGeneCatName:bool=True, geneSpace=0.005, **dt_forHeatmap):
         '''The `heatmapGeneExp` function generates a heatmap of gene expression in a single-cell RNA sequencing dataset, with options for customization such as color mapping, scaling, and showing gene counts.
 
         Parameters
@@ -1253,7 +1373,7 @@ class PlotAnndata(object):
         else: 
             df_heatmap = df_exp.apply(lambda _: (_-_.min())/(_.max()-_.min()), axis=standardScale)
 
-        h = ma.Heatmap(df_heatmap.values, cmap=cmap, height=height, width=width, cluster_data=df_heatmap.values)
+        h = ma.Heatmap(df_heatmap.values, cmap=cmap, height=height, width=width, cluster_data=df_heatmap.values, **dt_forHeatmap)
 
         pad = 0.1
         for group in ls_leftAnno[::-1]:
@@ -1263,14 +1383,15 @@ class PlotAnndata(object):
             )
             pad=0
 
-        h.vsplit(labels=ls_geneCate, order=list(dt_genes.keys()))
+        h.vsplit(labels=ls_geneCate, order=list(dt_genes.keys()), spacing=geneSpace)
         if showGeneCounts:
             ls_geneLabel = dt_genes.keys() >> F(map, lambda _: f"{_}\n({len(dt_genes[_])})") >> F(list)
         else:
             ls_geneLabel = dt_genes.keys() >> F(list)
-        h.add_top(
-            mp.Chunk(ls_geneLabel, props={'rotation': 90})
-        )
+        if addGeneCatName:
+            h.add_top(
+                mp.Chunk(ls_geneLabel, props={'rotation': 90})
+            )
         if addGeneName:
             h.add_bottom(
                 mp.Labels(ls_genes)
@@ -1318,6 +1439,7 @@ class PlotAnndata(object):
 
         '''
         ad = self.ad
+        ad._sanitize()
         embed = 'X_' + embed.split('X_', 1)[-1]
         embedLabel = embed.split('X_', 1)[-1].upper()
         assert embed in self.ad.obsm.keys(), f"Embedding {embed} not found in AnnData"

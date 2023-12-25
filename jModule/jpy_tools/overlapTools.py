@@ -193,7 +193,7 @@ class GeneOverlapBase(object):
         self.ls_groups = ls_groups
         self.df_overlapInfo = df_res
     
-    def dotplot(self, sizeKey='m', colorKey='smod', clusterKey='smod', cmap='Reds', size_legend_kws={"title": "Intersect Counts"}, color_legend_kws={"title": "S-MOD"}, addCounts=True, barColor='Red', **kwargs):
+    def dotplot(self, sizeKey='m', colorKey='smod', clusterKey='smod', cmap='Reds', size_legend_kws={"title": "Intersect Counts"}, color_legend_kws={"title": "S-MOD"}, dt_labelKwargs={},addCounts=True, barColor='Red', **kwargs):
         """
         Generates a dot plot of overlap statistics.
 
@@ -225,10 +225,10 @@ class GeneOverlapBase(object):
             size_legend_kws=size_legend_kws, **kwargs
         )
         h.add_left(
-            mp.Labels(df_size.index), pad=0.1
+            mp.Labels(df_size.index, **dt_labelKwargs), pad=0.1
         )
         h.add_top(
-            mp.Labels(df_size.index), pad=0.1
+            mp.Labels(df_size.index, **dt_labelKwargs), pad=0.1
         )
 
         if addCounts:
@@ -241,7 +241,7 @@ class GeneOverlapBase(object):
         h.add_legends()
         return h
     
-    def tileplot(self, colorKey='smod', clusterKey='smod', cmap='Reds', label='S-MOD', addCounts=True, barColor='Red', **kwargs):
+    def tileplot(self, colorKey='smod', clusterKey='smod', cmap='Reds', label='S-MOD', addCounts=True, barColor='Red', dt_labelKwargs={}, **kwargs):
         """
         Generates a tile plot of overlap statistics.
 
@@ -266,10 +266,10 @@ class GeneOverlapBase(object):
             **kwargs
         )
         h.add_left(
-            mp.Labels(df_color.index), pad=0.1
+            mp.Labels(df_color.index, **dt_labelKwargs), pad=0.1
         )
         h.add_top(
-            mp.Labels(df_color.index), pad=0.1
+            mp.Labels(df_color.index, **dt_labelKwargs), pad=0.1
         )
         if addCounts:
             ls_order = df_color.index

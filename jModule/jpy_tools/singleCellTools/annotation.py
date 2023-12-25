@@ -1174,3 +1174,464 @@ def labelTransferByCelltypist(
     if mode == "prob match":
         ad_queryOrg.obsm[f"celltypist_{refLabel}"] = predictions.probability_matrix
     return predictions, model
+
+class LabelTransferAnndata(object):
+    def __init__(self, ad_ref: sc.AnnData, ad_query: sc.AnnData, refLayer:str, queryLayer:str, refLabel:str, resultKey:str):
+        assert refLabel in ad_ref.obs.columns, f"refLabel {refLabel} not in ad_ref.obs.columns"
+
+        self.ad_ref = ad_ref
+        self.ad_query = ad_query
+        self.refLayer = refLayer
+        self.queryLayer = queryLayer
+        self.resultKey = resultKey
+        self.refLabel = refLabel
+        if f'labelTransfer_{resultKey}' in self.ad_ref.uns:
+            pass
+        else:
+            self.ad_query.uns[f'labelTransfer_{resultKey}'] = set()
+        self.st_runInfo = self.ad_query.uns[f'labelTransfer_{resultKey}']
+
+    def __repr__(self):
+        contents = ['LabelTransferAnndata (Ref):\n' + self.ad_ref.__repr__()]
+        contents.append(f"refLayer: {self.refLayer}")
+        contents.append(f"refLabel: {self.refLabel}")
+
+        contents.append('LabelTransferAnndata (Query):\n' + self.ad_query.__repr__())
+        contents.append(f"queryLayer: {self.queryLayer}")
+
+        contents.append(f"resultKey: {self.resultKey}")
+        for k in list(self.st_runInfo):
+            contents.append(f"{k}")
+        return '\n'.join(contents)
+
+    @rcontext
+    def cellid(
+        self,
+        markerCount=200,
+        nTopGenes=5000,
+        ls_genes: Optional[List[str]] = None,
+        cutoff: float = 2.0,
+        nmcs: int = 30,
+        queryBatchKey: Optional[str] = None,
+        forceRun:bool = False,
+        rEnv=None
+    ):
+        from rpy2.robjects.packages import importr
+        import rpy2.robjects as ro
+        from ..singleCellTools import geneEnrichInfo
+        from ..rTools import ad2so, py2r, r2py
+        rBase = importr("base")
+        cellId = importr("CelliD")
+        if 'cellid' in self.st_runInfo and not forceRun:
+            return
+
+        queryLayer = self.queryLayer
+        refLayer = self.refLayer
+        resultKey = self.resultKey
+
+        ad_query, ad_ref = basic.getOverlap(self.ad_query, self.ad_ref, copy=True)
+        ad_query.X = ad_query.layers[queryLayer]
+        ad_ref.X = ad_ref.layers[refLayer]
+        basic.testAllCountIsInt(ad_query)
+        basic.testAllCountIsInt(ad_ref)
+
+        ad_integrated = sc.concat(
+            {"ref": ad_ref, "query": ad_query}, label="batch_cellid", index_unique="-"
+        )
+
+        if not ls_genes:
+            sc.pp.highly_variable_genes(
+                ad_integrated,
+                n_top_genes=nTopGenes,
+                flavor="seurat_v3",
+                batch_key="batch_cellid",
+                subset=True,
+            )
+            ls_useGene = ad_integrated.var.index.to_list()
+        else:
+            ls_useGene = ls_genes
+
+        sc.pp.normalize_total(ad_ref, 1e4)
+        sc.pp.normalize_total(ad_query, 1e4)
+
+        ad_ref = ad_ref[:, ls_useGene].copy()
+        ad_query = ad_query[:, ls_useGene].copy()
+
+        VectorR_Refmarker = geneEnrichInfo.getEnrichedGeneByCellId(
+            ad_ref,
+            "X",
+            self.refLabel,
+            markerCount,
+            copy=True,
+            returnR=True,
+            nmcs=nmcs,
+        )
+
+        if not queryBatchKey:
+            _ad = basic.getPartialLayersAdata(ad_query, ["X"])
+            sc.pp.scale(_ad, max_value=10)
+            adR_query = py2r(_ad)
+            adR_query = cellId.RunMCA(adR_query, slot="X", nmcs=nmcs)
+            df_labelTransfered = r2py(
+                rBase.data_frame(
+                    cellId.RunCellHGT(
+                        adR_query, VectorR_Refmarker, dims=py2r(np.arange(1, 1 + nmcs))
+                    ),
+                    check_names=False,
+                )
+            ).T
+        else:
+            lsDf_labelTransfered = []
+            for _ad in basic.splitAdata(ad_query, queryBatchKey):
+                _ad = basic.getPartialLayersAdata(_ad, ["X"])
+                sc.pp.scale(_ad, max_value=10)
+                adR_query = py2r(_ad)
+                adR_query = cellId.RunMCA(adR_query, slot="X", nmcs=nmcs)
+                df_labelTransfered = r2py(
+                    rBase.data_frame(
+                        cellId.RunCellHGT(
+                            adR_query, VectorR_Refmarker, dims=py2r(np.arange(1, 1 + nmcs))
+                        ),
+                        check_names=False,
+                    )
+                ).T
+                lsDf_labelTransfered.append(df_labelTransfered)
+            df_labelTransfered = pd.concat(lsDf_labelTransfered).reindex(
+                self.ad_query.obs.index
+            )
+
+        self.ad_query.obsm[f"cellid_{self.resultKey}_score"] = df_labelTransfered
+        self.ad_query.obs[f"cellid_{self.resultKey}_labelTranfer"] = self.ad_query.obsm[
+            f"cellid_{self.resultKey}_score"
+        ].pipe(lambda df: np.select([df.max(1) > cutoff], [df.idxmax(1)], "unknown"))
+        self.ad_query.obs[f"cellid_{self.resultKey}_idmax"] = self.ad_query.obsm[
+            f"cellid_{self.resultKey}_score"
+        ].pipe(lambda df: np.select([df.max(1) > 0], [df.idxmax(1)], "unknown"))
+        self.st_runInfo.add('cellid')
+
+    
+    def celltypist(
+        self, mode: Literal["best match", "prob match"] = "prob match", model = None,     
+        dt_kwargs2train=dict(
+            feature_selection=True,
+            top_genes=300,
+            use_SGD=True,
+            mini_batch=True,
+            balance_cell_type=True,
+        ),
+        dt_kwargs2annotate=dict(majority_voting=True, over_clustering=None),
+        forceRun:bool = False
+    ):
+        import celltypist
+        if f'celltypist' in self.st_runInfo and not forceRun:
+            return
+        ad_query = self.ad_query
+        ad_ref = self.ad_ref
+        queryLayer = self.queryLayer
+        refLayer = self.refLayer
+        refLabel = self.refLabel
+        resultKey = self.resultKey
+        
+        ad_queryOrg = ad_query
+        ad_ref, ad_query = basic.getOverlap(ad_ref, ad_query)
+        ad_ref = ad_ref.copy()
+        ad_query = ad_query.copy()
+        ad_ref.X = ad_ref.layers[refLayer]
+        sc.pp.normalize_total(ad_ref, target_sum=1e4)
+        sc.pp.log1p(ad_ref)
+        ad_query.X = ad_query.layers[queryLayer]
+        sc.pp.normalize_total(ad_query, target_sum=1e4)
+        sc.pp.log1p(ad_query)
+
+        if model is None:
+            model = celltypist.train(ad_ref, labels=refLabel, **dt_kwargs2train)
+
+        predictions = celltypist.annotate(
+            ad_query, model=model, mode=mode, **dt_kwargs2annotate
+        )
+        df_predResults = predictions.predicted_labels.rename(
+            columns=lambda x: f"celltypist_{resultKey}_" + x
+        )
+        ad_queryOrg.obs = ad_queryOrg.obs.drop(
+            columns=[x for x in df_predResults.columns if x in ad_queryOrg.obs.columns]
+        ).join(df_predResults)
+        if mode == "prob match":
+            ad_queryOrg.obsm[f"celltypist_{resultKey}"] = predictions.probability_matrix
+        self.st_runInfo.add(f'celltypist')
+        return predictions, model
+
+    def scanvi(
+        self,
+        needLoc: bool = False,
+        ls_removeCateKey: Optional[List[str]] = [],
+        dt_params2SCVIModel={},
+        dt_params2SCANVIModel={},
+        cutoff: float = 0.95,
+        keyAdded: Optional[str] = None,
+        max_epochs: int = 1000,
+        max_epochs_scanvi: Optional[int] = None,
+        max_epochs_update: Optional[int] = None,
+        threads: int = 24,
+        mode: Literal["merge", "online"] = "online",
+        n_top_genes=3000,
+        early_stopping: bool = True,
+        batch_size_ref: int = 128,
+        batch_size_query: int = 128,
+        hvgBatch='',
+        forceRun:bool = False,
+    ) -> Optional[anndata.AnnData]:
+        """
+        Performs label transfer from a reference dataset to a query dataset using the scanvi library.
+            
+        Parameters
+        ----------
+        refAd: anndata.AnnData
+            The reference dataset.
+        refLabel: str
+            The categorical column name in the reference dataset to use for labels.
+        refLayer: str
+            The layer to filter the reference dataset by.
+        queryAd: anndata.AnnData
+            The query dataset.
+        queryLayer: str
+            The layer to filter the query dataset by.
+        needLoc: bool, optional
+            If True, modifies the original queryAd object in place and returns None. Otherwise, returns an AnnData object with the transferred labels added.
+            Default is False.
+        ls_removeCateKey: List[str], optional
+            A list of categorical column names to remove from both refAd and queryAd before performing the label transfer.
+            Default is [].
+        dt_params2SCVIModel: dict, optional
+            A dictionary of parameters to pass to the SCVI model when training it.
+            Default is {}.
+        dt_params2SCANVIModel: dict, optional
+            A dictionary of parameters to pass to the SCANVI model when training it.
+            Default is {}.
+        cutoff: float, optional
+            The minimum probability required for a cell to be labeled.
+            Must be a float value between 0 and 1.
+            Default is 0.95.
+        keyAdded: str, optional
+            The name of the column to use for the transferred labels in the returned AnnData object.
+            Default is None.
+        max_epochs: int, optional
+            The maximum number of epochs to use for training the SCVI and SCANVI models.
+            Default is 1000.
+        threads: int, optional
+            The number of threads to use.
+            Default is 24.
+        mode: str, optional
+            The mode of operation, either "merge" or "online".
+            Default is "online".
+        n_top_genes: int, optional
+            The number of top genes to use.
+            Default is 3000.
+        early_stopping: bool, optional
+            Whether to use early stopping when training the models.
+            Default is True.
+        batch_size_ref: int, optional
+            an integer specifying the batch size to use when training the SCANVI model on the reference data.
+            Default is 128.
+        batch_size_query: int, optional
+            an integer specifying the batch size to use when training the SCANVI model on the query data.
+            Default is 128.
+        hvgBatch: str, optional
+            a string specifying a batch column name to use for highly variable gene selection.
+        """
+        import scvi
+        scvi.settings.seed = 39
+        scvi.settings.num_threads = threads
+        if f'scanvi' in self.st_runInfo and not forceRun:
+            return
+        
+        refAd = self.ad_ref
+        queryAd = self.ad_query
+        refLayer = self.refLayer
+        queryLayer = self.queryLayer
+        refLabel = self.refLabel
+        resultKey = self.resultKey
+
+        if max_epochs_scanvi is None:
+            max_epochs_scanvi = max_epochs
+        if max_epochs_update is None:
+            max_epochs_update = max_epochs
+
+        queryAdOrg = queryAd
+        refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel, *ls_removeCateKey, hvgBatch] >> F(filter, lambda x: x) >> F(set) >> F(list))
+        queryAd = basic.getPartialLayersAdata(queryAd, queryLayer, [*ls_removeCateKey, hvgBatch] >> F(filter, lambda x: x) >> F(set) >> F(list))
+        refAd, queryAd = basic.getOverlap(refAd, queryAd)
+        if not ls_removeCateKey:
+            ls_removeCateKey = ["_batch"]
+        if not hvgBatch:
+            hvgBatch = ls_removeCateKey[0]
+        queryAd.obs[refLabel] = "unknown"
+        refAd.obs["_batch"] = "ref"
+        queryAd.obs["_batch"] = "query"
+        ad_merge = sc.concat([refAd, queryAd], label="_batch", keys=["ref", "query"])
+        ad_merge.X = ad_merge.X.astype(int)
+        sc.pp.highly_variable_genes(
+            ad_merge,
+            flavor="seurat_v3",
+            n_top_genes=n_top_genes,
+            batch_key=hvgBatch,
+            subset=True,
+        )
+
+        refAd = refAd[:, ad_merge.var.index].copy()
+        queryAd = queryAd[:, ad_merge.var.index].copy()
+
+        if mode == "online":
+            # train model
+            scvi.model.SCVI.setup_anndata(
+                refAd,
+                layer=None,
+                labels_key=refLabel,
+                batch_key=ls_removeCateKey[0],
+                categorical_covariate_keys=ls_removeCateKey[1:],
+            )
+            scvi.model.SCVI.setup_anndata(
+                queryAd,
+                layer=None,
+                labels_key=refLabel,
+                batch_key=ls_removeCateKey[0],
+                categorical_covariate_keys=ls_removeCateKey[1:],
+            )
+
+            scvi_model = scvi.model.SCVI(refAd, **dt_params2SCVIModel)
+            scvi_model.train(
+                max_epochs=max_epochs,
+                early_stopping=early_stopping,
+                batch_size=batch_size_ref,
+            )
+
+            lvae = scvi.model.SCANVI.from_scvi_model(
+                scvi_model, "unknown", **dt_params2SCANVIModel
+            )
+            lvae.train(max_epochs=max_epochs_scanvi, batch_size=batch_size_ref)
+            lvae.history["elbo_train"].plot()
+            plt.yscale("log")
+            plt.show()
+            # plot result on training dataset
+            refAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae.predict(refAd)
+            refAd.obsm["X_scANVI"] = lvae.get_latent_representation(refAd)
+            sc.pp.neighbors(refAd, use_rep="X_scANVI")
+            sc.tl.umap(refAd, min_dist=0.2)
+
+            ax = sc.pl.umap(refAd, color=refLabel, show=False)
+            sc.pl.umap(refAd, color=refLabel, legend_loc="on data", ax=ax)
+
+            df_color = basic.getadataColor(refAd, refLabel)
+            refAd = basic.setadataColor(refAd, f"labelTransfer_scanvi_{refLabel}", df_color)
+            ax = sc.pl.umap(refAd, color=f"labelTransfer_scanvi_{refLabel}", show=False)
+            sc.pl.umap(
+                refAd, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data", ax=ax
+            )
+
+            # online learning
+            lvae_online = scvi.model.SCANVI.load_query_data(
+                queryAd,
+                lvae,
+            )
+            lvae_online._unlabeled_indices = np.arange(queryAd.n_obs)
+            lvae_online._labeled_indices = []
+            lvae_online.train(
+                max_epochs=max_epochs_update,
+                plan_kwargs=dict(weight_decay=0.0),
+                batch_size=batch_size_query,
+            )
+            lvae_online.history["elbo_train"].plot()
+            plt.yscale("log")
+            plt.show()
+            ad_merge.obsm["X_scANVI"] = lvae_online.get_latent_representation(ad_merge)
+            sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
+            sc.tl.umap(ad_merge, min_dist=0.2)
+        elif mode == "merge":
+            sc.pp.subsample(ad_merge, fraction=1)  # scvi do not shuffle adata
+            scvi.model.SCVI.setup_anndata(
+                ad_merge,
+                layer=None,
+                labels_key=refLabel,
+                batch_key=ls_removeCateKey[0],
+                categorical_covariate_keys=ls_removeCateKey[1:],
+            )
+            scvi_model = scvi.model.SCVI(ad_merge, **dt_params2SCVIModel)
+            scvi_model.train(
+                max_epochs=max_epochs,
+                early_stopping=early_stopping,
+                batch_size=batch_size_ref,
+            )
+            scvi_model.history["elbo_train"].plot()
+            plt.yscale("log")
+            plt.show()
+
+            lvae = scvi.model.SCANVI.from_scvi_model(
+                scvi_model, "unknown", **dt_params2SCANVIModel
+            )
+            lvae.train(
+                max_epochs=max_epochs_scanvi,
+                early_stopping=early_stopping,
+                batch_size=batch_size_ref,
+            )
+            lvae.history["elbo_train"].plot()
+            plt.yscale("log")
+            plt.show()
+
+            ad_merge.obsm["X_scANVI"] = lvae.get_latent_representation(ad_merge)
+            sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
+            sc.tl.umap(ad_merge, min_dist=0.2)
+
+            ax = sc.pl.umap(ad_merge, color=refLabel, show=False)
+            sc.pl.umap(ad_merge, color=refLabel, legend_loc="on data", ax=ax)
+
+            lvae_online = lvae
+
+        else:
+            assert False, "Unknown `mode`"
+
+        # plot result on both dataset
+        ad_merge.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae_online.predict(ad_merge)
+
+        dt_color = basic.getadataColor(refAd, refLabel)
+        ad_merge = basic.setadataColor(
+            ad_merge, f"labelTransfer_scanvi_{refLabel}", dt_color
+        )
+        dt_color["unknown"] = "#000000"
+        dt_color = basic.setadataColor(ad_merge, refLabel, dt_color)
+        sc.pl.umap(ad_merge, color="_batch")
+
+        ax = sc.pl.umap(
+            ad_merge,
+            color=refLabel,
+            show=False,
+            groups=[x for x in ad_merge.obs[refLabel].unique() if x != "unknown"],
+        )
+        sc.pl.umap(
+            ad_merge,
+            color=refLabel,
+            legend_loc="on data",
+            ax=ax,
+            groups=[x for x in ad_merge.obs[refLabel].unique() if x != "unknown"],
+        )
+
+        ax = sc.pl.umap(ad_merge, color=f"labelTransfer_scanvi_{refLabel}", show=False)
+        sc.pl.umap(
+            ad_merge, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data", ax=ax
+        )
+
+        ax = sc.pl.umap(ad_merge, show=False)
+        _ad = ad_merge[ad_merge.obs.eval("_batch == 'query'")]
+        sc.pl.umap(
+            _ad, color=f"labelTransfer_scanvi_{refLabel}", size=12e4 / len(ad_merge), ax=ax
+        )
+
+        # get predicted labels
+        if not keyAdded:
+            keyAdded = f"labelTransfer_scanvi_{refLabel}"
+        queryAdOrg.obsm[f"{keyAdded}_score"] = lvae_online.predict(queryAd, soft=True)
+        queryAdOrg.obs[keyAdded] = queryAdOrg.obsm[f"{keyAdded}_score"].pipe(
+            lambda df: np.select([df.max(1) > cutoff], [df.idxmax(1)], "unknown")
+        )
+        self.st_runInfo.add('scanvi')
+        if needLoc:
+            return ad_merge
+

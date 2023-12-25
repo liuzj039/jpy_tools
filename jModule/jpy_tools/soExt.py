@@ -24,6 +24,39 @@ from seaborn._stats.base import Stat
 from seaborn._core.typing import Vector
 import pandas as pd
 
+def mvLegToAx(fig, ax, loc, bbox_to_anchor=None, **kwargs):
+    import inspect
+
+    if fig.legends:
+        fig.legends[0].set(visible=False)
+        old_legend = fig.legends[-1]
+    else:
+        raise ValueError("Figure has no legend attached.")
+
+    old_boxes = old_legend.get_children()[0].get_children()
+
+    legend_kws = inspect.signature(mpl.legend.Legend).parameters
+    props = {
+        k: v for k, v in old_legend.properties().items() if k in legend_kws
+    }
+
+    props.pop("bbox_to_anchor")
+    title = props.pop("title")
+    if "title" in kwargs:
+        title.set_text(kwargs.pop("title"))
+    title_kwargs = {k: v for k, v in kwargs.items() if k.startswith("title_")}
+    for key, val in title_kwargs.items():
+        title.set(**{key[6:]: val})
+        kwargs.pop(key)
+    kwargs.setdefault("frameon", old_legend.legendPatch.get_visible())
+
+    # Remove the old legend and create the new one
+    props.update(kwargs)
+    fig.legends = []
+    new_legend = ax.legend(
+        [], [], loc=loc, bbox_to_anchor=bbox_to_anchor, **props
+    )
+    new_legend.get_children()[0].get_children().extend(old_boxes)
 
 class AxlineBase(so.Path):
     """
@@ -332,6 +365,7 @@ class Box(BarBase):
 class KdeDensityColor(Stat):
     bins: int = 20
     vmax: Optional[float] = None
+    rescale:bool = False
 
     def getKdeDensity(self, data: pd.DataFrame) -> pd.DataFrame:
         from scipy.interpolate import interpn
@@ -353,6 +387,9 @@ class KdeDensityColor(Stat):
         else:
             vmax = self.vmax
         data['color1'] = data['color1'].map(lambda _: min(_, vmax))
+        if self.rescale:
+            x = data['color1']
+            data['color1'] = (x - np.mean(x)) / np.std(x)
         return data
     
     def __call__(self, data: pd.DataFrame, groupby: GroupBy, orient:str, scales: Dict[str, Scale]) -> pd.DataFrame:
