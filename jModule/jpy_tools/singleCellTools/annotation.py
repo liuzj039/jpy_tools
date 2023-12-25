@@ -494,7 +494,7 @@ def labelTransferByScanpy(
         assert False, f"Unrealized method ：{method}"
 
     ad_concat.obsm["temp"] = ad_concat.obsm[useObsmKey][:, :npcs]
-    sc.pp.neighbors(ad_concat, n_pcs=20, use_rep="temp")
+    sc.pp.neighbors(ad_concat, n_pcs=20, use_rep="temp", metric='cosine')
     sc.tl.umap(ad_concat)
     sc.pl.umap(ad_concat, color="batch")
     refAd.obs.index = refAd.obs.index + "-batch-ref"
@@ -782,7 +782,7 @@ def labelTransferBySeuratOld(
             k_weight=kWeight,
         )
 
-        sc.pp.neighbors(ad_concat)
+        sc.pp.neighbors(ad_concat, metric='cosine')
         sc.tl.umap(ad_concat)
 
         sc.pl.umap(
@@ -984,7 +984,7 @@ def labelTransferByScanvi(
         # plot result on training dataset
         refAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae.predict(refAd)
         refAd.obsm["X_scANVI"] = lvae.get_latent_representation(refAd)
-        sc.pp.neighbors(refAd, use_rep="X_scANVI")
+        sc.pp.neighbors(refAd, use_rep="X_scANVI", metric='cosine')
         sc.tl.umap(refAd, min_dist=0.2)
 
         ax = sc.pl.umap(refAd, color=refLabel, show=False)
@@ -1013,7 +1013,7 @@ def labelTransferByScanvi(
         plt.yscale("log")
         plt.show()
         ad_merge.obsm["X_scANVI"] = lvae_online.get_latent_representation(ad_merge)
-        sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
+        sc.pp.neighbors(ad_merge, use_rep="X_scANVI", metric='cosine')
         sc.tl.umap(ad_merge, min_dist=0.2)
     elif mode == "merge":
         sc.pp.subsample(ad_merge, fraction=1)  # scvi do not shuffle adata
@@ -1047,7 +1047,7 @@ def labelTransferByScanvi(
         plt.show()
 
         ad_merge.obsm["X_scANVI"] = lvae.get_latent_representation(ad_merge)
-        sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
+        sc.pp.neighbors(ad_merge, use_rep="X_scANVI", metric='cosine')
         sc.tl.umap(ad_merge, min_dist=0.2)
 
         ax = sc.pl.umap(ad_merge, color=refLabel, show=False)
@@ -1311,7 +1311,7 @@ class LabelTransferAnndata(object):
 
     
     def celltypist(
-        self, mode: Literal["best match", "prob match"] = "prob match", model = None,     
+        self, mode: Literal["best match", "prob match"] = "prob match", model = None, ls_hvg:Optional[List[str]] = None,
         dt_kwargs2train=dict(
             feature_selection=True,
             top_genes=300,
@@ -1320,7 +1320,7 @@ class LabelTransferAnndata(object):
             balance_cell_type=True,
         ),
         dt_kwargs2annotate=dict(majority_voting=True, over_clustering=None),
-        forceRun:bool = False
+        forceRun:bool = False,
     ):
         import celltypist
         if f'celltypist' in self.st_runInfo and not forceRun:
@@ -1343,8 +1343,12 @@ class LabelTransferAnndata(object):
         sc.pp.normalize_total(ad_query, target_sum=1e4)
         sc.pp.log1p(ad_query)
 
+        if ls_hvg is None:
+            ls_hvg = list(ad_ref.var.index)
+        else:
+            dt_kwargs2train['check_expression'] = False
         if model is None:
-            model = celltypist.train(ad_ref, labels=refLabel, **dt_kwargs2train)
+            model = celltypist.train(ad_ref[:, [x for x in ad_ref.var.index if x in ls_hvg]], labels=refLabel, n_jobs=-1, **dt_kwargs2train)
 
         predictions = celltypist.annotate(
             ad_query, model=model, mode=mode, **dt_kwargs2annotate
@@ -1514,7 +1518,7 @@ class LabelTransferAnndata(object):
             # plot result on training dataset
             refAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae.predict(refAd)
             refAd.obsm["X_scANVI"] = lvae.get_latent_representation(refAd)
-            sc.pp.neighbors(refAd, use_rep="X_scANVI")
+            sc.pp.neighbors(refAd, use_rep="X_scANVI", metric='cosine')
             sc.tl.umap(refAd, min_dist=0.2)
 
             ax = sc.pl.umap(refAd, color=refLabel, show=False)
@@ -1543,7 +1547,7 @@ class LabelTransferAnndata(object):
             plt.yscale("log")
             plt.show()
             ad_merge.obsm["X_scANVI"] = lvae_online.get_latent_representation(ad_merge)
-            sc.pp.neighbors(ad_merge, use_rep="X_scANVI")
+            sc.pp.neighbors(ad_merge, use_rep="X_scANVI", metric='cosine')
             sc.tl.umap(ad_merge, min_dist=0.2)
         elif mode == "merge":
             sc.pp.subsample(ad_merge, fraction=1)  # scvi do not shuffle adata

@@ -815,7 +815,7 @@ def integrateBySeurat(
     return ad_combined
 
 class NormAnndata(object):
-    def __init__(self, ad:sc.AnnData, rawLayer:str):
+    def __init__(self, ad:sc.AnnData, rawLayer:str='raw', lastResKey:str='lastNorm'):
         """
         Initialize a Normalizer object with the given AnnData object and raw layer name.
 
@@ -825,7 +825,16 @@ class NormAnndata(object):
         """
         self.ad = ad
         self.rawLayer = rawLayer
+        if lastResKey in self.ad.uns.keys():
+            self.lastRes = self.ad.uns[lastResKey]
+        else:
+            self.ad.uns[lastResKey] = {}
+            self.lastRes = self.ad.uns[lastResKey]
     
+    def __repr__(self):
+        contents = f"NormAnndata object, rawLayer: {self.rawLayer}, lastRes: {self.lastRes}\n"  + self.ad.__repr__()
+        return contents
+
     def getSizeFactorByScran(self, resolution:float=2, preCluster:Optional[str]=None, threads:int=1, dt_kwargs2scran:dict={"min.mean": 0.1}):
         '''The `getSizeFactorByScran` function calculates size factors for each cell in an AnnData object using the scran package in R, and stores the results in the AnnData object.
 
@@ -879,8 +888,50 @@ class NormAnndata(object):
         ad.obs["scran_sizeFactor"] = sr_sizeFactor
         ad.layers['scran_norm_count'] = csr_matrix(ad.layers['raw'].multiply(1 / ad.obs['scran_sizeFactor'].values.reshape(-1, 1)))
     
-    def useAnalyticalPearson(self):
-        pass
+    def normByApr(self, nTopGenes=3000, batchKey=None, onlyRunPca=True):
+        import gc
+        import scipy.sparse as ss
+
+        ad = self.ad
+        ad.X = ad.layers[self.rawLayer].copy()
+        if batchKey is None:
+            sc.experimental.pp.highly_variable_genes(ad, n_top_genes=nTopGenes, batch_key=batchKey)
+        else:
+            ls_geneExpInAllSample = basic.filterGeneBasedOnSample(ad, batchKey, layer=self.rawLayer)
+            _ad = ad[:, ls_geneExpInAllSample]
+            df_hvg = sc.experimental.pp.highly_variable_genes(_ad, n_top_genes=nTopGenes, batch_key=batchKey, inplace=False)
+            ad.var['highly_variable'] = df_hvg.reindex(ad.var.index)['highly_variable'].fillna(False)
+
+        ad_apr = ad[:, ad.var['highly_variable']].copy()
+        del(ad_apr.uns)
+
+        if batchKey is None:
+            sc.experimental.pp.normalize_pearson_residuals(ad_apr)
+        else:
+            lsAd_apr = []
+            for _ad in basic.splitAdata(ad_apr, batchKey, copy=True):
+                sc.experimental.pp.normalize_pearson_residuals(_ad)
+                lsAd_apr.append(_ad)
+            ad_apr = sc.concat(lsAd_apr)
+            ad_apr = ad_apr[ad.obs.index]
+        
+        if onlyRunPca:
+            ad_apr.var['highly_variable'] = True
+            sc.tl.pca(ad_apr, n_comps=50, use_highly_variable=True)
+            ad.obsm['X_pca'] = ad_apr.obsm['X_pca'].copy()
+            ad.uns['pca'] = ad_apr.uns['pca'].copy()
+        else:
+            df_apr = pd.DataFrame.sparse.from_spmatrix(ss.csc_matrix(ad_apr.X), index=ad_apr.obs.index, columns=ad_apr.var.index)
+            ls_otherGenes = [x for x in ad.var.index if x not in ad_apr.var.index]
+            df_others = pd.DataFrame.sparse.from_spmatrix(ss.csc_matrix((ad.shape[0], len(ls_otherGenes))), index=ad.obs.index, columns=ls_otherGenes)
+            df_final = pd.concat([df_apr, df_others], axis=1)
+            df_final = df_final.reindex(columns=ad.var.index)
+            ad.layers['APR'] = df_final
+            ad.X = ad.layers['APR'].copy()
+            sc.tl.pca(ad, n_comps=50, use_highly_variable=True)
+
+        self.lastRes['normMethod'] = 'APR'
+        gc.collect()
 
     def useSctransform(self):
         pass

@@ -2,6 +2,7 @@
 plotting tools
 """
 from logging import log
+from math import e
 import pandas as pd
 import numpy as np
 import scanpy as sc
@@ -478,11 +479,11 @@ def plotSC3sConsensusMatrix(
 
     matrixLabel = matrixLabel.rstrip("_consensus") + "_consensus"
 
-    colorDt = adata.obs.filter(clusterResultLs)
+    dt_color = adata.obs.filter(clusterResultLs)
     for clusterName in clusterResultLs:
         basic.setadataColor(adata, clusterName)
         clusterColorMapDt = basic.getadataColor(adata, clusterName)
-        colorDt[clusterName] = colorDt[clusterName].map(clusterColorMapDt)
+        dt_color[clusterName] = dt_color[clusterName].map(clusterColorMapDt)
 
     cellIndexOrderSq = adata.obs.sort_values(matrixLabel.rstrip("_consensus")).index
     consensusMatrix = pd.DataFrame(
@@ -493,7 +494,7 @@ def plotSC3sConsensusMatrix(
         consensusMatrix,
         cmap=cmap,
         metric=metrix,
-        row_colors=colorDt,
+        row_colors=dt_color,
         row_cluster=row_cluster,
         col_cluster=col_cluster,
         cbar_pos=None,
@@ -1198,6 +1199,25 @@ class PlotAnndata(object):
             for x, y in zip(ad.obs[label].cat.categories, ad.uns[f"{label}_colors"])
         }
 
+    def setAdColors(self, label, dt_color=None, hex=True):
+        adata = self.ad
+        adata._sanitize()
+        if dt_color:
+            if not hex:
+                from matplotlib.colors import to_hex
+                dt_color = {x: to_hex(y) for x, y in dt_color.items()}
+
+            _dt = self.getAdColors(label)
+            _dt.update(dt_color)
+            dt_color = _dt
+            adata.uns[f"{label}_colors"] = [
+                dt_color[x] for x in adata.obs[label].cat.categories
+            ]
+        else:
+            if f"{label}_colors" not in adata.uns:
+                sc.pl._utils._set_default_colors_for_categorical_obs(adata, label)
+
+
     def getPb(self, ls_group, force=False):
         ad = self.ad
         ad._sanitize()
@@ -1231,7 +1251,7 @@ class PlotAnndata(object):
                 self.dtAd_pb[pbKey] = ad_pb
         else:
             runPb = True
-            
+
         if runPb:
             ad_pb = geneEnrichInfo._mergeData(ad, ls_group, layer=self.rawLayer)
             basic.initLayer(ad_pb, total=1e6, logbase=2)
@@ -1400,8 +1420,8 @@ class PlotAnndata(object):
         return h
     
     def embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
-                  cmap='Reds', vmin=0, vmax=None, ncol=1, ls_group=None, addBackground=False, share=True, axisLabel='UMAP', useObs=None, titleLocY = 0.95,
-                  figsize=(4,3), titleInFig=False, needLegend=True, dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
+                  cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0.95,
+                  figsize=(4,3), legendCol=1, legendInFig=False, needLegend=True, dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
 
         Parameters
@@ -1442,7 +1462,16 @@ class PlotAnndata(object):
         ad._sanitize()
         embed = 'X_' + embed.split('X_', 1)[-1]
         embedLabel = embed.split('X_', 1)[-1].upper()
+        if axisLabel is None:
+            axisLabel = embedLabel
         assert embed in self.ad.obsm.keys(), f"Embedding {embed} not found in AnnData"
+        if groupby is None:
+            pass
+        else:
+            if ls_group is None:
+                ls_group = ad.obs[groupby].cat.categories.tolist()
+            else:
+                assert set(ls_group) <= set(ad.obs[groupby].cat.categories), f"Groups {set(ls_group) - set(ad.obs[groupby].cat.categories)} not found in AnnData"
         if title is None:
             title = color
 
@@ -1455,8 +1484,10 @@ class PlotAnndata(object):
             if ad.obs[color].dtype.name == 'category':
                 dt_colors = self.getAdColors(color)
                 dt_colors['None'] = 'silver'
-                if ls_group is None:
-                    ls_group = ad.obs[color].unique().tolist()
+                if ls_color is None:
+                    ls_color = ad.obs[color].cat.categories
+                # ls_group = [x for x in ls_group if ~pd.isna(x)]
+                logger.debug(f"ls_color: {ls_color}")
                 df = ad.obs[[color]].copy()
                 legend = False
             else:
@@ -1472,12 +1503,15 @@ class PlotAnndata(object):
         
         if groupby:
             df['groupby'] = ad.obs[groupby]
+        else:
+            df['groupby'] = 'All'
 
         if useObs:
             df[color].cat.add_categories('None', inplace=True)
-            df[color] = df[color].cat.reorder_categories(df[color].cat.categories[::-1])
-            df.loc[lambda _: ~_[color].isin(ls_group), color] = 'None'
-            df_clusterLabelLoc = df.dropna(subset=[color]).groupby(color)[['x', 'y']].agg('median').reset_index()
+            df[color] = df[color].cat.reorder_categories(['None',*df[color].cat.categories[:-1]])
+            df.loc[lambda _: ~_[color].isin(ls_color), color] = 'None'
+            df_clusterLabelLoc = df.dropna(subset=[color]).groupby([color, 'groupby'])[['x', 'y']].agg('median').reset_index()
+            df_clusterLabelLoc = df_clusterLabelLoc.query(f"`{color}` != 'None'")
 
         if useObs & (not groupby is None) & addBackground:
             # set cells from other groups to grey color
@@ -1488,6 +1522,7 @@ class PlotAnndata(object):
                 _df = _df.assign(groupby=group)
                 lsDf.append(_df)
             df = pd.concat(lsDf).reset_index(drop=True)
+            # print(ls_group)
             df['groupby'] = df['groupby'].astype('category').cat.set_categories(ls_group)
 
         df = df.sort_values(color)
@@ -1502,8 +1537,14 @@ class PlotAnndata(object):
         )
 
         if useObs:
-            if titleInFig:
-                g = g.add(so.Text(halign='center', valign='center', artist_kws={'weight':'bold'}), data=df_clusterLabelLoc, x='x', y='y', text=color)
+            if legendInFig:
+                g = g.add(
+                    so.Text(
+                        halign='center', valign='center', artist_kws={'weight':'bold'}
+                    ), 
+                    data=df_clusterLabelLoc, x='x', y='y', text=color, 
+                    col='groupby' if groupby else None
+                )
             g = g.scale(color=dt_colors)
         else:
             if vmax is None:
@@ -1511,7 +1552,7 @@ class PlotAnndata(object):
             g = g.scale(color=so.Continuous(cmap, norm=(vmin, vmax)))
 
         if groupby:
-            g = g.facet(col='groupby', wrap=wrap, order=ad.obs[groupby].cat.categories)
+            g = g.facet(col='groupby', wrap=wrap, order=ls_group)
         fig = plt.figure(figsize=figsize)
         p = g.on(fig).plot()
         # p._repr_png_()
@@ -1521,7 +1562,7 @@ class PlotAnndata(object):
             if useObs:
                 dt_colors = dt_colors.copy()
                 dt_colors.pop('None')
-                fig.legend(handles=[legendkit.handles.CircleItem(color=x) for x in dt_colors.values()], labels=dt_colors.keys(), loc='center left', bbox_to_anchor=(1, 0.5), ncol=ncol)
+                fig.legend(handles=[legendkit.handles.CircleItem(color=x) for x in dt_colors.values()], labels=dt_colors.keys(), loc='center left', bbox_to_anchor=(1, 0.5), ncol=legendCol)
             else:
                 from matplotlib.colors import Normalize
                 from legendkit import colorart
@@ -1560,10 +1601,18 @@ class PlotAnndata(object):
             text.set(clip_on=False)
         return g, fig
     
-    def clusterSankey(self, source, target, recoverDefaultRc=True, **dt_args):
+    def clusterSankey(self, source, target, recoverDefaultRc=True, otherLabel='Others',**dt_args):
+        dt_rc = dict(plt.rcParams)
+        
         import pysankey
         ad = self.ad
-        df_anno = ad.obs[[source, target]]
+        ad._sanitize()
+
+        df_anno = ad.obs[[source, target]].copy()
+        df_anno[source] = df_anno[source].cat.add_categories(otherLabel)
+        df_anno[target] = df_anno[target].cat.add_categories(otherLabel)
+        df_anno = df_anno.fillna(otherLabel)
+        # print(df_anno[source].cat.categories)
         df_anno[source] = df_anno[source].map(lambda _: _ + ' ')
         df_anno[target] = df_anno[target].map(lambda _: ' ' + _)
 
@@ -1572,10 +1621,13 @@ class PlotAnndata(object):
         dt_colors = self.getAdColors(target)
         dt_colors = {f" {x}":y for x,y in dt_colors.items()}
         dt_colors = dict(**dt_colors, **_dt)
+        dt_colors[f" {otherLabel}"] = '#696969'
+        dt_colors[f"{otherLabel} "] = '#696969'
+        # return df_anno
 
         ax = pysankey.sankey(df_anno[source], df_anno[target], colorDict=dt_colors, **dt_args)
         if recoverDefaultRc:
-            plt.rcdefaults()
+            plt.rcParams.update(dt_rc)
         return ax
     
     def geneCompare(self, g1, g2, min_g1=0, max_g1=None, min_g2=0, max_g2=None, cellSize=2, layer='normalize_log', figsize=(10, 6)):
