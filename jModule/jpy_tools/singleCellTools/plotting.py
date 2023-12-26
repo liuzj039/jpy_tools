@@ -1570,7 +1570,13 @@ class PlotAnndata(object):
             if useObs:
                 dt_colors = dt_colors.copy()
                 dt_colors.pop('None')
-                fig.legend(handles=[legendkit.handles.CircleItem(color=x) for x in dt_colors.values()], labels=dt_colors.keys(), loc='center left', bbox_to_anchor=(1, 0.5), ncol=legendCol)
+                
+                fig.transAxes = fig.transFigure
+                fig.legend_ = 1
+
+                legendkit.cat_legend(ax=fig, colors=list(dt_colors.values()), labels=list(dt_colors.keys()), handle='circle', loc='out right center', deviation=-0.07, ncol=legendCol)
+
+                # fig.legend(handles=[legendkit.handles.CircleItem(color=x) for x in dt_colors.values()], labels=dt_colors.keys(), loc='center left', bbox_to_anchor=(1, 0.5), ncol=legendCol)
             else:
                 from matplotlib.colors import Normalize
                 from legendkit import colorart
