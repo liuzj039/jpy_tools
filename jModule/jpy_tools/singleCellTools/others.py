@@ -4,6 +4,8 @@ import numpy as np
 import scanpy as sc
 import matplotlib.pyplot as plt
 import seaborn as sns
+import seaborn.objects as so
+
 import anndata
 from scipy.stats import spearmanr, pearsonr, zscore
 from loguru import logger
@@ -1056,7 +1058,7 @@ def calucatePvalueForEachSplitUseScshc(ad: sc.AnnData, ls_hvg: List[str], cluste
     return dt_p, linkage
 
 def clusteringAndCalculateShilouetteScore(
-        ad:sc.AnnData, ls_res: List[float], obsm: Union[str, np.ndarray], clusterKey:str='leiden', subsample=None, metric='euclidean'
+        ad:sc.AnnData, ls_res: List[float], obsm: Union[str, np.ndarray], clusterKey:str='leiden', subsample=None, metric='euclidean', show=True
     ) -> Dict[str, float]:
     '''The function performs clustering using the Leiden algorithm on an AnnData object and calculates the silhouette score for each clustering result.
 
@@ -1114,6 +1116,17 @@ def clusteringAndCalculateShilouetteScore(
     dt_score = {}
     for res in tqdm.tqdm(ls_res, desc="silhouette_score"):
         dt_score[res] = sklearn.metrics.silhouette_score(ar_dist, _ad.obsm[clusterKey][res], metric='precomputed')
+
+    if show:
+        import IPython
+        p = (
+            so.Plot(x=dt_score.keys() >> F(map, float) >> F(list), y=dt_score.values())
+            .add(so.Dots())
+            .add(so.Line())
+            .scale()
+        )
+        IPython.display.display(p)
+
     return dt_score
 
 
