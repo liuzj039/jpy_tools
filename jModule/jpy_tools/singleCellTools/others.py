@@ -1056,7 +1056,7 @@ def calucatePvalueForEachSplitUseScshc(ad: sc.AnnData, ls_hvg: List[str], cluste
     return dt_p, linkage
 
 def clusteringAndCalculateShilouetteScore(
-        ad:sc.AnnData, ls_res: List[float], obsm: Union[str, np.ndarray], subsample=None, metric='euclidean'
+        ad:sc.AnnData, ls_res: List[float], obsm: Union[str, np.ndarray], clusterKey:str='leiden', subsample=None, metric='euclidean'
     ) -> Dict[str, float]:
     '''The function performs clustering using the Leiden algorithm on an AnnData object and calculates the silhouette score for each clustering result.
 
@@ -1080,9 +1080,31 @@ def clusteringAndCalculateShilouetteScore(
     '''
     import sklearn
     import tqdm
-    for res in tqdm.tqdm(ls_res, desc="res"):
-        sc.tl.leiden(ad, resolution=res, key_added=f"leiden_{res}")
+    if clusterKey in ad.obsm:
+        ls_res = list(ad.obsm[clusterKey].columns)
+        logger.info(f"clusterKey {clusterKey} already in ad.obsm, skip clustering")
+        logger.info(f"used res: {ls_res}")
+        for x in ls_res:
+            try:
+                float(x)
+            except:
+                assert False, f"clusterKey {clusterKey} already in ad.obsm, but not all columns are float"
+    else:
+        logger.info(f"clustering using leiden algorithm")
+        # report used res
+        logger.info(f"used res: {ls_res}")
+
+        lsDf = []
+        for res in tqdm.tqdm(ls_res, desc="res"):
+            sc.tl.leiden(ad, resolution=res, key_added=f"temp_{res}")
+            lsDf.append(ad.obs[f"temp_{res}"])
+        ad.obs[clusterKey] = pd.concat(lsDf, axis=1).rename(columns=lambda _: _.split('temp_')[1]).sort_index(axis=1, key=lambda _: _.astype(float))
+        
     if subsample:
+        if subsample > 1:
+            subsample = subsample / ad.shape[0]
+            logger.info(f"subsample > 1, convert to {subsample}")
+        
         _ad = sc.pp.subsample(ad, fraction=subsample, copy=True)
     else:
         _ad = ad
@@ -1091,7 +1113,7 @@ def clusteringAndCalculateShilouetteScore(
     ar_dist = sklearn.metrics.pairwise_distances(obsm, metric=metric)
     dt_score = {}
     for res in tqdm.tqdm(ls_res, desc="silhouette_score"):
-        dt_score[res] = sklearn.metrics.silhouette_score(ar_dist, _ad.obs[f"leiden_{res}"], metric='precomputed')
+        dt_score[res] = sklearn.metrics.silhouette_score(ar_dist, _ad.obsm[clusterKey][res], metric='precomputed')
     return dt_score
 
 
