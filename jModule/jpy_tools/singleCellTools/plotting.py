@@ -1304,6 +1304,10 @@ class PlotAnndata(object):
             assert groupby in ad.obs.columns, f"The groupby variable {groupby} is not in the AnnData object."
             df = ad.obs[[variable, groupby]]
         df['_hist_temp'] = 'All'
+        if binrange is None:
+            pass
+        else:
+            df[variable] = df[variable].clip(*binrange)
         p = (
             so.Plot(df.reset_index())
             .add(
@@ -1332,7 +1336,7 @@ class PlotAnndata(object):
         if markLine is None:
             pass
         else:
-            if isinstance(markLine, float, int):
+            if isinstance(markLine, (float, int)):
                 markLine = [markLine]
             for line in markLine:
                 p = p.add(Axvline(linestyle="--", x=line), data={})
@@ -1421,7 +1425,8 @@ class PlotAnndata(object):
     
     def embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
                   cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0.95,
-                  figsize=(4,3), legendCol=1, legendInFig=False, needLegend=True, dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
+                  figsize=(4,3), legendCol=1, legendInFig=False, needLegend=True, subsample=None,
+                  dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
 
         Parameters
@@ -1505,6 +1510,9 @@ class PlotAnndata(object):
             df['groupby'] = ad.obs[groupby]
         else:
             df['groupby'] = 'All'
+
+        if subsample:
+            df = df.sample(subsample, random_state=39)
 
         if useObs:
             df[color].cat.add_categories('None', inplace=True)
