@@ -13,7 +13,7 @@ setup(
     python_requires=">=3.8",
     setup_requires=requirements,
     url="https://github.com/ZhaiLab-SUSTech/Liuzj_allScripts/tree/master/jModule",
-    version="1.0",
+    version="1.99",
     zip_safe=False,
     packages=['jpy_tools', 'jpy_tools.singleCellTools']
 )

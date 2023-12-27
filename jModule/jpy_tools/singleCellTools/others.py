@@ -892,7 +892,10 @@ def mergeClusterUseScshc(ad: sc.AnnData, ls_hvg: List[str], clusterKey:str, newC
     print(r_nodeInfo)
     ad.obs[newClusterKey] = list(lsR_clusterRes) >> F(map, lambda _: _.split('new')[-1]) >> F(list)
 
-def calucatePvalueForEachSplitUseScshc(ad: sc.AnnData, ls_hvg: List[str], clusterKey: str, batchKey: Optional[str]=None, layer: str='raw', alpha: float=0.05, posthoc: bool=True, num_PCs: int=30, cores: int=12):
+def calucatePvalueForEachSplitUseScshc(
+        ad: sc.AnnData, ls_hvg: List[str], clusterKey: str, batchKey: Optional[str]=None, layer: str='raw', 
+        alpha: float=0.05, posthoc: bool=True, num_PCs: int=30, cores: int=12, rCores: int = 1
+    ):
     '''The function `calucatePvalueForEachSplitUseScshc` calculates p-values for each split in a hierarchical clustering dendrogram using the scSHC package in R.
 
     Parameters
@@ -998,6 +1001,7 @@ def calucatePvalueForEachSplitUseScshc(ad: sc.AnnData, ls_hvg: List[str], cluste
     arR_batch.names = R.unlist(ad.obs.index.to_list())
 
     ls_kwargs = []
+    logger.info(f"start calculating p-value for each split")
     for _nd in lsNd_sub:
         ls_leftCluster, ls_rightCluster = getNodeLeftAndRight(_nd, dt_preRenameCluster)
         ad.obs['temp_split'] = np.select(
@@ -1019,7 +1023,7 @@ def calucatePvalueForEachSplitUseScshc(ad: sc.AnnData, ls_hvg: List[str], cluste
         _dt['num_PCs'] = num_PCs
         _dt['batch'] = arR_batch
         _dt['alpha_level'] = alphaLevel
-        _dt['cores'] = 1
+        _dt['cores'] = rCores
         _dt['posthoc'] = posthoc
         _dt['node_cell_num'] = nodeCellNum
         _dt['total_cell_num'] = totalCellNum
@@ -1045,7 +1049,9 @@ def calucatePvalueForEachSplitUseScshc(ad: sc.AnnData, ls_hvg: List[str], cluste
         ls_signPos.append([(ls_x[0]+ls_x[-1]) / 2, ls_y[1]])
     ls_signPos = sorted(ls_signPos, key=lambda _: _[1])
     for (x, y), p in zip(ls_signPos, ls_p):
-        if p < 0.01:
+        if p < 0.001:
+            sign = '***'
+        elif p < 0.01:
             sign = '**'
         elif p < 0.05:
             sign = '*'
@@ -1058,7 +1064,7 @@ def calucatePvalueForEachSplitUseScshc(ad: sc.AnnData, ls_hvg: List[str], cluste
     return dt_p, linkage
 
 def clusteringAndCalculateShilouetteScore(
-        ad:sc.AnnData, ls_res: List[float], obsm: Union[str, np.ndarray], clusterKey:str='leiden', subsample=None, metric='euclidean', show=True
+        ad:sc.AnnData, ls_res: List[float], obsm: Union[str, np.ndarray], clusterKey:str='leiden', subsample=None, metric='euclidean', show=True, check=True, cores:int = 1,
     ) -> Dict[str, float]:
     '''The function performs clustering using the Leiden algorithm on an AnnData object and calculates the silhouette score for each clustering result.
 
@@ -1082,29 +1088,46 @@ def clusteringAndCalculateShilouetteScore(
     '''
     import sklearn
     import tqdm
+    import scipy.sparse as ss
+    from joblib import Parallel, delayed
     if clusterKey in ad.obsm:
         ls_res = list(ad.obsm[clusterKey].columns)
         logger.info(f"clusterKey {clusterKey} already in ad.obsm, skip clustering")
         logger.info(f"used res: {ls_res}")
+        if check:
+            for x in ls_res:
+                try:
+                    float(x)
+                except:
+                    assert False, f"clusterKey {clusterKey} already in ad.obsm, but not all columns are float"
         for x in ls_res:
-            try:
-                float(x)
-            except:
-                assert False, f"clusterKey {clusterKey} already in ad.obsm, but not all columns are float"
+            if ad.obsm[clusterKey][x].dtype == 'category':
+                pass
+            else:
+                logger.warning(f"{x} is not category, convert to category")
+                ad.obsm[clusterKey][x] = ad.obsm[clusterKey][x].astype(str).astype('category')
     else:
         logger.info(f"clustering using leiden algorithm")
         # report used res
         logger.info(f"used res: {ls_res}")
 
-        lsDf = []
-        for res in tqdm.tqdm(ls_res, desc="res"):
-            sc.tl.leiden(ad, resolution=res, key_added=f"temp_{res}")
-            lsDf.append(ad.obs[f"temp_{res}"])
-        ad.obs[clusterKey] = pd.concat(lsDf, axis=1).rename(columns=lambda _: _.split('temp_')[1]).sort_index(axis=1, key=lambda _: _.astype(float))
+        if cores == 1:
+            lsDf = []
+            for res in tqdm.tqdm(ls_res, desc="res"):
+                sc.tl.leiden(ad, resolution=float(res), key_added=f"temp_{res}")
+                lsDf.append(ad.obs[f"temp_{res}"])
+        else:
+            _ad = sc.AnnData(ss.csc_matrix(ad.shape), obs=ad.obs.copy(), var=ad.var.copy())
+            _ad.obsp['connectivities'] = ad.obsp['connectivities']
+            def fc(ad, res):
+                sc.tl.leiden(ad, resolution=float(res), key_added=f"temp_{res}", obsp='connectivities')
+                return ad.obs[f"temp_{res}"].copy()
+            lsDf = Parallel(cores)(delayed(fc)(_ad, res) for res in tqdm.tqdm(ls_res, desc="res"))
+        ad.obsm[clusterKey] = pd.concat(lsDf, axis=1).rename(columns=lambda _: _.split('temp_')[1]).sort_index(axis=1, key=lambda _: _.astype(float))
         
     if subsample:
         if subsample > 1:
-            subsample = subsample / ad.shape[0]
+            subsample = min(subsample / ad.shape[0], 1)
             logger.info(f"subsample > 1, convert to {subsample}")
         
         _ad = sc.pp.subsample(ad, fraction=subsample, copy=True)

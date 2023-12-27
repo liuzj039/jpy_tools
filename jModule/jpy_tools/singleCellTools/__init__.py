@@ -29,5 +29,8 @@ from . import (
     recipe,
     removeAmbient
 )
+from .plotting import PlotAnndata
+from .normalize import NormAnndata
+from .annotation import LabelTransferAnndata
 
 setSeed()

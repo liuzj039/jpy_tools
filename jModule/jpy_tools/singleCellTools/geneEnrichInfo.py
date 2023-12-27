@@ -2299,13 +2299,13 @@ def findDegUsePseudobulk(
     elif isinstance(groups[1], (tuple, list)):
         control = groups[0]
         groups = groups[1]
-        logger.info(f"Control mode: {control}")
+        logger.info(f"Control mode: control: {control}")
         assert len([x for x in groups if x in allGroups]) == len(groups), "Some group not found in compareKey"
         a = control
         if method == 'DESeq2':
-            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByDeseq2)(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, a, b), shrink=shrink) for b in groups)
+            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByDeseq2)(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, b, a), shrink=shrink) for b in groups)
         else:
-            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByEdger)(ad_merged, 'raw', compareKey, f"{compareKey}{a}-{compareKey}{b}") for b in groups)
+            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByEdger)(ad_merged, 'raw', compareKey, f"{compareKey}{b}-{compareKey}{a}") for b in groups)
         for i,b in enumerate(groups):
             ls_res[i] = ls_res[i].assign(a=a, b=b)
         # ls_res = []

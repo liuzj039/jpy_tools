@@ -1194,6 +1194,9 @@ class PlotAnndata(object):
         ad = self.ad
         if f"{label}_colors" not in ad.uns:
             sc.pl._utils._set_default_colors_for_categorical_obs(ad, label)
+        if len(ad.obs[label].cat.categories) != len(ad.uns[f"{label}_colors"]):
+            sc.pl._utils._set_default_colors_for_categorical_obs(ad, label)
+            
         return {
             x: y
             for x, y in zip(ad.obs[label].cat.categories, ad.uns[f"{label}_colors"])
@@ -1358,7 +1361,7 @@ class PlotAnndata(object):
 
     def heatmapGeneExp(
             self, ls_group: Union[None, List[str]], ls_leftAnno:List[str], dt_genes:Dict[str, List[str]], layer='normalize_log', height=10, width=10, cmap='Reds', standardScale=None, showGeneCounts=False,
-            addGeneName:bool=False, addGeneCatName:bool=True, geneSpace=0.005, **dt_forHeatmap):
+            addGeneName:bool=False, addGeneCatName:bool=True, geneSpace=0.005, needExp=False, **dt_forHeatmap):
         '''The `heatmapGeneExp` function generates a heatmap of gene expression in a single-cell RNA sequencing dataset, with options for customization such as color mapping, scaling, and showing gene counts.
 
         Parameters
@@ -1421,7 +1424,10 @@ class PlotAnndata(object):
                 mp.Labels(ls_genes)
             )
         h.add_legends()
-        return h
+        if needExp:
+            return h, df_heatmap
+        else:
+            return h
     
     def embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
                   cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0.95,
@@ -1570,7 +1576,7 @@ class PlotAnndata(object):
             if useObs:
                 dt_colors = dt_colors.copy()
                 dt_colors.pop('None')
-                
+
                 fig.transAxes = fig.transFigure
                 fig.legend_ = 1
 
@@ -1644,6 +1650,32 @@ class PlotAnndata(object):
             plt.rcParams.update(dt_rc)
         return ax
     
+    def clusterCompareHeatmap(self, source, target, scaleAxis=0, figsize=(8,8), dendrogram=True):
+        ad = self.ad
+        df_counts = ad.obs[[source, target]].value_counts().unstack().fillna(0).astype(int)
+        if scaleAxis is None:
+            df_scale = df_counts
+        else:
+            df_scale = df_counts.apply(lambda _: _ / _.sum(), axis=scaleAxis)
+        
+        h = ma.Heatmap(df_scale.values, cmap='Reds', width=figsize[0], height=figsize[1])
+
+        h.add_left(
+            mp.Labels(df_scale.index)
+        )
+        h.add_bottom(
+            mp.Labels(df_scale.columns)
+        )
+        if dendrogram:
+            h.add_dendrogram('left', method='ward')
+            h.add_dendrogram('bottom', method='ward')
+
+        h.add_left(mp.Title(source))
+        h.add_bottom(mp.Title(target))
+
+        h.add_legends()
+        return h
+
     def geneCompare(self, g1, g2, min_g1=0, max_g1=None, min_g2=0, max_g2=None, cellSize=2, layer='normalize_log', figsize=(10, 6)):
         ad = self.ad
         _ad = ad[:, [g1, g2]]
