@@ -10,3 +10,4 @@ pyscenic>=0.11.2
 marsilea
 legendkit
 snapatac2
+scikit-misc==0.1.4

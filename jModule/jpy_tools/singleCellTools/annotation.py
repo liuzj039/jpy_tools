@@ -1517,7 +1517,9 @@ class LabelTransferAnndata(object):
             plt.show()
             # plot result on training dataset
             refAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae.predict(refAd)
-            refAd.obsm["X_scANVI"] = lvae.get_latent_representation(refAd)
+            refAd.obsm["X_scANVI"] = lvae.get_latent_representation(refAd).astype(np.float32)
+            return refAd
+            # import pdb; pdb.set_trace()
             sc.pp.neighbors(refAd, use_rep="X_scANVI", metric='cosine')
             sc.tl.umap(refAd, min_dist=0.2)
 
