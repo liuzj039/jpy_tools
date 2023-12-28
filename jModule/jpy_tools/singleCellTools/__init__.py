@@ -10,6 +10,7 @@ FilePath: /undefined/public1/software/liuzj/scripts/jModule/jpy_tools/singleCell
 single cell analysis tools wrapper
 """
 import tensorflow # if not import tensorflow first, `core dump` will occur
+import scanpy as sc
 from ..otherTools import setSeed
 from . import (
     basic,
@@ -34,3 +35,20 @@ from .normalize import NormAnndata
 from .annotation import LabelTransferAnndata
 
 setSeed()
+
+class EnhancedAnndata(object):
+    def __init__(self, ad: sc.AnnData, rawLayer:str = 'raw'):
+        self.ad = ad
+        self.rawLayer = rawLayer
+        self.pl = PlotAnndata(self.ad, rawLayer=self.rawLayer)
+        self.norm = NormAnndata(self.ad, rawLayer=self.rawLayer)
+
+    def __repr__(self):
+        ls_object = [f"enhancedAnndata: {self.ad.__repr__()}"]
+        ls_object.append(f"rawLayer: {self.rawLayer}")
+        if hasattr(self, 'anno'):
+            ls_object.append(f"anno: initialized, refLabel: {self.anno.refLabel}, refLayer: {self.anno.refLayer}, resultKey: {self.anno.resultKey}")
+        return '\n'.join(ls_object)
+    
+    def addRef(self, ad_ref: sc.AnnData, refLabel:str, refLayer:str = 'raw', resultKey:str=None):
+        self.anno = LabelTransferAnndata(ad_ref, self.ad, refLabel=refLabel, refLayer=refLayer, queryLayer=self.rawLayer, resultKey=resultKey)

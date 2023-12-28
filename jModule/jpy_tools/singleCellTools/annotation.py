@@ -28,10 +28,12 @@ from typing import (
     Callable,
 )
 import collections
+from IPython.display import display
 from xarray import corr
 from . import basic
 from ..rTools import rcontext
 from ..otherTools import F
+from .plotting import PlotAnndata
 
 
 @rcontext
@@ -1176,20 +1178,26 @@ def labelTransferByCelltypist(
     return predictions, model
 
 class LabelTransferAnndata(object):
-    def __init__(self, ad_ref: sc.AnnData, ad_query: sc.AnnData, refLayer:str, queryLayer:str, refLabel:str, resultKey:str):
+    def __init__(self, ad_ref: sc.AnnData, ad_query: sc.AnnData, refLabel:str, refLayer:str='raw', queryLayer:str='raw', resultKey:str=None):
         assert refLabel in ad_ref.obs.columns, f"refLabel {refLabel} not in ad_ref.obs.columns"
 
         self.ad_ref = ad_ref
         self.ad_query = ad_query
         self.refLayer = refLayer
         self.queryLayer = queryLayer
+        if resultKey is None:
+            resultKey = refLabel
         self.resultKey = resultKey
         self.refLabel = refLabel
-        if f'labelTransfer_{resultKey}' in self.ad_ref.uns:
+        if f'labelTransfer_{resultKey}' in self.ad_query.uns:
             pass
         else:
             self.ad_query.uns[f'labelTransfer_{resultKey}'] = set()
         self.st_runInfo = self.ad_query.uns[f'labelTransfer_{resultKey}']
+    
+    def addRunInfo(self, info):
+        self.st_runInfo.add(info)
+        self.ad_query.uns[f'labelTransfer_{self.resultKey}'] = self.st_runInfo
 
     def __repr__(self):
         contents = ['LabelTransferAnndata (Ref):\n' + self.ad_ref.__repr__()]
@@ -1300,14 +1308,14 @@ class LabelTransferAnndata(object):
                 self.ad_query.obs.index
             )
 
-        self.ad_query.obsm[f"cellid_{self.resultKey}_score"] = df_labelTransfered
+        self.ad_query.obsm[f"cellid_{self.resultKey}"] = df_labelTransfered
         self.ad_query.obs[f"cellid_{self.resultKey}_labelTranfer"] = self.ad_query.obsm[
-            f"cellid_{self.resultKey}_score"
+            f"cellid_{self.resultKey}"
         ].pipe(lambda df: np.select([df.max(1) > cutoff], [df.idxmax(1)], "unknown"))
         self.ad_query.obs[f"cellid_{self.resultKey}_idmax"] = self.ad_query.obsm[
-            f"cellid_{self.resultKey}_score"
+            f"cellid_{self.resultKey}"
         ].pipe(lambda df: np.select([df.max(1) > 0], [df.idxmax(1)], "unknown"))
-        self.st_runInfo.add('cellid')
+        self.addRunInfo('cellid')
 
     
     def celltypist(
@@ -1361,7 +1369,7 @@ class LabelTransferAnndata(object):
         ).join(df_predResults)
         if mode == "prob match":
             ad_queryOrg.obsm[f"celltypist_{resultKey}"] = predictions.probability_matrix
-        self.st_runInfo.add(f'celltypist')
+        self.addRunInfo(f'celltypist')
         return predictions, model
 
     def scanvi(
@@ -1371,13 +1379,12 @@ class LabelTransferAnndata(object):
         dt_params2SCVIModel={},
         dt_params2SCANVIModel={},
         cutoff: float = 0.95,
-        keyAdded: Optional[str] = None,
         max_epochs: int = 1000,
         max_epochs_scanvi: Optional[int] = None,
         max_epochs_update: Optional[int] = None,
         threads: int = 24,
         mode: Literal["merge", "online"] = "online",
-        n_top_genes=3000,
+        nTopGenes=3000,
         early_stopping: bool = True,
         batch_size_ref: int = 128,
         batch_size_query: int = 128,
@@ -1476,7 +1483,7 @@ class LabelTransferAnndata(object):
         sc.pp.highly_variable_genes(
             ad_merge,
             flavor="seurat_v3",
-            n_top_genes=n_top_genes,
+            n_top_genes=nTopGenes,
             batch_key=hvgBatch,
             subset=True,
         )
@@ -1518,7 +1525,6 @@ class LabelTransferAnndata(object):
             # plot result on training dataset
             refAd.obs[f"labelTransfer_scanvi_{refLabel}"] = lvae.predict(refAd)
             refAd.obsm["X_scANVI"] = lvae.get_latent_representation(refAd).astype(np.float32)
-            return refAd
             # import pdb; pdb.set_trace()
             sc.pp.neighbors(refAd, use_rep="X_scANVI", metric='cosine')
             sc.tl.umap(refAd, min_dist=0.2)
@@ -1529,6 +1535,8 @@ class LabelTransferAnndata(object):
             df_color = basic.getadataColor(refAd, refLabel)
             refAd = basic.setadataColor(refAd, f"labelTransfer_scanvi_{refLabel}", df_color)
             ax = sc.pl.umap(refAd, color=f"labelTransfer_scanvi_{refLabel}", show=False)
+            st_diff = set(refAd.obs[refLabel].unique()) - set(refAd.obs[f'labelTransfer_scanvi_{refLabel}'].unique())
+            logger.info(f"Categories identified in original labels but not in scanvi: {st_diff}")
             sc.pl.umap(
                 refAd, color=f"labelTransfer_scanvi_{refLabel}", legend_loc="on data", ax=ax
             )
@@ -1631,13 +1639,178 @@ class LabelTransferAnndata(object):
         )
 
         # get predicted labels
-        if not keyAdded:
-            keyAdded = f"labelTransfer_scanvi_{refLabel}"
-        queryAdOrg.obsm[f"{keyAdded}_score"] = lvae_online.predict(queryAd, soft=True)
-        queryAdOrg.obs[keyAdded] = queryAdOrg.obsm[f"{keyAdded}_score"].pipe(
+
+        queryAdOrg.obsm[f"scanvi_{resultKey}"] = lvae_online.predict(queryAd, soft=True)
+        queryAdOrg.obs[f"scanvi_{resultKey}_labelTransfer"] = queryAdOrg.obsm[f"scanvi_{resultKey}"].pipe(
             lambda df: np.select([df.max(1) > cutoff], [df.idxmax(1)], "unknown")
         )
-        self.st_runInfo.add('scanvi')
+        queryAdOrg.obs[f"scanvi_{resultKey}_idmax"] = queryAdOrg.obsm[f"scanvi_{resultKey}"].pipe(
+            lambda df: np.select([df.max(1) > 0], [df.idxmax(1)], "unknown")
+        )
+        self.addRunInfo('scanvi')
         if needLoc:
             return ad_merge
 
+    @rcontext
+    def seurat(
+        self,
+        nTopGenes=2000,
+        kScore=30,
+        dims=30,
+        kWeight=100,
+        kFilter=200,
+        plot=True,
+        hvgMethod = 'vst',
+        integrateEmbeddings_args = {},
+        transferdata_args = {},
+        returnSoRef=False,
+        so_prevRef=None,
+        forceRun:bool = False,
+        rEnv=None,
+    ):
+        '''The function `labelTransferBySeurat` performs label transfer using the Seurat package in R, integrating reference and query datasets and transferring labels from the reference to the query dataset.
+
+        Parameters
+        ----------
+        ad_ref
+            The reference Anndata object containing the reference dataset.
+        refLabel
+            The `refLabel` parameter is the name of the label in the reference dataset that you want to transfer to the query dataset.
+        refLayer
+            The `refLayer` parameter specifies the layer of the reference dataset to use for label transfer.
+        ad_query
+            The query Anndata object containing the cells for which you want to transfer labels.
+        queryLayer
+            The `queryLayer` parameter specifies the layer of the query dataset that will be used for label transfer.
+        nTopGenes, optional
+            The number of top genes to select for analysis.
+        kScore, optional
+            The `kScore` parameter determines the number of nearest neighbors used to calculate the K-nearest neighbor (KNN) graph.
+        dims, optional
+            The parameter "dims" specifies the number of dimensions to use for dimensionality reduction. It is used in the RunPCA and RunUMAP functions in Seurat.
+        kWeight, optional
+            The `kWeight` parameter is used to control the weight of the transfer data in the label transfer process. It determines the influence of the reference data on the query data during the transfer. Higher values of `kWeight` will result in a stronger influence of the reference data on the query data,
+        kFilter, optional
+            The `kFilter` parameter is used in the `FindTransferAnchors` function from the Seurat package. It specifies the number of anchors to select from the reference dataset. Anchors are data points that are shared between the reference and query datasets and are used to align the two datasets.
+        integrateembeddings_args
+            The `integrateembeddings_args` parameter is a dictionary that contains arguments for the `integrateEmbeddings` function in Seurat. These arguments control the integration of the reference and query datasets. Some possible arguments include:
+        transferdata_args
+            The `transferdata_args` parameter is a dictionary that contains arguments for the `TransferData` function in Seurat. These arguments control the behavior of the label transfer algorithm. Some possible arguments include:
+        returnSoRef, optional
+            A boolean parameter that determines whether to return the Seurat object of the reference dataset after label transfer. If set to True, the function will return the Seurat object; if set to False, the function will not return anything.
+        so_prevRef
+            A Seurat object containing the reference dataset. If provided, the function will use this object as the reference instead of creating a new one from the reference dataset.
+        rEnv
+            The `rEnv` parameter is a dictionary that contains the R environment variables used in the function. It is used to pass R variables and arguments to the R code within the function.
+
+        Returns
+        -------
+            The function does not explicitly return anything. However, if the `returnSoRef` parameter is set to `True`, it will return the `so.ref` object.
+
+        '''
+        import rpy2
+        import rpy2.robjects as ro
+        from rpy2.robjects.packages import importr
+        import scipy.sparse as ss
+        from ..rTools import py2r, r2py, r_inline_plot, rHelp, trl, rGet, rSet, so2ad, ad2so
+        from ..otherTools import setSeed
+
+        rBase = importr("base")
+        rUtils = importr("utils")
+        R = ro.r
+        seurat = importr("Seurat")
+        seuratObject = importr("SeuratObject")
+        setSeed(0)
+
+        ad_query = self.ad_query
+        ad_ref = self.ad_ref
+        refLabel = self.refLabel
+        refLayer = self.refLayer
+        queryLayer = self.queryLayer
+        resultKey = self.resultKey
+        if f'seurat' in self.st_runInfo and not forceRun:
+            return
+    
+        so_query = ad2so(ad_query, layer=queryLayer)
+        if so_prevRef:
+            so_ref = so_prevRef
+            rEnv['so.list'] = R.list(so_query)
+        else:
+            so_ref= ad2so(ad_ref, layer=refLayer)
+            rEnv['so.list'] = R.list(so_ref, so_query)
+        rEnv['nfeatures'] = nTopGenes
+        rEnv["k.score"] = kScore
+        rEnv["dims"] = dims
+        rEnv["k.weight"] = kWeight
+        rEnv["k.filter"] = kFilter
+        rEnv['integrateembeddings.args'] = R.list(**integrateEmbeddings_args)
+        transferdata_args['k.weight'] = kWeight
+        rEnv['transferdata.args'] = R.list(**transferdata_args)
+        rEnv['selection.method'] = hvgMethod
+
+        R("""
+        for (i in 1:length(so.list)) {
+            so.list[[i]] <- NormalizeData(so.list[[i]], verbose=F)
+            so.list[[i]] <- FindVariableFeatures(so.list[[i]], selection.method = selection.method, nfeatures = nfeatures, verbose=F)
+        }
+        """)
+
+        if so_prevRef:
+            R("""
+            so.query <- so.list[[1]]
+            """)
+            rEnv['so.ref'] = so_ref
+        else:
+
+            R(f"""
+            so.ref <- so.list[[1]]
+            so.query <- so.list[[2]]
+
+            so.ref <- ScaleData(so.ref, verbose=F)
+            so.ref <- RunPCA(so.ref, npcs=dims, verbose=F)
+            so.ref <- RunUMAP(so.ref, reduction = "pca", dims = 1:dims, verbose=F)
+            """)
+
+        R(f"""
+        anchors <- FindTransferAnchors(reference = so.ref, query = so.query,
+            dims = 1:dims, k.score=k.score, reference.reduction = "pca", k.filter=k.filter)
+        predictions <- TransferData(anchorset = anchors, refdata = so.ref${refLabel}, k.weight=k.weight,
+            dims = 1:dims)
+        so.ref <- RunUMAP(so.ref, dims = 1:30, reduction = "pca", return.model = TRUE)
+        so.query <- MapQuery(anchorset = anchors, reference = so.ref, query = so.query, integrateembeddings.args = integrateembeddings.args, transferdata.args = transferdata.args,
+            refdata = list({refLabel} = "{refLabel}"), reference.reduction = "pca", reduction.model = "umap")
+        """)
+        ad_refFromSeurat = so2ad(R("so.ref"))
+        ad_queryFromSeurat = so2ad(R("so.query"))
+        df_prediction = r2py(R("predictions"))
+        df_prediction = df_prediction.rename(columns=lambda _: _.split('.score.')[-1])
+        ad_query.obsm[f'X_umap_{resultKey}'] = ad_queryFromSeurat.obsm['X_ref.umap']
+        ad_query.obsm[f'seurat_{resultKey}'] = df_prediction
+        ad_ref.obsm[f'X_umap_{resultKey}'] = ad_refFromSeurat.obsm['X_umap']
+        ad_query.obs[f'seurat_{resultKey}_labelTransfer'] = ad_query.obsm[f'seurat_{resultKey}']['predicted.id']
+        basic.setadataColor(ad_query, f'seurat_{resultKey}_labelTransfer', 
+                                            basic.getadataColor(ad_ref, f'{refLabel}'))
+        if plot:
+            ad_ref.obs['seurat_temp'] = ad_ref.obs[refLabel]
+            ad_ref.obs['seurat_batch'] = 'ref'
+            ad_query.obs['seurat_temp'] = ad_query.obs[f'seurat_{resultKey}_labelTransfer']
+            ad_query.obs['seurat_batch'] = 'query'
+            df_anno = pd.concat([ad_ref.obs[['seurat_temp', 'seurat_batch']], ad_query.obs[['seurat_temp', 'seurat_batch']]])
+            ad_temp = sc.AnnData(ss.csc_matrix(df_anno.shape), obs=df_anno)
+            ad_temp.obsm[f'X_umap_{resultKey}'] = np.concatenate([ad_ref.obsm[f'X_umap_{resultKey}'], ad_query.obsm[f'X_umap_{resultKey}']])
+
+            basic.setadataColor(ad_temp, 'seurat_temp', 
+                                                basic.getadataColor(ad_ref, f'{refLabel}'))
+            ad_temp.layers['raw'] = ad_temp.X
+            pad_temp = PlotAnndata(ad_temp)
+            _, fig = pad_temp.embedding(f'X_umap_{resultKey}', color=f'seurat_temp', size=10000/ad_temp.shape[0], groupby='seurat_batch', addBackground=True, figsize=(8,3))
+            display(fig)
+            del(ad_ref.obs['seurat_temp'])
+            del(ad_ref.obs['seurat_batch'])
+            del(ad_query.obs['seurat_temp'])
+            del(ad_query.obs['seurat_batch'])
+            # sc.pl.embedding(ad_ref, f'X_umap_{resultKey}', color=f'{refLabel}')
+            # sc.pl.embedding(ad_query, f'X_umap_{resultKey}', color=f'seurat_{resultKey}_labelTransfer')
+        self.addRunInfo('seurat')
+        if returnSoRef:
+            return rEnv['so.ref']

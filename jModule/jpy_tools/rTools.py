@@ -329,6 +329,11 @@ def ad2so(
     importr("Seurat")
     R = ro.r
     mt_count = ad.layers[layer]
+    for x in ad.obs.index:
+        assert '_' not in x, f'`_` is not allowed in obs.index. {x}'
+    for x in ad.var.index:
+        assert '_' not in x, f'`_` is not allowed in var.index. {x}'
+    
     if ad.var.empty:
         ad.var["project_ad2so"] = "temp"
     if ad.obs.empty:

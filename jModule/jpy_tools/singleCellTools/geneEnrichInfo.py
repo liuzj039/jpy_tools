@@ -478,6 +478,7 @@ def calculateEnrichScoreByCellex(
     clusterName: str = "leiden",
     batchKey: Optional[str] = None,
     copy: bool = False,
+    check=True,
     kayAddedPrefix: Optional[str] = None,
     dt_kwargsForCellex: dict = {},
 ) -> Optional[anndata.AnnData]:
@@ -583,7 +584,8 @@ def calculateEnrichScoreByCellex(
 
     adata.var = adata.var.rename_axis(index=None)
     adata = adata.copy() if copy else adata
-    basic.testAllCountIsInt(adata, layer)
+    if check:
+        basic.testAllCountIsInt(adata, layer)
 
     if kayAddedPrefix is None:
         kayAddedPrefix = clusterName

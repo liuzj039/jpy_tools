@@ -1361,7 +1361,7 @@ class PlotAnndata(object):
 
     def heatmapGeneExp(
             self, ls_group: Union[None, List[str]], ls_leftAnno:List[str], dt_genes:Dict[str, List[str]], layer='normalize_log', height=10, width=10, cmap='Reds', standardScale=None, showGeneCounts=False,
-            addGeneName:bool=False, addGeneCatName:bool=True, geneSpace=0.005, needExp=False, **dt_forHeatmap):
+            addGeneName:bool=False, addGeneCatName:bool=True, geneSpace=0.005, needExp=False, useObsm=False, **dt_forHeatmap):
         '''The `heatmapGeneExp` function generates a heatmap of gene expression in a single-cell RNA sequencing dataset, with options for customization such as color mapping, scaling, and showing gene counts.
 
         Parameters
@@ -1392,13 +1392,22 @@ class PlotAnndata(object):
         '''
         ad_pb = self.ad if ls_group is None else self.getPb(ls_group)
         ad_pb = ad_pb[ad_pb.obs.sort_values(ls_leftAnno).index]
-        ls_genes = sum(list(dt_genes.values()), [])
-        ls_geneCate = [x for x,y in dt_genes.items() for z in y]
-        df_exp = ad_pb[:, ls_genes].to_df(layer)
+        # ls_genes = sum(list(dt_genes.values()), [])
+        # ls_geneCate = [x for x,y in dt_genes.items() for z in y]
+        if useObsm:
+            dt_genes = {x: [z for z in y if z in ad_pb.obsm[useObsm].columns] for x, y in dt_genes.items()}
+            ls_genes = sum(list(dt_genes.values()), [])
+            ls_geneCate = [x for x,y in dt_genes.items() for z in y]
+            df_exp = ad_pb.obsm[useObsm][ls_genes]
+        else:
+            dt_genes = {x: [z for z in y if z in ad_pb.var.index] for x, y in dt_genes.items()}
+            ls_genes = sum(list(dt_genes.values()), [])
+            ls_geneCate = [x for x,y in dt_genes.items() for z in y]
+            df_exp = ad_pb[:, ls_genes].to_df(layer)
         if standardScale is None:
             df_heatmap = df_exp
         else: 
-            df_heatmap = df_exp.apply(lambda _: (_-_.min())/(_.max()-_.min()), axis=standardScale)
+            df_heatmap = df_exp.apply(lambda _: (_-_.min())/(_.max()-_.min()), axis=standardScale).fillna(0)
 
         h = ma.Heatmap(df_heatmap.values, cmap=cmap, height=height, width=width, cluster_data=df_heatmap.values, **dt_forHeatmap)
 
