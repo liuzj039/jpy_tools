@@ -1342,7 +1342,10 @@ class PlotAnndata(object):
             if isinstance(markLine, (float, int)):
                 markLine = [markLine]
             for line in markLine:
-                p = p.add(Axvline(linestyle="--", x=line), data={})
+                if groupby is None:
+                    p = p.add(Axvline(linestyle="--",), x=[line], data={})
+                else:
+                    p = p.add(Axvline(linestyle="--",), x=[line] * ad.obs[groupby].nunique(), data={}, col=ad.obs[groupby].cat.categories.tolist())
         if fc_additional is None:
             pass
         else:
@@ -1440,7 +1443,7 @@ class PlotAnndata(object):
     
     def embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
                   cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0.95,
-                  figsize=(4,3), legendCol=1, legendInFig=False, needLegend=True, subsample=None,
+                  figsize=(4,3), legendCol=1, legendInFig=False, needLegend=True, subsample=None, showTickLabels=False,
                   dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
 
@@ -1598,10 +1601,39 @@ class PlotAnndata(object):
                 fig.transAxes = fig.transFigure
                 colorart(cmap=cmap, norm=Normalize(vmin, vmax), ax=fig, loc='out right center', deviation=-0.07, height=figsize[1] * 3)
         
+        if showTickLabels:
+            pass
+        else:
+            for ax in fig.axes:
+                ax.xaxis.set_tick_params(labelbottom=False)
+                ax.yaxis.set_tick_params(labelleft=False)
+
         fig.suptitle(title, y=titleLocY, va='baseline')
         plt.close()
         return g, fig
     
+    def catplot(self, x, y, kind, hue=None, **dt_args):
+        ad = self.ad
+        if hue is None:
+            hue = x
+            df = ad.obs[[x, y]].copy()
+        else:
+            df = ad.obs[[x, y, hue]].copy()
+        
+        dt_colors = self.getAdColors(hue)
+
+        p = sns.catplot(
+            df,
+            x=x,
+            y=y,
+            kind=kind,
+            hue=hue,
+            palette=dt_colors,
+            **dt_args
+        )
+        return p
+
+
     def clusterPercentage(self, x, y, addCounts=True, figsize=(5, 4), fc_after = lambda _: _, dt_theme={}):
         ad = self.ad
         dt_colors = self.getAdColors(y)

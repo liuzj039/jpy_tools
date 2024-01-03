@@ -1064,7 +1064,7 @@ def calucatePvalueForEachSplitUseScshc(
     return dt_p, linkage
 
 def clusteringAndCalculateShilouetteScore(
-        ad:sc.AnnData, ls_res: List[float], obsm: Union[str, np.ndarray], clusterKey:str='leiden', subsample=None, metric='euclidean', show=True, check=True, cores:int = 1,
+        ad:sc.AnnData, ls_res: List[float], obsm: Union[str, np.ndarray], clusterKey:str='leiden', subsample=None, metric='euclidean', show=True, check=True, pcs:int = 50, cores:int = 1, 
     ) -> Dict[str, float]:
     '''The function performs clustering using the Leiden algorithm on an AnnData object and calculates the silhouette score for each clustering result.
 
@@ -1135,10 +1135,12 @@ def clusteringAndCalculateShilouetteScore(
         _ad = ad
     if isinstance(obsm, str):
         obsm = _ad.obsm[obsm]
+    if obsm.shape[1] > pcs:
+        obsm = obsm[:, :pcs]
     ar_dist = sklearn.metrics.pairwise_distances(obsm, metric=metric)
     dt_score = {}
     for res in tqdm.tqdm(ls_res, desc="silhouette_score"):
-        dt_score[res] = sklearn.metrics.silhouette_score(ar_dist, _ad.obsm[clusterKey][res], metric='precomputed')
+        dt_score[res] = sklearn.metrics.silhouette_score(ar_dist, _ad.obsm[clusterKey][str(res)], metric='precomputed')
 
     if show:
         import IPython
