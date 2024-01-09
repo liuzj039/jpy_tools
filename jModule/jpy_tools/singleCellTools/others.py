@@ -1140,7 +1140,11 @@ def clusteringAndCalculateShilouetteScore(
     ar_dist = sklearn.metrics.pairwise_distances(obsm, metric=metric)
     dt_score = {}
     for res in tqdm.tqdm(ls_res, desc="silhouette_score"):
-        dt_score[res] = sklearn.metrics.silhouette_score(ar_dist, _ad.obsm[clusterKey][str(res)], metric='precomputed')
+        ls_label =  _ad.obsm[clusterKey][str(res)]
+        if len(set(ls_label)) == 1:
+            dt_score[res] = 0
+        else:
+            dt_score[res] = sklearn.metrics.silhouette_score(ar_dist, _ad.obsm[clusterKey][str(res)], metric='precomputed')
 
     if show:
         import IPython

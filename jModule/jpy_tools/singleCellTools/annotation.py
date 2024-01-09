@@ -1179,7 +1179,12 @@ def labelTransferByCelltypist(
 
 class LabelTransferAnndata(object):
     def __init__(self, ad_ref: sc.AnnData, ad_query: sc.AnnData, refLabel:str, refLayer:str='raw', queryLayer:str='raw', resultKey:str=None):
-        assert refLabel in ad_ref.obs.columns, f"refLabel {refLabel} not in ad_ref.obs.columns"
+        if isinstance(ad_ref, sc.AnnData):
+            if refLabel not in ad_ref.obs.columns:
+                logger.warning(f"refLabel {refLabel} not in ad_ref.obs.columns")
+        else:
+            logger.warning(f"ad_ref is not an AnnData object")
+        # assert refLabel in ad_ref.obs.columns, f"refLabel {refLabel} not in ad_ref.obs.columns"
 
         self.ad_ref = ad_ref
         self.ad_query = ad_query
@@ -1815,3 +1820,100 @@ class LabelTransferAnndata(object):
         self.addRunInfo('seurat')
         if returnSoRef:
             return rEnv['so.ref']
+    
+    def metaNeighbor(
+            self, studyCol, refLabel=None, queryLabel=None,
+            ls_hvg=None, fastVersion:bool=True, symmetricOutput=False,
+            queryLayer: str='normalize_log', 
+            refLayer: str='normalize_log', 
+            forceRun:bool = False,
+            mode: Literal["merge", "online"] = "online",
+            **kwargs
+        ):
+        '''The `metaNeighbor` function performs metaNeighbor analysis on two AnnData objects, `ad_query` and `ad_ref`, using specified parameters and returns the result.
+
+        Parameters
+        ----------
+        studyCol
+            The `studyCol` parameter is used to specify the column in the `ad_ref` and `ad_query` AnnData objects that contains the study information. This column is used to group the cells in the analysis.
+        refLabel
+            The label of the reference dataset. This is used to identify the column in the observation metadata of the reference dataset that contains the labels for each cell.
+        queryLabel
+            The label used for the query dataset. It is used to identify the cell types in the query dataset.
+        ls_hvg
+            A list of highly variable genes. These are genes that show significant variation in expression levels across different cells or samples.
+        fastVersion : bool, optional
+            A boolean parameter that determines whether to use the fast version of the MetaNeighbor algorithm. If set to True, the fast version will be used.
+        symmetricOutput, optional
+            The `symmetricOutput` parameter determines whether the output of the `metaNeighbor` function should be symmetric or not. If `symmetricOutput` is set to `True`, the output will be a symmetric matrix. If it is set to `False`, the output will be an asymmetric matrix. If symmetricOutput is set to FALSE, the training cell types are displayed as columns and the test cell types are displayed as rows. If trained_model was provided, the output will be a cell type-by-cell type AUROC matrix with training cell types as columns and test cell types as rows (no swapping of test and train, no averaging).
+        queryLayer : str, optional
+            The `queryLayer` parameter specifies the layer of the query dataset that will be used for analysis.
+        refLayer : str, optional
+            The `refLayer` parameter is used to specify the layer of the reference dataset (`ad_ref`) that will be used for the metaNeighbor analysis. It determines which data will be used as input for the analysis.
+        forceRun : bool, optional
+            A boolean parameter that determines whether to force the execution of the function even if it has been run before.
+        mode : Literal["merge", "online"], optional
+            The `mode` parameter determines how the reference and query datasets are used in the `metaNeighbor` function. It can have two possible values:
+
+        Returns
+        -------
+            The function `metaNeighbor` returns the result of the MetaNeighborUS analysis, which is stored in the variable `df_res`.
+
+        '''
+        import pymn
+        if f'metaNeighbor' in self.st_runInfo and not forceRun:
+            return
+        
+        ad_query = self.ad_query
+        if mode == "merge":
+            ad_ref = self.ad_query
+        elif mode == "online":
+            ad_ref = self.ad_ref
+        else:
+            assert False, "Unknown `mode`"
+        
+        if refLabel is None:
+            refLabel = self.refLabel
+        if queryLabel is None:
+            queryLabel = refLabel
+
+        assert refLabel in ad_ref.obs.columns, f"refLabel {refLabel} not in ad_ref.obs.columns"
+        assert refLabel in ad_query.obs.columns, f"refLabel {refLabel} not in ad_ref.obs.columns"
+
+        assert studyCol in ad_ref.obs.columns, f"studyCol {studyCol} not in ad_ref.obs.columns"
+        assert studyCol in ad_query.obs.columns, f"studyCol {studyCol} not in ad_query.obs.columns"
+
+        logger.info(f"metaNeighbor: refLabel={refLabel}, studyCol={studyCol}, queryLayer={queryLayer}, refLayer={refLayer}")
+        logger.info("Change the .X of ad_ref and ad_query")
+        logger.info(f"{refLayer} is used for refAd, {queryLayer} is used for queryAd")
+        ad_ref.X = ad_ref.layers[refLayer]
+        ad_query.X = ad_query.layers[queryLayer]
+
+        if ls_hvg is None:
+            ar_hvg = pymn.variableGenes(ad_ref, study_col=studyCol, return_vect=True)
+            ls_hvg = ar_hvg[ar_hvg].index.to_list()
+
+        if mode == "online":
+            ad_ref = ad_ref[:, ls_hvg].copy()
+            ad_ref.var['highly_variable'] = True
+            if fastVersion:
+                ad_ref.obs[studyCol] = ad_ref.obs[studyCol].astype(str)
+                ad_ref.obs[refLabel] = ad_ref.obs[refLabel].astype(str)
+            df_ptrained = pymn.trainModel(ad_ref, study_col=studyCol, ct_col=refLabel)
+        else:
+            ad_query = ad_query[:, ad_query.var.index.isin(ls_hvg)].copy()
+            if fastVersion:
+                ad_query.obs[studyCol] = ad_query.obs[studyCol].astype(str)
+                ad_query.obs[refLabel] = ad_query.obs[refLabel].astype(str)
+            df_ptrained = None
+
+        df_res = pymn.MetaNeighborUS(ad_query, study_col=studyCol, ct_col=queryLabel, fast_version=fastVersion, symmetric_output=symmetricOutput, trained_model=df_ptrained, **kwargs)
+        df_res = ad_query.uns['MetaNeighborUS']
+        self.ad_query.uns[f'{refLabel}_MetaNeighborUS'] = df_res
+        self.addRunInfo('metaNeighbor')
+        return df_res
+
+
+        
+
+        

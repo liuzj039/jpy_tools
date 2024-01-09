@@ -1441,9 +1441,9 @@ class PlotAnndata(object):
         else:
             return h
     
-    def embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
-                  cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0.95,
-                  figsize=(4,3), legendCol=1, legendInFig=False, needLegend=True, subsample=None, showTickLabels=False,
+    def _embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
+                  cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0.9,
+                  figsize=(8,6), legendCol=1, legendInFig=False, needLegend=True, subsample=None, showTickLabels=False, italicTitle=None,
                   dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
 
@@ -1513,14 +1513,17 @@ class PlotAnndata(object):
                 logger.debug(f"ls_color: {ls_color}")
                 df = ad.obs[[color]].copy()
                 legend = False
+                italicTitle = False if italicTitle is None else italicTitle
             else:
                 df = ad.obs[[color]].copy()
                 legend = False
                 useObs = False
+                italicTitle = True if italicTitle is None else italicTitle
         else:
             df = ad[:, color].to_df(layer)
             legend = False
-
+            italicTitle = True if italicTitle is None else italicTitle
+        # print(italicTitle)
         df['x'] = ad.obsm[embed][:,0]
         df['y'] = ad.obsm[embed][:,1]
         
@@ -1601,17 +1604,77 @@ class PlotAnndata(object):
                 fig.transAxes = fig.transFigure
                 colorart(cmap=cmap, norm=Normalize(vmin, vmax), ax=fig, loc='out right center', deviation=-0.07, height=figsize[1] * 3)
         
-        if showTickLabels:
-            pass
-        else:
-            for ax in fig.axes:
-                ax.xaxis.set_tick_params(labelbottom=False)
-                ax.yaxis.set_tick_params(labelleft=False)
+        for ax in fig.axes:
+            if showTickLabels:
+                pass
+            else:
+                for ax in fig.axes:
+                    ax.xaxis.set_tick_params(labelbottom=False)
+                    ax.yaxis.set_tick_params(labelleft=False)
 
-        fig.suptitle(title, y=titleLocY, va='baseline')
+        # if italicTitle:
+        #         ax.set_title(ax.get_title(), fontstyle='italic')
+
+        fig.suptitle(title, y=titleLocY, va='baseline', fontstyle='italic' if italicTitle else 'normal')
         plt.close()
         return g, fig
-    
+
+    def embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
+                  cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0.9,
+                  figsize=(8,6), legendCol=1, legendInFig=False, needLegend=True, subsample=None, showTickLabels=False, italicTitle=None,
+                  dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
+        '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
+
+        Parameters
+        ----------
+        embed
+            The `embed` parameter is a string that specifies the embedding to use for plotting. It should be in the format "X_embedding_name", where "embedding_name" is the name of the embedding stored in the `obsm` attribute of the `AnnData` object.
+        color
+            The "color" parameter is used to specify the variable that will be used to color the points in the embedding plot. It can be either a column name in the `ad.obs` dataframe or a layer name in the `ad` object.
+            if color is List[str], a figure with subplots will be generated.
+        title
+            The title parameter is used to specify the title of the plot. If it is not provided, the value of the color parameter will be used as the title.
+        layer
+            The "layer" parameter is used to specify the layer of the AnnData object that should be used for plotting. It is an optional parameter and if not provided, the default layer will be used.
+        groupby
+            The `groupby` parameter is used to specify a column in the AnnData object's `obs` attribute that will be used to group the data points in the plot. This can be useful for visualizing different groups or clusters in the data.
+        wrap, optional
+            The `wrap` parameter determines the number of subplots to display per row when using the `groupby` parameter for faceting the plots. It specifies the maximum number of subplots to display in a single row before wrapping to the next row.
+        size, optional
+            The `size` parameter determines the size of the points in the scatter plot. It is used to control the size of the dots in the plot.
+        cmap, optional
+            The `cmap` parameter in the `embedding` function is used to specify the colormap for the color mapping in the plot. It determines the range of colors that will be used to represent different values of the `color` variable. The default value is `'Reds'`, which is a colormap
+        vmin, optional
+            The parameter `vmin` is used to set the minimum value for the color scale in the plot. It determines the lower bound of the color range.
+        vmax
+            The parameter `vmax` is used to set the maximum value for the color scale in the plot. If not specified, it defaults to the maximum value in the `color` column of the data.
+        figsize
+            The `figsize` parameter is used to specify the size of the figure (plot) in inches. It takes a tuple of two values, where the first value represents the width and the second value represents the height of the figure. For example, `figsize=(4, 3)` will
+        titleInFig, optional
+            The `titleInFig` parameter is a boolean flag that determines whether the title of the plot should be displayed within the figure itself. If `titleInFig` is set to `True`, the title will be displayed as a text annotation within the plot. If `titleInFig` is set
+        dt_theme
+            The `dt_theme` parameter is a dictionary that allows you to customize the appearance of the plot. It contains key-value pairs where the key is a string representing a specific plot element (e.g., 'ytick.left' for left y-axis ticks) and the value is a boolean indicating whether to
+
+        Returns
+        -------
+        if only one color is provided, returns two values: `g` and `fig`. `g` is an instance of the `so.Plot` class, which represents the plot object, and `fig` is the matplotlib figure object.
+        if multiple colors are provided, returns a FigConcate.
+
+        '''
+        if isinstance(color, str):
+            return self._embedding(
+                embed=embed, color=color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme)
+        else:
+            from ..otherTools import FigConcate, FigConcateWrap
+            assert groupby is None, "groupby is not supported when multiple colors are provided"
+            
+            figwrap = FigConcateWrap()
+            for _color in color:
+                _, fig = self._embedding(
+                    embed=embed, color=_color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme)
+                figwrap.addFig(fig >> F(FigConcate))
+            return figwrap.wrapAndGenerate(wrap)
+
     def catplot(self, x, y, kind, hue=None, **dt_args):
         ad = self.ad
         if hue is None:
@@ -1631,6 +1694,21 @@ class PlotAnndata(object):
             palette=dt_colors,
             **dt_args
         )
+        return p
+
+    def clustree(self, clusterKey, subsample=None, ls_res=None, **dt_args):
+        from rpy2.robjects.packages import importr
+        from ..rTools import py2r
+
+        clustree = importr('clustree')
+        if ls_res is None:
+            ls_res = self.ad.obsm[clusterKey].columns
+        ls_res = ls_res >> F(map, str) >> F(list)
+        for x in ls_res:
+            assert str(x) in self.ad.obsm[clusterKey].columns, f"{x} not in {clusterKey}"
+        df_cluster = self.ad.obsm[clusterKey][ls_res].rename(columns=lambda _: clusterKey + str(_))
+        dfr_cluster = df_cluster.sample(n=subsample, random_state=0) >> F(py2r)
+        p = clustree.clustree(dfr_cluster, prefix=clusterKey, **dt_args)
         return p
 
 

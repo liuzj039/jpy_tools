@@ -888,7 +888,7 @@ class NormAnndata(object):
         ad.obs["scran_sizeFactor"] = sr_sizeFactor
         ad.layers['scran_norm_count'] = csr_matrix(ad.layers['raw'].multiply(1 / ad.obs['scran_sizeFactor'].values.reshape(-1, 1)))
     
-    def normByApr(self, nTopGenes=3000, batchKey=None, onlyRunPca=True):
+    def normByApr(self, nTopGenes=3000, batchKey=None, onlyRunPca=True, comps=50):
         import gc
         import scipy.sparse as ss
 
@@ -917,7 +917,7 @@ class NormAnndata(object):
         
         if onlyRunPca:
             ad_apr.var['highly_variable'] = True
-            sc.tl.pca(ad_apr, n_comps=50, use_highly_variable=True)
+            sc.tl.pca(ad_apr, n_comps=comps, use_highly_variable=True)
             ad.obsm['X_pca'] = ad_apr.obsm['X_pca'].copy()
             ad.uns['pca'] = ad_apr.uns['pca'].copy()
         else:
@@ -928,7 +928,7 @@ class NormAnndata(object):
             df_final = df_final.reindex(columns=ad.var.index)
             ad.layers['APR'] = df_final
             ad.X = ad.layers['APR'].copy()
-            sc.tl.pca(ad, n_comps=50, use_highly_variable=True)
+            sc.tl.pca(ad, n_comps=comps, use_highly_variable=True)
 
         self.lastRes['normMethod'] = 'APR'
         gc.collect()
