@@ -1114,10 +1114,12 @@ class FigConcateWrap(object):
         from more_itertools import chunked
         from functools import reduce
         _ls = []
-        for ls in chunked(self.lsFig, wrap):
-            _ls.append(reduce(lambda x, y: x|y, ls))
-        return reduce(lambda x, y: x/y, _ls)
-
+        if wrap > 1:
+            for ls in chunked(self.lsFig, wrap):
+                _ls.append(reduce(lambda x, y: x|y, ls))
+            return reduce(lambda x, y: x/y, _ls)
+        else:
+            return reduce(lambda x, y: x/y, self.lsFig)
 
 def cld(df, p, lvl_order=None):
     '''The function `cld` performs a post-hoc analysis using the multcomp package in R to determine significant differences between groups based on a given p-value threshold.

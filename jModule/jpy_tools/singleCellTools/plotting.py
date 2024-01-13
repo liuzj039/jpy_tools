@@ -1666,14 +1666,23 @@ class PlotAnndata(object):
                 embed=embed, color=color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme)
         else:
             from ..otherTools import FigConcate, FigConcateWrap
-            assert groupby is None, "groupby is not supported when multiple colors are provided"
+            # assert groupby is None, "groupby is not supported when multiple colors are provided"
+            if groupby is None:
+                figwrap = FigConcateWrap()
+                for _color in color:
+                    _, fig = self._embedding(
+                        embed=embed, color=_color, title=title, layer=layer, groupby=groupby, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme)
+                    figwrap.addFig(fig >> F(FigConcate))
+                return figwrap.wrapAndGenerate(wrap)
+            else:
+                figwrap = FigConcateWrap()
+                logger.warning("Both groupby and multiple colors are provided. `Wrap` will be ignored.")
+                for _color in color:
+                    _, fig = self._embedding(
+                        embed=embed, color=_color, title=title, layer=layer, groupby=groupby, wrap=None, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme)
+                    figwrap.addFig(fig >> F(FigConcate))
+                return figwrap.wrapAndGenerate(wrap=1)
             
-            figwrap = FigConcateWrap()
-            for _color in color:
-                _, fig = self._embedding(
-                    embed=embed, color=_color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme)
-                figwrap.addFig(fig >> F(FigConcate))
-            return figwrap.wrapAndGenerate(wrap)
 
     def catplot(self, x, y, kind, hue=None, **dt_args):
         ad = self.ad

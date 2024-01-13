@@ -13,6 +13,20 @@ import tensorflow # if not import tensorflow first, `core dump` will occur
 import scanpy as sc
 import pandas as pd
 from loguru import logger
+from typing import (
+    Dict,
+    List,
+    Optional,
+    Union,
+    Sequence,
+    Literal,
+    Any,
+    Tuple,
+    Iterator,
+    Mapping,
+    Callable,
+)
+
 from ..otherTools import setSeed
 from . import (
     basic,
@@ -56,6 +70,7 @@ class DeAnndata(object):
 
         ag_rfc = pt.tl.Augur('random_forest_classifier')
         lsDf_res = []
+        dt_geneWeight = {}
         logger.warning(
             f"`cell_type` and `label` will be overwritten by `{self.groupby}` and `{self.treatmentCol}`"
         )
@@ -75,23 +90,112 @@ class DeAnndata(object):
             _ad = _ad[_ad.obs['cell_type'].isin(ls_usedCelltype)].copy()
             _ad_res, df_res = ag_rfc.predict(_ad, n_threads=nCores, **dt_kwargs)
 
-            df_res = df_res['summary_metrics']
+            df_res, df_geneWeight = df_res['summary_metrics'], df_res["feature_importances"]
             df_res = df_res.melt(var_name=self.groupby, ignore_index=False).rename_axis(index='metric').reset_index().assign(treatment=treatment, control=self.controlName)
             lsDf_res.append(df_res)
+            dt_geneWeight[treatment] = df_geneWeight
             del _ad, _ad_res, df_res
             get_reusable_executor().shutdown(wait=True)
             gc.collect()
 
         df_res = pd.concat(lsDf_res, axis=0, ignore_index=True)
         self.ad.uns[f"{self.resultKey}_augur"] = df_res
+        lsDf = []
+        for treatment, df_geneWeight in dt_geneWeight.items():
+            df_geneWeight = df_geneWeight.assign(treatment=treatment)
+            lsDf.append(df_geneWeight)
+        df_geneWeight = pd.concat(lsDf, axis=0, ignore_index=True)
+
+        self.ad.uns[f"{self.resultKey}_augurGeneWeight"] = df_geneWeight
+        return df_res, df_geneWeight
+    
+    def metaNeighbor(
+            self, ls_hvg=None, fastVersion:bool=True, symmetricOutput=False, layer='normalize_log',
+            **kwargs
+        ):
+
+        import pymn
+        ad = self.ad
+        logger.info("Change the .X of ad_ref and ad_query")
+        logger.info(f"{layer} is used for ad")
+        ad.X = ad.layers[layer]
+
+        if ls_hvg is None:
+            ar_hvg = pymn.variableGenes(ad, study_col=self.treatmentCol, return_vect=True)
+            ls_hvg = ar_hvg[ar_hvg].index.to_list()
+
+        ad = ad[:, ad.var.index.isin(ls_hvg)].copy()
+        if fastVersion:
+            ad.obs[self.treatmentCol] = ad.obs[self.treatmentCol].astype(str)
+            ad.obs[self.groupby] = ad.obs[self.groupby].astype(str)
+        df_ptrained = None
+
+        df_res = pymn.MetaNeighborUS(ad, study_col=self.treatmentCol, ct_col=self.groupby, fast_version=fastVersion, symmetric_output=symmetricOutput, trained_model=df_ptrained, **kwargs)
+        df_res = ad.uns['MetaNeighborUS']
+        self.ad.uns[f'{self.resultKey}_MetaNeighborUS'] = df_res
         return df_res
 
+class QcAnndaga(object):
+    def __init__(self, ad, rawLayer):
+        self.ad = ad
+        self.rawLayer = rawLayer
+
+    def removeDoubletByScDblFinder(self,
+        groupby: Optional[str] = None,
+        doubletRatio: Optional[float] = None,
+        skipCheck: bool = False,
+        dropDoublet: bool = True,
+        BPPARAM=None
+    ):
+        from .detectDoublet import byScDblFinder
+        byScDblFinder(self.ad, layer=self.rawLayer, copy=False, batch_key=groupby, doubletRatio=doubletRatio, skipCheck=skipCheck, dropDoublet=dropDoublet, BPPARAM=BPPARAM)
+    
+    def removeAmbientBySoupx(self, ad_raw:sc.AnnData, layerRaw:str='raw', res=1, correctedLayerName:str='soupX_corrected', forceAccept=True, rEnv=None):
+        '''`removeAmbientBySoupx` removes the ambient signal from the data by using the soupX algorithm
+        
+        Parameters
+        ----------
+
+        ad_raw : sc.AnnData
+            the raw data, which is used to calculate the ambient
+
+        layerRaw : str, optional
+            the layer in ad_raw that contains the raw counts
+        correctedLayerName : str, optional
+            the name of the layer that will be created in the ad object.
+        rEnv
+            R environment to use. If None, will create a new one.
+        
+        '''
+        from .removeAmbient import removeAmbientBySoupx
+        removeAmbientBySoupx(self.ad, ad_raw, layerAd=self.rawLayer, layerRaw=layerRaw, res=res, correctedLayerName=correctedLayerName, forceAccept=forceAccept, rEnv=rEnv)
+
 class EnhancedAnndata(object):
+    """
+    A class representing an enhanced version of the sc.AnnData object.
+
+    Attributes:
+    - ad (sc.AnnData): Annotated data object.
+    - rawLayer (str): Name of the raw layer in the AnnData object.
+    - pl (PlotAnndata): An instance of the PlotAnndata class for plotting functionalities.
+    - norm (NormAnndata): An instance of the NormAnndata class for normalization functionalities.
+    - anno (LabelTransferAnndata): An instance of the LabelTransferAnndata class for label transfer functionalities.
+    - de (DeAnndata): An instance of the DeAnndata class for differential expression analysis functionalities.
+    """
+
     def __init__(self, ad: sc.AnnData, rawLayer:str = 'raw'):
+        """
+        Initialize the EnhancedAnndata class.
+
+        Parameters:
+        - ad (sc.AnnData): Annotated data object.
+        - rawLayer (str): Name of the raw layer in the AnnData object.
+        """
         self.ad = ad
         self.rawLayer = rawLayer
         self.pl = PlotAnndata(self.ad, rawLayer=self.rawLayer)
         self.norm = NormAnndata(self.ad, rawLayer=self.rawLayer)
+        self.qc = QcAnndaga(self.ad, rawLayer=self.rawLayer)
 
     def __repr__(self):
         ls_object = [f"enhancedAnndata: {self.ad.__repr__()}"]
@@ -100,8 +204,98 @@ class EnhancedAnndata(object):
             ls_object.append(f"anno: initialized, refLabel: {self.anno.refLabel}, refLayer: {self.anno.refLayer}, resultKey: {self.anno.resultKey}")
         return '\n'.join(ls_object)
     
+    def __getitem__(self, key) -> 'EnhancedAnndata':
+        """
+        Get the subset of the current dataset.
+
+        Parameters:
+            key (str): The key to subset the dataset.
+
+        Returns:
+            EnhancedAnndata: The subset of the current dataset.
+        """
+        return EnhancedAnndata(self.ad[key], rawLayer=self.rawLayer)
+    
+    def to_df(self, layer=None) -> pd.DataFrame:
+        return self.ad.to_df(layer=layer)
+
     def addRef(self, ad_ref: sc.AnnData, refLabel:str, refLayer:str = 'raw', resultKey:str=None):
+        """
+        Add a reference dataset to the current dataset.
+
+        Parameters:
+            ad_ref (sc.AnnData): The reference dataset to be added.
+            refLabel (str): The label of the reference dataset.
+            refLayer (str, optional): The layer of the reference dataset to be used. Defaults to 'raw'.
+            resultKey (str, optional): The key to store the result. Defaults to None.
+        """
         self.anno = LabelTransferAnndata(ad_ref, self.ad, refLabel=refLabel, refLayer=refLayer, queryLayer=self.rawLayer, resultKey=resultKey)
     
-    def initDe(self, groupby:str, treatmentCol:str, controlName:str, resultKey:str=None):
+    def initDe(self, groupby: str, treatmentCol: str, controlName: str, resultKey: str = None):
+        """
+        Initializes the differential expression analysis object.
+
+        Parameters:
+            groupby (str): The column name in the AnnData object that specifies the groups.
+            treatmentCol (str): The column name in the AnnData object that specifies the treatment condition.
+            controlName (str): The name of the control group.
+            resultKey (str, optional): The key to store the differential expression results. Defaults to None.
+        """
         self.de = DeAnndata(self.ad, groupby=groupby, treatmentCol=treatmentCol, controlName=controlName, resultKey=resultKey)
+
+    # set uns obs var obsm varm layers X
+    @property
+    def uns(self):
+        return self.ad.uns
+
+    @uns.setter
+    def uns(self, value):
+        self.ad.uns = value
+    
+    @property
+    def obs(self):
+        return self.ad.obs
+    
+    @obs.setter
+    def obs(self, value):
+        self.ad.obs = value
+    
+    @property
+    def var(self):
+        return self.ad.var
+    
+    @var.setter
+    def var(self, value):
+        self.ad.var = value
+
+    @property
+    def obsm(self):
+        return self.ad.obsm
+    
+    @obsm.setter
+    def obsm(self, value):
+        self.ad.obsm = value
+
+    @property
+    def varm(self):
+        return self.ad.varm
+    
+    @varm.setter
+    def varm(self, value):
+        self.ad.varm = value
+    
+    @property
+    def layers(self):
+        return self.ad.layers
+    
+    @layers.setter
+    def layers(self, value):
+        self.ad.layers = value
+    
+    @property
+    def X(self):
+        return self.ad.X
+    
+    @X.setter
+    def X(self, value):
+        self.ad.X = value
