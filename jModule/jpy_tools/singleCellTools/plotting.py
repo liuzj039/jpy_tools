@@ -1262,7 +1262,7 @@ class PlotAnndata(object):
             self.dtAd_pb[pbKey] = ad_pb
 
         return ad_pb
-    
+
     def histogram(
             self, variable, groupby=None, wrap=4, bins=50, binrange=None, markLine:Optional[List[float]]=None, 
             addStat:Optional[Literal['mean', 'median']]=None, fc_additional:Optional[Callable]=None,
@@ -1359,12 +1359,59 @@ class PlotAnndata(object):
 
         return p, fig
 
+    def barplot(self, x, gene, groupby=None, layer:Literal['normalize_log', 'normalize']='normalize_log', figsize=(6,4), fc_additional = lambda _: _):
+        self.ad._sanitize()
+        if isinstance(gene, str):
+            gene = [gene]
+        ad_bulk = self.getPb([x, groupby]) if groupby else self.getPb([x])
+        if groupby:
+            df_exp = pd.concat(
+                [
+                    ad_bulk.obs[[x, groupby]]
+                    .join(ad_bulk[:, _].to_df(layer))
+                    .rename(columns={_: "Exp"})
+                    .assign(gene=_)
+                    for _ in gene
+                ],
+                ignore_index=True,
+            )
+        else:
+            df_exp = pd.concat(
+                [
+                    ad_bulk.obs[[x]]
+                    .join(ad_bulk[:, _].to_df(layer))
+                    .rename(columns={_: "Exp"})
+                    .assign(gene=_)
+                    for _ in gene
+                ],
+                ignore_index=True,
+            )
+        p = (
+            so.Plot(df_exp, x=x, y="Exp", color=groupby)
+            .facet(col="gene", wrap=2)
+            .share(y=False)
+            .add(so.Bar(), so.Dodge())
+            .layout(size=figsize)
+        )
+
+        if groupby:
+            dt_colors = self.getAdColors(groupby)
+            p = p.scale(color=dt_colors)
+        p = fc_additional(p)
+        fig = p.plot()._figure
+        for ax in fig.axes:
+            ax.set_title(ax.get_title(), fontstyle="italic")
+            ax.xaxis.set_tick_params(labelbottom=True)
+            ax.yaxis.set_tick_params(labelleft=True)
+            ax.set_xticklabels(ax.get_xticklabels(), rotation=-90)
+        return p, fig
+
     def heatmapGeneExpInPb(self, ls_group, ls_leftAnno, dt_genes, layer='normalize_log', height=10, width=10, cmap='Reds', standardScale=None, showGeneCounts=False):
         raise NameError('Please use heatmapGeneExp as alternative')
 
     def heatmapGeneExp(
             self, ls_group: Union[None, List[str]], ls_leftAnno:List[str], dt_genes:Dict[str, List[str]], layer='normalize_log', height=10, width=10, cmap='Reds', standardScale=None, showGeneCounts=False,
-            addGeneName:bool=False, addGeneCatName:bool=True, geneSpace=0.005, needExp=False, useObsm=False, **dt_forHeatmap):
+            addGeneName:bool=False, addGeneCatName:bool=True, geneSpace=0.005, needExp=False, useObsm=False, cellSplitBy=None, **dt_forHeatmap):
         '''The `heatmapGeneExp` function generates a heatmap of gene expression in a single-cell RNA sequencing dataset, with options for customization such as color mapping, scaling, and showing gene counts.
 
         Parameters
@@ -1435,6 +1482,8 @@ class PlotAnndata(object):
             h.add_bottom(
                 mp.Labels(ls_genes)
             )
+        if cellSplitBy:
+            h.hsplit(labels=ad_pb.obs[cellSplitBy], order=ad_pb.obs[cellSplitBy].cat.categories.tolist(), spacing=0.005)
         h.add_legends()
         if needExp:
             return h, df_heatmap
@@ -1504,6 +1553,7 @@ class PlotAnndata(object):
             else:
                 useObs = False
         if useObs:
+            italicTitle = False if italicTitle is None else italicTitle
             if ad.obs[color].dtype.name == 'category':
                 dt_colors = self.getAdColors(color)
                 dt_colors['None'] = 'silver'
@@ -1513,16 +1563,15 @@ class PlotAnndata(object):
                 logger.debug(f"ls_color: {ls_color}")
                 df = ad.obs[[color]].copy()
                 legend = False
-                italicTitle = False if italicTitle is None else italicTitle
             else:
                 df = ad.obs[[color]].copy()
                 legend = False
                 useObs = False
-                italicTitle = True if italicTitle is None else italicTitle
         else:
+            italicTitle = True if italicTitle is None else italicTitle
             df = ad[:, color].to_df(layer)
             legend = False
-            italicTitle = True if italicTitle is None else italicTitle
+            
         # print(italicTitle)
         df['x'] = ad.obsm[embed][:,0]
         df['y'] = ad.obsm[embed][:,1]

@@ -1792,7 +1792,7 @@ def useDiffxpyFindDegs(
     return df_diffxpyResult
 
 def _mergeData(ad, obsKey, layer="raw"):
-    basic.testAllCountIsInt(ad, layer)
+    basic.testAllCountIsInt(ad, layer, onlyCheck=True)
     ls_keyProduct = ad.obs[obsKey].value_counts().sort_index().index.to_list()
     if isinstance(obsKey, str):
         ad.obs["temp_merge"] = ad.obs[obsKey].copy()

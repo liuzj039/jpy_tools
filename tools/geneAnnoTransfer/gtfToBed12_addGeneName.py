@@ -25,7 +25,7 @@ def main(inPath, gtfToGpPath, gpToBedPath):
         bedPath = f"{inPath}.changeTrsId.bed"
 
         inPr.to_gtf(changeTrsGtfPath)
-        sh.Command(gtfToGpPath)(changeTrsGtfPath, gpPath)
+        sh.Command(gtfToGpPath)(changeTrsGtfPath, gpPath, '-ignoreGroupsWithoutExons')
         sh.Command(gpToBedPath)(gpPath, bedPath)
     
     logger.info("read temporary transformed bed12 file")

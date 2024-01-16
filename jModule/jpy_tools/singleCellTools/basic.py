@@ -288,7 +288,7 @@ def getPartialLayersAdata(
     return subAd.copy()
 
 
-def testAllCountIsInt(adata: anndata.AnnData, layer: Optional[str]) -> None:
+def testAllCountIsInt(adata: anndata.AnnData, layer: Optional[str], onlyCheck=False) -> None:
     """
     Test whether all counts is int
     """
@@ -307,10 +307,17 @@ def testAllCountIsInt(adata: anndata.AnnData, layer: Optional[str]) -> None:
         "Make sure that adata.layer contains unnormalized count data"
         + f"\tLayer:{layer}"
     )
+
     if sp.issparse(X_subset):
-        assert (X_subset.astype(int) != X_subset).nnz == 0, err
+        allIsInt = (X_subset.astype(int) != X_subset).nnz == 0
+        # assert (X_subset.astype(int) != X_subset).nnz == 0, err
     else:
-        assert np.all(X_subset.astype(int) == X_subset), err
+        allIsInt = np.all(X_subset.astype(int) == X_subset)
+        # assert np.all(X_subset.astype(int) == X_subset), err
+    if onlyCheck:
+        logger.warning(err)
+    else:
+        assert allIsInt, err
 
 
 def getadataColor(adata, label):

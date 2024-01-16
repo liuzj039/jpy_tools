@@ -12,6 +12,7 @@ single cell analysis tools wrapper
 import tensorflow # if not import tensorflow first, `core dump` will occur
 import scanpy as sc
 import pandas as pd
+import numpy as np
 from loguru import logger
 from typing import (
     Dict,
@@ -135,7 +136,7 @@ class DeAnndata(object):
         self.ad.uns[f'{self.resultKey}_MetaNeighborUS'] = df_res
         return df_res
 
-class QcAnndaga(object):
+class QcAnndata(object):
     def __init__(self, ad, rawLayer):
         self.ad = ad
         self.rawLayer = rawLayer
@@ -170,6 +171,50 @@ class QcAnndaga(object):
         from .removeAmbient import removeAmbientBySoupx
         removeAmbientBySoupx(self.ad, ad_raw, layerAd=self.rawLayer, layerRaw=layerRaw, res=res, correctedLayerName=correctedLayerName, forceAccept=forceAccept, rEnv=rEnv)
 
+class clusterAnndata(object):
+    def __init__(self, ad, rawLayer):
+        self.ad = ad
+        self.rawLayer = rawLayer
+    
+    def getShilouetteScore(
+            self, ls_res: List[float], obsm: Union[str, np.ndarray], clusterKey:str='leiden', subsample=None, metric='euclidean', show=True, check=True, pcs:int = 50, cores:int = 1, 
+        ) -> Dict[str, float]:
+        '''The function performs clustering using the Leiden algorithm on an AnnData object and calculates the silhouette score for each clustering result.
+
+        Parameters
+        ----------
+        ad : sc.AnnData
+            The parameter `ad` is an AnnData object, which is a data structure commonly used in single-cell RNA sequencing (scRNA-seq) analysis. It contains the gene expression data and associated metadata for each cell.
+        ls_res : List[float]
+            A list of resolution values to use for the Leiden clustering algorithm.
+        obsm : Union[str, np.ndarray]
+            The parameter `obsm` is the name of the key in the `ad` object's `.obsm` attribute that contains the data matrix used for clustering. It can be either a string representing the key name or a numpy array containing the data matrix itself.
+        subsample
+            The `subsample` parameter is an optional parameter that specifies the fraction of cells to subsample from the input `ad` AnnData object. If provided, only a fraction of cells will be used for calculating the silhouette score. If not provided, all cells in the `ad` Ann
+        metric, optional
+            The `metric` parameter specifies the distance metric to be used for calculating pairwise distances between observations. The default value is 'euclidean', which calculates the Euclidean distance between two points. Other possible values include 'manhattan' for Manhattan distance, 'cosine' for cosine similarity, and many more
+
+        Returns
+        -------
+            a dictionary where the keys are the resolution values from the input list `ls_res` and the values are the corresponding silhouette scores calculated using the Leiden clustering algorithm.
+
+        '''
+        from .others import clusteringAndCalculateShilouetteScore
+        return clusteringAndCalculateShilouetteScore(self.ad, ls_res, obsm, clusterKey=clusterKey, subsample=subsample, metric=metric, show=show, check=check, pcs=pcs, cores=cores)
+
+    def getClusterSpecGeneByCellex(
+            self,
+            clusterName: str = "leiden",
+            batchKey: Optional[str] = None,
+            check=True,
+            kayAddedPrefix: Optional[str] = None,
+            layer=None,
+            dt_kwargsForCellex: dict = {},
+        ):
+        from .geneEnrichInfo import calculateEnrichScoreByCellex
+        layer = self.rawLayer if layer is None else layer
+        calculateEnrichScoreByCellex(self.ad, layer=layer, clusterName=clusterName, batchKey=batchKey, copy=False, check=check, kayAddedPrefix=kayAddedPrefix, dt_kwargsForCellex=dt_kwargsForCellex)
+
 class EnhancedAnndata(object):
     """
     A class representing an enhanced version of the sc.AnnData object.
@@ -195,7 +240,21 @@ class EnhancedAnndata(object):
         self.rawLayer = rawLayer
         self.pl = PlotAnndata(self.ad, rawLayer=self.rawLayer)
         self.norm = NormAnndata(self.ad, rawLayer=self.rawLayer)
-        self.qc = QcAnndaga(self.ad, rawLayer=self.rawLayer)
+        self.qc = QcAnndata(self.ad, rawLayer=self.rawLayer)
+        self.cl = clusterAnndata(self.ad, rawLayer=self.rawLayer)
+    
+    @property
+    def rawLayer(self):
+        return self._rawLayer
+
+    @rawLayer.setter
+    def rawLayer(self, value):
+        logger.warning(f"rawLayer will be overwritten by {value} and all the related objects will be re-initialized")
+        self._rawLayer = value
+        self.pl = PlotAnndata(self.ad, rawLayer=self.rawLayer)
+        self.norm = NormAnndata(self.ad, rawLayer=self.rawLayer)
+        self.qc = QcAnndata(self.ad, rawLayer=self.rawLayer)
+        self.cl = clusterAnndata(self.ad, rawLayer=self.rawLayer)
 
     def __repr__(self):
         ls_object = [f"enhancedAnndata: {self.ad.__repr__()}"]

@@ -1373,8 +1373,8 @@ class LabelTransferAnndata(object):
         ad_queryOrg.obs = ad_queryOrg.obs.drop(
             columns=[x for x in df_predResults.columns if x in ad_queryOrg.obs.columns]
         ).join(df_predResults)
-        if mode == "prob match":
-            ad_queryOrg.obsm[f"celltypist_{resultKey}"] = predictions.probability_matrix
+        # if mode == "prob match":
+        ad_queryOrg.obsm[f"celltypist_{resultKey}"] = predictions.probability_matrix
         self.addRunInfo(f'celltypist')
         return predictions, model
 
