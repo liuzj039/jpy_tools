@@ -54,13 +54,13 @@ from .annotation import LabelTransferAnndata
 setSeed()
 
 class DeAnndata(object):
-    def __init__(self, ad:sc.AnnData, groupby:str, treatmentCol:str, controlName:str, resultKey:str=None):
+    def __init__(self, ad:sc.AnnData, clusterKey:str, groupby:str, controlName:str, resultKey:str=None):
         self.ad = ad
+        self.clusterKey = clusterKey
         self.groupby = groupby
-        self.treatmentCol = treatmentCol
         self.controlName = controlName
         if resultKey is None:
-            self.resultKey = f"de_{self.treatmentCol}"
+            self.resultKey = f"de_{self.groupby}"
         # if self.resultKey not in self.ad.uns:
         #     self.ad.uns[self.resultKey] = {}
 
@@ -73,15 +73,15 @@ class DeAnndata(object):
         lsDf_res = []
         dt_geneWeight = {}
         logger.warning(
-            f"`cell_type` and `label` will be overwritten by `{self.groupby}` and `{self.treatmentCol}`"
+            f"`cell_type` and `label` will be overwritten by `{self.clusterKey}` and `{self.groupby}`"
         )
-        self.ad.obs['cell_type'] = self.ad.obs[self.groupby]
-        self.ad.obs['label'] = self.ad.obs[self.treatmentCol]
+        self.ad.obs['cell_type'] = self.ad.obs[self.clusterKey]
+        self.ad.obs['label'] = self.ad.obs[self.groupby]
         self.ad.X = self.ad.layers[layer].copy()
         logger.warning(
             f"adata.X will be overwritten by `{layer}`"
         )
-        for treatment in self.ad.obs[self.treatmentCol].unique():
+        for treatment in self.ad.obs[self.groupby].unique():
             if treatment == self.controlName:
                 continue
             logger.info(f"start to predict {treatment}")
@@ -92,7 +92,7 @@ class DeAnndata(object):
             _ad_res, df_res = ag_rfc.predict(_ad, n_threads=nCores, **dt_kwargs)
 
             df_res, df_geneWeight = df_res['summary_metrics'], df_res["feature_importances"]
-            df_res = df_res.melt(var_name=self.groupby, ignore_index=False).rename_axis(index='metric').reset_index().assign(treatment=treatment, control=self.controlName)
+            df_res = df_res.melt(var_name=self.clusterKey, ignore_index=False).rename_axis(index='metric').reset_index().assign(treatment=treatment, control=self.controlName)
             lsDf_res.append(df_res)
             dt_geneWeight[treatment] = df_geneWeight
             del _ad, _ad_res, df_res
@@ -122,20 +122,78 @@ class DeAnndata(object):
         ad.X = ad.layers[layer]
 
         if ls_hvg is None:
-            ar_hvg = pymn.variableGenes(ad, study_col=self.treatmentCol, return_vect=True)
+            ar_hvg = pymn.variableGenes(ad, study_col=self.groupby, return_vect=True)
             ls_hvg = ar_hvg[ar_hvg].index.to_list()
 
         ad = ad[:, ad.var.index.isin(ls_hvg)].copy()
         if fastVersion:
-            ad.obs[self.treatmentCol] = ad.obs[self.treatmentCol].astype(str)
             ad.obs[self.groupby] = ad.obs[self.groupby].astype(str)
+            ad.obs[self.clusterKey] = ad.obs[self.clusterKey].astype(str)
         df_ptrained = None
 
-        df_res = pymn.MetaNeighborUS(ad, study_col=self.treatmentCol, ct_col=self.groupby, fast_version=fastVersion, symmetric_output=symmetricOutput, trained_model=df_ptrained, **kwargs)
+        df_res = pymn.MetaNeighborUS(ad, study_col=self.groupby, ct_col=self.clusterKey, fast_version=fastVersion, symmetric_output=symmetricOutput, trained_model=df_ptrained, **kwargs)
         df_res = ad.uns['MetaNeighborUS']
         self.ad.uns[f'{self.resultKey}_MetaNeighborUS'] = df_res
         return df_res
+    
+    def identifyDegUsePseudoBulk(
+                self, groupby:str=None, replicateKey:str=None, npseudoRep:int=None, clusterKey:str = None, method:Literal['DESeq2', 'edgeR']='edgeR', groups:Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]=None, 
+                randomSeed:int=39, shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None, njobs:int=1, layer:str = 'raw'
+            ) -> pd.DataFrame:
+            """
+            Identifies differentially expressed genes using pseudo-bulk\\rep analysis.
 
+            Parameters:
+                groupby (str, optional): The column name in the observation metadata to group the cells by. Defaults to None.
+                replicateKey (str, optional): The column name in the observation metadata that indicates the replicate information. Cannot be used together with npseudoRep. Defaults to None.
+                npseudoRep (int, optional): The number of pseudo-replicates to generate. Cannot be used together with replicateKey. Defaults to None.
+                clusterKey (str, optional): The column name in the observation metadata that indicates the cluster information. Defaults to None.
+                method (Literal['DESeq2', 'edgeR'], optional): The method to use for differential expression analysis. Defaults to 'edgeR'.
+                groups (Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]], optional): The groups to compare. Defaults to None.
+                randomSeed (int, optional): The random seed for reproducibility. Defaults to 39.
+                shrink (Optional[Literal["apeglm", "ashr", "normal"]], optional): The method to use for shrinkage estimation. Defaults to None.
+                njobs (int, optional): The number of parallel jobs to run. Defaults to 1.
+                layer (str, optional): The layer to use for analysis. Defaults to 'raw'.
+
+            Returns:
+                pd.DataFrame: A DataFrame containing the differentially expressed genes.
+
+            Raises:
+                ValueError: If both replicateKey and npseudoRep are None or not None.
+
+            """
+            
+            from .geneEnrichInfo import findDegUsePseudobulk, findDegUsePseudoRep
+            from .basic import splitAdata
+            if replicateKey is None and npseudoRep is None:
+                raise ValueError("replicateKey and npseudoRep cannot be both None")
+            if replicateKey is not None and npseudoRep is not None:
+                raise ValueError("replicateKey and npseudoRep cannot be both not None")
+            
+            if groupby is None:
+                groupby = self.groupby
+            if clusterKey is None:
+                clusterKey = self.clusterKey
+            
+            ad = sc.AnnData(self.ad.X, obs=self.ad.obs[[groupby, clusterKey]], var=self.ad.var)
+            ad.layers[layer] = self.ad.layers[layer]
+
+            lsDf_res = []
+            for cluster, _ad in splitAdata(ad, clusterKey, needName=True):
+                if groups is None:
+                    ls_allSample = _ad.obs[groupby].unique()
+                    _groups = [self.controlName, [x for x in ls_allSample if x != self.controlName]]
+                if replicateKey is not None:
+                    df_res = findDegUsePseudobulk(_ad, compareKey=groupby, replicateKey=replicateKey, method=method, groups=_groups, randomSeed=randomSeed, shrink=shrink, njobs=njobs, layer=layer)
+                    df_res = df_res.assign(cluster=cluster)
+                    lsDf_res.append(df_res)
+                elif npseudoRep is not None:
+                    df_res = findDegUsePseudoRep(_ad, compareKey=groupby, npseudoRep=npseudoRep, method=method, groups=_groups, randomSeed=randomSeed, shrink=shrink, njobs=njobs, layer=layer)
+                    df_res = df_res.assign(cluster=cluster)
+                    lsDf_res.append(df_res)
+            df_res = pd.concat(lsDf_res, axis=0, ignore_index=True)
+            return df_res
+        
 class QcAnndata(object):
     def __init__(self, ad, rawLayer):
         self.ad = ad
