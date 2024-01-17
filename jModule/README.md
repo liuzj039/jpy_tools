@@ -28,9 +28,8 @@ python setup.py install
 # Tips
 The following code snippets need to be added to the python script if the global environment variables are not set.
 ```python
+from joblib import Parallel, delayed
 import os
-os.environ['PATH'] = '{conda_path}/envs/sc_py/bin:' + os.environ['PATH']
-import rpy2.robjects as ro
-ro.r(".libPaths")("{conda_path}/envs/sc_py/lib/R/library")
+os.environ['R_HOME'] = '{conda_path}/anaconda3/envs/sc_py/lib/R'
 ```
 {conda_path} is the folder where conda is installed.
