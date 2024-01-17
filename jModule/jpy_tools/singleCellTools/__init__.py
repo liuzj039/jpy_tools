@@ -137,62 +137,62 @@ class DeAnndata(object):
         return df_res
     
     def identifyDegUsePseudoBulk(
-                self, groupby:str=None, replicateKey:str=None, npseudoRep:int=None, clusterKey:str = None, method:Literal['DESeq2', 'edgeR']='edgeR', groups:Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]=None, 
-                randomSeed:int=39, shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None, njobs:int=1, layer:str = 'raw'
-            ) -> pd.DataFrame:
-            """
-            Identifies differentially expressed genes using pseudo-bulk\\rep analysis.
+            self, groupby:str=None, replicateKey:str=None, npseudoRep:int=None, clusterKey:str = None, method:Literal['DESeq2', 'edgeR']='edgeR', groups:Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]=None, 
+            randomSeed:int=39, shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None, njobs:int=1, layer:str = 'raw'
+        ) -> pd.DataFrame:
+        """
+        Identifies differentially expressed genes using pseudo-bulk\\rep analysis.
 
-            Parameters:
-                groupby (str, optional): The column name in the observation metadata to group the cells by. Defaults to None.
-                replicateKey (str, optional): The column name in the observation metadata that indicates the replicate information. Cannot be used together with npseudoRep. Defaults to None.
-                npseudoRep (int, optional): The number of pseudo-replicates to generate. Cannot be used together with replicateKey. Defaults to None.
-                clusterKey (str, optional): The column name in the observation metadata that indicates the cluster information. Defaults to None.
-                method (Literal['DESeq2', 'edgeR'], optional): The method to use for differential expression analysis. Defaults to 'edgeR'.
-                groups (Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]], optional): The groups to compare. Defaults to None.
-                randomSeed (int, optional): The random seed for reproducibility. Defaults to 39.
-                shrink (Optional[Literal["apeglm", "ashr", "normal"]], optional): The method to use for shrinkage estimation. Defaults to None.
-                njobs (int, optional): The number of parallel jobs to run. Defaults to 1.
-                layer (str, optional): The layer to use for analysis. Defaults to 'raw'.
+        Parameters:
+            groupby (str, optional): The column name in the observation metadata to group the cells by. Defaults to None.
+            replicateKey (str, optional): The column name in the observation metadata that indicates the replicate information. Cannot be used together with npseudoRep. Defaults to None.
+            npseudoRep (int, optional): The number of pseudo-replicates to generate. Cannot be used together with replicateKey. Defaults to None.
+            clusterKey (str, optional): The column name in the observation metadata that indicates the cluster information. Defaults to None.
+            method (Literal['DESeq2', 'edgeR'], optional): The method to use for differential expression analysis. Defaults to 'edgeR'.
+            groups (Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]], optional): The groups to compare. Defaults to None.
+            randomSeed (int, optional): The random seed for reproducibility. Defaults to 39.
+            shrink (Optional[Literal["apeglm", "ashr", "normal"]], optional): The method to use for shrinkage estimation. Defaults to None.
+            njobs (int, optional): The number of parallel jobs to run. Defaults to 1.
+            layer (str, optional): The layer to use for analysis. Defaults to 'raw'.
 
-            Returns:
-                pd.DataFrame: A DataFrame containing the differentially expressed genes.
+        Returns:
+            pd.DataFrame: A DataFrame containing the differentially expressed genes.
 
-            Raises:
-                ValueError: If both replicateKey and npseudoRep are None or not None.
+        Raises:
+            ValueError: If both replicateKey and npseudoRep are None or not None.
 
-            """
-            
-            from .geneEnrichInfo import findDegUsePseudobulk, findDegUsePseudoRep
-            from .basic import splitAdata
-            if replicateKey is None and npseudoRep is None:
-                raise ValueError("replicateKey and npseudoRep cannot be both None")
-            if replicateKey is not None and npseudoRep is not None:
-                raise ValueError("replicateKey and npseudoRep cannot be both not None")
-            
-            if groupby is None:
-                groupby = self.groupby
-            if clusterKey is None:
-                clusterKey = self.clusterKey
-            
-            ad = sc.AnnData(self.ad.X, obs=self.ad.obs[[groupby, clusterKey]], var=self.ad.var)
-            ad.layers[layer] = self.ad.layers[layer]
+        """
+        
+        from .geneEnrichInfo import findDegUsePseudobulk, findDegUsePseudoRep
+        from .basic import splitAdata
+        if replicateKey is None and npseudoRep is None:
+            raise ValueError("replicateKey and npseudoRep cannot be both None")
+        if replicateKey is not None and npseudoRep is not None:
+            raise ValueError("replicateKey and npseudoRep cannot be both not None")
+        
+        if groupby is None:
+            groupby = self.groupby
+        if clusterKey is None:
+            clusterKey = self.clusterKey
+        
+        ad = sc.AnnData(self.ad.X, obs=self.ad.obs[[groupby, clusterKey]], var=self.ad.var)
+        ad.layers[layer] = self.ad.layers[layer]
 
-            lsDf_res = []
-            for cluster, _ad in splitAdata(ad, clusterKey, needName=True):
-                if groups is None:
-                    ls_allSample = _ad.obs[groupby].unique()
-                    _groups = [self.controlName, [x for x in ls_allSample if x != self.controlName]]
-                if replicateKey is not None:
-                    df_res = findDegUsePseudobulk(_ad, compareKey=groupby, replicateKey=replicateKey, method=method, groups=_groups, randomSeed=randomSeed, shrink=shrink, njobs=njobs, layer=layer)
-                    df_res = df_res.assign(cluster=cluster)
-                    lsDf_res.append(df_res)
-                elif npseudoRep is not None:
-                    df_res = findDegUsePseudoRep(_ad, compareKey=groupby, npseudoRep=npseudoRep, method=method, groups=_groups, randomSeed=randomSeed, shrink=shrink, njobs=njobs, layer=layer)
-                    df_res = df_res.assign(cluster=cluster)
-                    lsDf_res.append(df_res)
-            df_res = pd.concat(lsDf_res, axis=0, ignore_index=True)
-            return df_res
+        lsDf_res = []
+        for cluster, _ad in splitAdata(ad, clusterKey, needName=True):
+            if groups is None:
+                ls_allSample = _ad.obs[groupby].unique()
+                _groups = [self.controlName, [x for x in ls_allSample if x != self.controlName]]
+            if replicateKey is not None:
+                df_res = findDegUsePseudobulk(_ad, compareKey=groupby, replicateKey=replicateKey, method=method, groups=_groups, randomSeed=randomSeed, shrink=shrink, njobs=njobs, layer=layer)
+                df_res = df_res.assign(cluster=cluster)
+                lsDf_res.append(df_res)
+            elif npseudoRep is not None:
+                df_res = findDegUsePseudoRep(_ad, compareKey=groupby, npseudoRep=npseudoRep, method=method, groups=_groups, randomSeed=randomSeed, shrink=shrink, njobs=njobs, layer=layer)
+                df_res = df_res.assign(cluster=cluster)
+                lsDf_res.append(df_res)
+        df_res = pd.concat(lsDf_res, axis=0, ignore_index=True)
+        return df_res
         
 class QcAnndata(object):
     def __init__(self, ad, rawLayer):
@@ -348,17 +348,17 @@ class EnhancedAnndata(object):
         """
         self.anno = LabelTransferAnndata(ad_ref, self.ad, refLabel=refLabel, refLayer=refLayer, queryLayer=self.rawLayer, resultKey=resultKey)
     
-    def initDe(self, groupby: str, treatmentCol: str, controlName: str, resultKey: str = None):
+    def initDe(self, clusterKey: str, groupby: str, controlName: str, resultKey: str = None):
         """
         Initializes the differential expression analysis object.
 
         Parameters:
-            groupby (str): The column name in the AnnData object that specifies the groups.
-            treatmentCol (str): The column name in the AnnData object that specifies the treatment condition.
-            controlName (str): The name of the control group.
-            resultKey (str, optional): The key to store the differential expression results. Defaults to None.
+        - clusterKey (str): The key for the cluster column in the AnnData object.
+        - groupby (str): The key for the grouping column in the AnnData object.
+        - controlName (str): The name of the control group.
+        - resultKey (str, optional): The key for storing the differential expression results. Defaults to None.
         """
-        self.de = DeAnndata(self.ad, groupby=groupby, treatmentCol=treatmentCol, controlName=controlName, resultKey=resultKey)
+        self.de = DeAnndata(self.ad, groupby=groupby, clusterKey=clusterKey, controlName=controlName, resultKey=resultKey)
 
     # set uns obs var obsm varm layers X
     @property
