@@ -1,8 +1,8 @@
 # Install
 0. clone this package
 ```bash
-git clone https://github.com/ZhaiLab-SUSTech/Liuzj_allScripts.git
-cd ./Liuzj_allScripts/jModule
+git clone https://github.com/liuzj039/jpy_tools.git
+cd ./jpy_tools/jModule
 ```
 1. install reliable packages
 - create a new environment
