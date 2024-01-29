@@ -1,3 +1,4 @@
+from inflect import engine
 import seaborn as sns
 import matplotlib as mpl
 from matplotlib import pyplot as plt
@@ -120,8 +121,8 @@ class GeneOverlapBase(object):
         """
         ls_sharedGenes = list(set(df_comp1[geneKey]) & set(df_comp2[geneKey]))
         N = len(ls_sharedGenes)
-        set_n1 = set(df_comp1.query(f"{categoryKey} == @categoryTarget & {geneKey} in @ls_sharedGenes")[geneKey])
-        set_n2 = set(df_comp2.query(f"{categoryKey} == @categoryTarget & {geneKey} in @ls_sharedGenes")[geneKey])
+        set_n1 = set(df_comp1.query(f"{categoryKey} == @categoryTarget & {geneKey} in @ls_sharedGenes", engine='python')[geneKey])
+        set_n2 = set(df_comp2.query(f"{categoryKey} == @categoryTarget & {geneKey} in @ls_sharedGenes", engine='python')[geneKey])
         m = len(set_n1 & set_n2)
         n1 = len(set_n1)
         n2 = len(set_n2)

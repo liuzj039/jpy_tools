@@ -1178,17 +1178,24 @@ class PlotAnndata(object):
     def __init__(self, ad, rawLayer='raw'):
         self.ad = ad
         self.rawLayer = rawLayer
-        if 'pseudobulk_anndata' in self.ad.uns:
-            pass
-        else:
-            self.ad.uns['pseudobulk_anndata'] = {}
-        self.dtAd_pb = self.ad.uns['pseudobulk_anndata']
+        # if 'pseudobulk_anndata' in self.ad.uns:
+        #     pass
+        # else:
+        #     self.ad.uns['pseudobulk_anndata'] = {}
+        # self.dtAd_pb = self.ad.uns['pseudobulk_anndata']
+
     def __repr__(self):
         contents = ['PlotAnndata:\n' + self.ad.__repr__()]
         contents.append('Pseudobulk AnnData:')
         for groups, ad_pb in self.dtAd_pb.items():
             contents.append(f"\t\t{groups}")
         return '\n'.join(contents)
+    
+    @property
+    def dtAd_pb(self):
+        if 'pseudobulk_anndata' not in self.ad.uns:
+            self.ad.uns['pseudobulk_anndata'] = {}
+        return self.ad.uns['pseudobulk_anndata']
 
     def getAdColors(self, label):
         ad = self.ad
@@ -1411,7 +1418,7 @@ class PlotAnndata(object):
 
     def heatmapGeneExp(
             self, ls_group: Union[None, List[str]], ls_leftAnno:List[str], dt_genes:Dict[str, List[str]], layer='normalize_log', height=10, width=10, cmap='Reds', standardScale=None, showGeneCounts=False,
-            addGeneName:bool=False, addGeneCatName:bool=True, geneSpace=0.005, needExp=False, useObsm=False, cellSplitBy=None, **dt_forHeatmap):
+            addGeneName:bool=False, addGeneCatName:bool=True, geneSpace=0.005, cellSpace=0.003, needExp=False, useObsm=False, cellSplitBy=None, **dt_forHeatmap):
         '''The `heatmapGeneExp` function generates a heatmap of gene expression in a single-cell RNA sequencing dataset, with options for customization such as color mapping, scaling, and showing gene counts.
 
         Parameters
@@ -1483,7 +1490,7 @@ class PlotAnndata(object):
                 mp.Labels(ls_genes)
             )
         if cellSplitBy:
-            h.hsplit(labels=ad_pb.obs[cellSplitBy], order=ad_pb.obs[cellSplitBy].cat.categories.tolist(), spacing=0.005)
+            h.hsplit(labels=ad_pb.obs[cellSplitBy], order=ad_pb.obs[cellSplitBy].cat.categories.tolist(), spacing=cellSpace)
         h.add_legends()
         if needExp:
             return h, df_heatmap
@@ -1655,12 +1662,13 @@ class PlotAnndata(object):
         
         for ax in fig.axes:
             if showTickLabels:
-                pass
+                ax.xaxis.set_tick_params(labelbottom=True)
+                ax.yaxis.set_tick_params(labelleft=True)
             else:
-                for ax in fig.axes:
-                    ax.xaxis.set_tick_params(labelbottom=False)
-                    ax.yaxis.set_tick_params(labelleft=False)
-
+                ax.xaxis.set_tick_params(labelbottom=False)
+                ax.yaxis.set_tick_params(labelleft=False)
+                
+            ax.xaxis.label.set_visible(True)
         # if italicTitle:
         #         ax.set_title(ax.get_title(), fontstyle='italic')
 

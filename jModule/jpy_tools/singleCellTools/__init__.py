@@ -9,7 +9,7 @@ FilePath: /undefined/public1/software/liuzj/scripts/jModule/jpy_tools/singleCell
 """
 single cell analysis tools wrapper
 """
-import tensorflow # if not import tensorflow first, `core dump` will occur
+# import tensorflow # if not import tensorflow first, `core dump` will occur
 import scanpy as sc
 import pandas as pd
 import numpy as np
@@ -31,7 +31,7 @@ from typing import (
 from ..otherTools import setSeed
 from . import (
     basic,
-    spatialTools,
+    # spatialTools,
     annotation,
     bustools,
     detectDoublet,
@@ -44,7 +44,7 @@ from . import (
     geneEnrichInfo,
     others,
     parseSnuupy,
-    recipe,
+    # recipe,
     removeAmbient
 )
 from .plotting import PlotAnndata
@@ -286,7 +286,7 @@ class EnhancedAnndata(object):
     - de (DeAnndata): An instance of the DeAnndata class for differential expression analysis functionalities.
     """
 
-    def __init__(self, ad: sc.AnnData, rawLayer:str = 'raw'):
+    def __init__(self, ad: sc.AnnData, rawLayer:Optional[str] = None):
         """
         Initialize the EnhancedAnndata class.
 
@@ -295,20 +295,46 @@ class EnhancedAnndata(object):
         - rawLayer (str): Name of the raw layer in the AnnData object.
         """
         self.ad = ad
+        if rawLayer is None:
+            if 'EnhancedAnndata_rawLayer' in ad.uns:
+                rawLayer = ad.uns['EnhancedAnndata_rawLayer']
+            else:
+                rawLayer = 'raw'
+
         self.rawLayer = rawLayer
         self.pl = PlotAnndata(self.ad, rawLayer=self.rawLayer)
         self.norm = NormAnndata(self.ad, rawLayer=self.rawLayer)
         self.qc = QcAnndata(self.ad, rawLayer=self.rawLayer)
         self.cl = clusterAnndata(self.ad, rawLayer=self.rawLayer)
     
+    def copy(self) -> 'EnhancedAnndata':
+        return EnhancedAnndata(self.ad.copy(), rawLayer=self.rawLayer)
+
+    def subsample(self, n:int, randomSeed:int=39, copy:bool=False) -> 'EnhancedAnndata':
+        """
+        Subsample the current dataset.
+
+        Parameters:
+            n (int): The number of cells to subsample.
+            randomSeed (int, optional): The random seed for reproducibility. Defaults to 39.
+            copy (bool, optional): Whether to return a copy of the subsampled dataset. Defaults to False.
+
+        Returns:
+            EnhancedAnndata: The subsampled dataset.
+        """
+        df = self.ad.obs
+        df = df.sample(n=n, random_state=randomSeed)
+        ead = self[df.index, :].copy() if copy else self[df.index, :]
+        return ead
+
     @property
     def rawLayer(self):
-        return self._rawLayer
+        return self.uns['EnhancedAnndata_rawLayer']
 
     @rawLayer.setter
     def rawLayer(self, value):
         logger.warning(f"rawLayer will be overwritten by {value} and all the related objects will be re-initialized")
-        self._rawLayer = value
+        self.uns['EnhancedAnndata_rawLayer'] = value
         self.pl = PlotAnndata(self.ad, rawLayer=self.rawLayer)
         self.norm = NormAnndata(self.ad, rawLayer=self.rawLayer)
         self.qc = QcAnndata(self.ad, rawLayer=self.rawLayer)

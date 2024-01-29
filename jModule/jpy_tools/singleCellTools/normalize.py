@@ -825,11 +825,16 @@ class NormAnndata(object):
         """
         self.ad = ad
         self.rawLayer = rawLayer
+        self.lastResKey = lastResKey
+    
+    @property
+    def lastRes(self):
+        lastResKey = self.lastResKey
         if lastResKey in self.ad.uns.keys():
-            self.lastRes = self.ad.uns[lastResKey]
+            return self.ad.uns[lastResKey]
         else:
             self.ad.uns[lastResKey] = {}
-            self.lastRes = self.ad.uns[lastResKey]
+            return self.ad.uns[lastResKey]
     
     def __repr__(self):
         contents = f"NormAnndata object, rawLayer: {self.rawLayer}, lastRes: {self.lastRes}\n"  + self.ad.__repr__()

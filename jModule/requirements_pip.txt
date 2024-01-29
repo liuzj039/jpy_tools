@@ -1,14 +1,14 @@
 # pip only
-muon>=0.1.2
-mudata>=0.2.0
+#muon>=0.1.2
+#mudata>=0.2.0
 cosg
 patchworklib
-ont-fast5-api
-cool
+#ont-fast5-api
+#cool
 cellex
 pyscenic>=0.11.2
 marsilea
 legendkit
-snapatac2
-scikit-misc==0.1.4
+#snapatac2
+#scikit-misc==0.1.4
 pertpy

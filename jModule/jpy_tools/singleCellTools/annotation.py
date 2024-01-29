@@ -1,4 +1,5 @@
 from logging import log
+from unittest import result
 import scvi
 import pandas as pd
 import numpy as np
@@ -1194,11 +1195,15 @@ class LabelTransferAnndata(object):
             resultKey = refLabel
         self.resultKey = resultKey
         self.refLabel = refLabel
+    
+    @property
+    def st_runInfo(self):
+        resultKey = self.resultKey
         if f'labelTransfer_{resultKey}' in self.ad_query.uns:
             pass
         else:
             self.ad_query.uns[f'labelTransfer_{resultKey}'] = []
-        self.st_runInfo = self.ad_query.uns[f'labelTransfer_{resultKey}']
+        return self.ad_query.uns[f'labelTransfer_{resultKey}']
     
     def addRunInfo(self, info):
         self.st_runInfo = set(self.st_runInfo)
