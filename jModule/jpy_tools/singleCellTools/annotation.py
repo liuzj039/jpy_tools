@@ -1204,11 +1204,15 @@ class LabelTransferAnndata(object):
         else:
             self.ad_query.uns[f'labelTransfer_{resultKey}'] = []
         return self.ad_query.uns[f'labelTransfer_{resultKey}']
+
+    @st_runInfo.setter
+    def st_runInfo(self, value):
+        self.ad_query.uns[f'labelTransfer_{self.resultKey}'] = value
     
     def addRunInfo(self, info):
         self.st_runInfo = set(self.st_runInfo)
         self.st_runInfo.add(info)
-        self.ad_query.uns[f'labelTransfer_{self.resultKey}'] = list(self.st_runInfo)
+        self.st_runInfo = list(self.st_runInfo)
 
     def __repr__(self):
         contents = ['LabelTransferAnndata (Ref):\n' + self.ad_ref.__repr__()]
