@@ -61,6 +61,7 @@ class DeAnndata(object):
         self.controlName = controlName
         if resultKey is None:
             self.resultKey = f"de_{self.groupby}"
+
         # if self.resultKey not in self.ad.uns:
         #     self.ad.uns[self.resultKey] = {}
 
@@ -300,7 +301,13 @@ class EnhancedAnndata(object):
                 rawLayer = ad.uns['EnhancedAnndata_rawLayer']
             else:
                 rawLayer = 'raw'
-
+        # test whether '_' in ad.obs.index 
+        if ad.obs.index.str.contains('_').any():
+            logger.warning("The index of ad.obs contains '_' which may cause some problems, please remove it first")
+        # test whether '_' in ad.var.index 
+        if ad.var.index.str.contains('_').any():
+            logger.warning("The index of ad.var contains '_' which may cause some problems, please remove it first")
+                
         self.rawLayer = rawLayer
         self.pl = PlotAnndata(self.ad, rawLayer=self.rawLayer)
         self.norm = NormAnndata(self.ad, rawLayer=self.rawLayer)

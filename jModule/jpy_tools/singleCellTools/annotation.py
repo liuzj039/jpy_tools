@@ -1679,6 +1679,7 @@ class LabelTransferAnndata(object):
         integrateEmbeddings_args = {},
         transferdata_args = {},
         returnSoRef=False,
+        returnIntegratedAd=False,
         so_prevRef=None,
         forceRun:bool = False,
         rEnv=None,
@@ -1827,8 +1828,12 @@ class LabelTransferAnndata(object):
             # sc.pl.embedding(ad_ref, f'X_umap_{resultKey}', color=f'{refLabel}')
             # sc.pl.embedding(ad_query, f'X_umap_{resultKey}', color=f'seurat_{resultKey}_labelTransfer')
         self.addRunInfo('seurat')
+        ls_return = [None, None]
         if returnSoRef:
-            return rEnv['so.ref']
+            ls_return[0] = rEnv['so.ref']
+        if returnIntegratedAd:
+            ls_return[1] = pad_temp
+        return ls_return
     
     def metaNeighbor(
             self, studyCol, refLabel=None, queryLabel=None,
