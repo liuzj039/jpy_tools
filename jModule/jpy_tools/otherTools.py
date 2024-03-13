@@ -1035,6 +1035,15 @@ class FigConcate(object):
         fig_concate.figAr = ar_concate
         return fig_concate
     
+    @property
+    def figure(self):
+        fig = self.show()
+        return fig
+
+    # def _repr_png_(self):
+    #     fig = self.show()
+    #     return fig
+    
     def show(self, figsize=(10, 10)):
         fig = plt.figure(figsize=figsize)
         plt.imshow(self.figAr)

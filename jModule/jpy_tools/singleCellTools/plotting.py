@@ -1499,7 +1499,8 @@ class PlotAnndata(object):
     
     def _embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
                   cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0.9,
-                  figsize=(8,6), legendCol=1, legendInFig=False, fc_legendInFig=lambda _: _.split(':')[0], needLegend=True, subsample=None, showTickLabels=False, italicTitle=None,
+                  figsize=(8,6), legendCol=1, legendInFig=False, legendFigArtistKws={'weight':'bold'}, fc_legendInFig=lambda _: _.split(':')[0], needLegend=True, subsample=None, showTickLabels=False, italicTitle=None,
+                  fc_additional = lambda _: _,
                   dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
 
@@ -1534,7 +1535,7 @@ class PlotAnndata(object):
 
         Returns
         -------
-            two values: `g` and `fig`. `g` is an instance of the `so.Plot` class, which represents the plot object, and `fig` is the matplotlib figure object.
+           Fig
 
         '''
         ad = self.ad
@@ -1624,10 +1625,14 @@ class PlotAnndata(object):
         if useObs:
             if legendInFig:
                 df_clusterLabelLoc[color] = df_clusterLabelLoc[color].map(fc_legendInFig)
+                dt_textKws = dict(halign='center', valign='center')
+                if 'fontsize' in legendFigArtistKws:
+                    fontsize = legendFigArtistKws.pop('fontsize')
+                    dt_textKws['fontsize'] = fontsize
+                dt_textKws['artist_kws'] = legendFigArtistKws
+
                 g = g.add(
-                    so.Text(
-                        halign='center', valign='center', artist_kws={'weight':'bold'}
-                    ), 
+                    so.Text(**dt_textKws), 
                     data=df_clusterLabelLoc, x='x', y='y', text=color, 
                     col='groupby' if groupby else None
                 )
@@ -1639,6 +1644,7 @@ class PlotAnndata(object):
 
         if groupby:
             g = g.facet(col='groupby', wrap=wrap, order=ls_group)
+        g = fc_additional(g)
         fig = plt.figure(figsize=figsize)
         p = g.on(fig).plot()
         # p._repr_png_()
@@ -1675,11 +1681,12 @@ class PlotAnndata(object):
 
         fig.suptitle(title, y=titleLocY, va='baseline', fontstyle='italic' if italicTitle else 'normal')
         plt.close()
-        return g, fig
+        return fig
 
     def embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
                   cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0.9,
-                  figsize=(8,6), legendCol=1, legendInFig=False, fc_legendInFig=lambda _: _.split(':')[0], needLegend=True, subsample=None, showTickLabels=False, italicTitle=None,
+                  figsize=(8,6), legendCol=1, legendInFig=False, legendFigArtistKws={'weight':'bold'}, fc_legendInFig=lambda _: _.split(':')[0], needLegend=True, subsample=None, showTickLabels=False, italicTitle=None,
+                  fc_additional=lambda _: _,
                   dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
 
@@ -1715,43 +1722,51 @@ class PlotAnndata(object):
 
         Returns
         -------
-        if only one color is provided, returns two values: `g` and `fig`. `g` is an instance of the `so.Plot` class, which represents the plot object, and `fig` is the matplotlib figure object.
-        if multiple colors are provided, returns a FigConcate.
+        fig or figconcat
 
         '''
         if isinstance(color, str):
             return self._embedding(
-                embed=embed, color=color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme)
+                embed=embed, color=color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme, fc_additional=fc_additional,legendFigArtistKws=legendFigArtistKws)
         else:
             from ..otherTools import FigConcate, FigConcateWrap
             # assert groupby is None, "groupby is not supported when multiple colors are provided"
             if groupby is None:
                 figwrap = FigConcateWrap()
                 for _color in color:
-                    _, fig = self._embedding(
-                        embed=embed, color=_color, title=title, layer=layer, groupby=groupby, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme)
+                    fig = self._embedding(
+                        embed=embed, color=_color, title=title, layer=layer, groupby=groupby, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme, fc_additional=fc_additional,legendFigArtistKws=legendFigArtistKws)
                     figwrap.addFig(fig >> F(FigConcate))
                 return figwrap.wrapAndGenerate(wrap)
             else:
                 figwrap = FigConcateWrap()
                 logger.warning("Both groupby and multiple colors are provided. `Wrap` will be ignored.")
                 for _color in color:
-                    _, fig = self._embedding(
-                        embed=embed, color=_color, title=title, layer=layer, groupby=groupby, wrap=None, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme)
+                    fig = self._embedding(
+                        embed=embed, color=_color, title=title, layer=layer, groupby=groupby, wrap=None, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme, fc_additional=fc_additional,legendFigArtistKws=legendFigArtistKws)
                     figwrap.addFig(fig >> F(FigConcate))
                 return figwrap.wrapAndGenerate(wrap=1)
             
 
-    def catplot(self, x, y, kind, hue=None, **dt_args):
+    def catplot(self, x, y, kind, hue=None, gene:bool=False, layer=None, **dt_args):
         ad = self.ad
-        if hue is None:
-            hue = x
-            df = ad.obs[[x, y]].copy()
-        else:
-            df = ad.obs[[x, y, hue]].copy()
-        
-        dt_colors = self.getAdColors(hue)
 
+        
+        if not gene:
+            if hue is None:
+                hue = x
+                df = ad.obs[[x, y]].copy()
+            else:
+                df = ad.obs[[x, y, hue]].copy()
+        else:
+            if hue is None:
+                hue = x
+                df = ad.obs[[x]].copy()
+            else:
+                df = ad.obs[[x, hue]].copy()
+            df[y] = ad[:, y].to_df(layer)[y]
+
+        dt_colors = self.getAdColors(hue)
         p = sns.catplot(
             df,
             x=x,

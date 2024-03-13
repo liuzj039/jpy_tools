@@ -1819,7 +1819,7 @@ class LabelTransferAnndata(object):
                                                 basic.getadataColor(ad_ref, f'{refLabel}'))
             ad_temp.layers['raw'] = ad_temp.X
             pad_temp = PlotAnndata(ad_temp)
-            _, fig = pad_temp.embedding(f'X_umap_{resultKey}', color=f'seurat_temp', size=10000/ad_temp.shape[0], groupby='seurat_batch', addBackground=True, figsize=(8,3))
+            fig = pad_temp.embedding(f'X_umap_{resultKey}', color=f'seurat_temp', size=10000/ad_temp.shape[0], groupby='seurat_batch', addBackground=True, figsize=(8,3))
             display(fig)
             del(ad_ref.obs['seurat_temp'])
             del(ad_ref.obs['seurat_batch'])

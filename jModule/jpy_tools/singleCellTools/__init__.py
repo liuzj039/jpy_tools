@@ -314,6 +314,21 @@ class EnhancedAnndata(object):
         self.qc = QcAnndata(self.ad, rawLayer=self.rawLayer)
         self.cl = clusterAnndata(self.ad, rawLayer=self.rawLayer)
     
+    def initLayer(self, layer=None, total=1e4, needScale=False, logbase=2):
+        """
+        overwrite layer: `raw`, `normalize_log`, `normalize_log_scale`, 'X'
+        """
+        layer = self.rawLayer if layer is None else layer
+        ad = self.ad
+        ad.layers['raw'] = ad.layers[layer].copy()
+        ad.layers['normalize_log'] = ad.layers['raw'].copy()
+        sc.pp.normalize_total(ad, total, layer='normalize_log')
+        sc.pp.log1p(ad, layer='normalize_log', base=logbase)
+        if needScale:
+            ad.layers['normalize_log_scale'] = ad.layers['normalize_log'].copy()
+            sc.pp.scale(ad, layer='normalize_log_scale')
+        ad.X = ad.layers['normalize_log'].copy()
+    
     def copy(self) -> 'EnhancedAnndata':
         return EnhancedAnndata(self.ad.copy(), rawLayer=self.rawLayer)
 
