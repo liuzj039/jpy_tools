@@ -179,7 +179,7 @@ then
 fi
 if [ {params.barcode} != False ]
 then
-    cmd="$cmd --barcode
+    cmd="$cmd --barcode"
 fi
 eval $cmd
 touch {output.mergeFqFinished}
