@@ -25,6 +25,7 @@ df_basecall.dir_output = df_basecall.dir_output + df_basecall.nparts.astype(str)
 df_basecall['basecalledDir'] = df_basecall.index + '/'
 df_basecall['guppy'] = config['guppy']
 df_basecall['model'] = config['model']
+df_basecall['barcode'] = df_basecall['sample'].map(lambda _: False if 'barcode_kits' not in config['input'][_] else config['input'][_]['barcode_kits'])
 for column in ['basecalledDir']:
     df_basecall[column] = resultDir + 'step2_basecall/' + df_basecall[column]
 
