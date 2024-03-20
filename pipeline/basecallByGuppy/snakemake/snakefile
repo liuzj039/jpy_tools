@@ -129,6 +129,7 @@ rule basecall:
         basecalledDir = lambda wildcard: df_basecall.at[wildcard.sampleSplit, 'basecalledDir'],
         guppy = lambda wildcard: df_basecall.at[wildcard.sampleSplit, 'guppy'],
         model = lambda wildcard: df_basecall.at[wildcard.sampleSplit, 'model'],
+        barcode = lambda wildcard: df_basecall.at[wildcard.sampleSplit, 'barcode'],
     threads:18
     priority:0
     shell:
