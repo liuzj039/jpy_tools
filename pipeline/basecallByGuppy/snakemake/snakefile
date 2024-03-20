@@ -81,9 +81,9 @@ rule all:
         mergeFqFinished = [resultDir + 'step3_mergeFq/' + "" + sample + ".finished" for sample in df_mergeFq.index],
 
 # parameter's dataframe of splitH5: 
-# |     | need_h5   |   nparts | path                                                                                    | dir_output   |
-# |:----|:----------|---------:|:----------------------------------------------------------------------------------------|:-------------|
-# | all | False     |       12 | /scem/work/liuzj/projects/mouse/allFast5/20210723_1345_MN29338_FAQ41752_7386409e/fast5/ | all/         |
+# |     | barcode_kits   | need_h5   |   nparts | path                                                                                    | dir_output   |
+# |:----|:---------------|:----------|---------:|:----------------------------------------------------------------------------------------|:-------------|
+# | all | SQK-PCS111     | False     |       12 | /scem/work/liuzj/projects/mouse/allFast5/20210723_1345_MN29338_FAQ41752_7386409e/fast5/ | all/         |
 rule splitH5:
     input:
         path = lambda wildcard: df_splitH5.at[wildcard.sample, 'path'],
@@ -103,20 +103,20 @@ touch {output.splitH5Finished}
         """
 
 # parameter's dataframe of basecall: 
-# |        |   nparts | dir_output   | sample   | basecalledDir   | guppy                                          | model                                                    |
-# |:-------|---------:|:-------------|:---------|:----------------|:-----------------------------------------------|:---------------------------------------------------------|
-# | all_0  |        0 | all/0/       | all      | all_0/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all_1  |        1 | all/1/       | all      | all_1/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all_2  |        2 | all/2/       | all      | all_2/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all_3  |        3 | all/3/       | all      | all_3/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all_4  |        4 | all/4/       | all      | all_4/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all_5  |        5 | all/5/       | all      | all_5/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all_6  |        6 | all/6/       | all      | all_6/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all_7  |        7 | all/7/       | all      | all_7/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all_8  |        8 | all/8/       | all      | all_8/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all_9  |        9 | all/9/       | all      | all_9/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all_10 |       10 | all/10/      | all      | all_10/         | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
-# | all_11 |       11 | all/11/      | all      | all_11/         | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg |
+# |        |   nparts | dir_output   | sample   | basecalledDir   | guppy                                          | model                                                    | barcode    |
+# |:-------|---------:|:-------------|:---------|:----------------|:-----------------------------------------------|:---------------------------------------------------------|:-----------|
+# | all_0  |        0 | all/0/       | all      | all_0/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg | SQK-PCS111 |
+# | all_1  |        1 | all/1/       | all      | all_1/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg | SQK-PCS111 |
+# | all_2  |        2 | all/2/       | all      | all_2/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg | SQK-PCS111 |
+# | all_3  |        3 | all/3/       | all      | all_3/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg | SQK-PCS111 |
+# | all_4  |        4 | all/4/       | all      | all_4/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg | SQK-PCS111 |
+# | all_5  |        5 | all/5/       | all      | all_5/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg | SQK-PCS111 |
+# | all_6  |        6 | all/6/       | all      | all_6/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg | SQK-PCS111 |
+# | all_7  |        7 | all/7/       | all      | all_7/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg | SQK-PCS111 |
+# | all_8  |        8 | all/8/       | all      | all_8/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg | SQK-PCS111 |
+# | all_9  |        9 | all/9/       | all      | all_9/          | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg | SQK-PCS111 |
+# | all_10 |       10 | all/10/      | all      | all_10/         | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg | SQK-PCS111 |
+# | all_11 |       11 | all/11/      | all      | all_11/         | ~/softwares/ont-guppy-4.2/bin/guppy_basecaller | ~/softwares/ont-guppy-4.2/data/dna_r9.4.1_450bps_hac.cfg | SQK-PCS111 |
 rule basecall:
     input:
         splitH5Finished = parseDfToInput_basecall_splitH5,
@@ -133,12 +133,16 @@ rule basecall:
     priority:0
     shell:
         """
+cmd="{params.guppy} -c {params.model} -i {params.dir_output} --qscore_filtering --min_qscore=7 -s {params.basecalledDir} -x "cuda:all:100%" --disable_pings"
 if [ {params.need_h5} = True ]
 then
-    {params.guppy} -c {params.model} -i {params.dir_output} --qscore_filtering --min_qscore=7 -s {params.basecalledDir} -x "cuda:all:100%" --disable_pings --fast5_out
-else
-    {params.guppy} -c {params.model} -i {params.dir_output} --qscore_filtering --min_qscore=7 -s {params.basecalledDir} -x "cuda:all:100%" --disable_pings
+    cmd="$cmd --fast5_out"
 fi
+if [ {params.barcode} != False ]
+then
+    cmd="$cmd --barcode_kits {params.barcode}"
+fi
+eval $cmd
 touch {output.basecallFinished}
         """
 

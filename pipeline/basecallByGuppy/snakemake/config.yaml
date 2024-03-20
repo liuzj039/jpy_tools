@@ -14,3 +14,5 @@ input:
       12
     need_h5:
       False
+    barcode_kits:
+      SQK-PCS111
