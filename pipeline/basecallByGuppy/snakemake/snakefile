@@ -54,6 +54,7 @@ def parseDfToParams_basecall_splitH5_need_h5(wildcard):
 df_mergeFq = df_basecall.reset_index().groupby("sample")["index"].agg(list).pipe(
     pd.DataFrame
 ).rename(columns={"index": "sampleSplit"}).assign(dir_out=lambda df: df.index + "/")
+df_mergeFq['barcode'] = df_mergeFq.index.map(lambda _: False if 'barcode_kits' not in config['input'][_] else config['input'][_]['barcode_kits'])
 for column in ['dir_out']:
     df_mergeFq[column] = resultDir + 'step3_mergeFq/' + df_mergeFq[column]
 
@@ -178,7 +179,7 @@ then
 fi
 if [ {params.barcode} != False ]
 then
-    cmd="$cmd --barcode {params.barcode}"
+    cmd="$cmd --barcode
 fi
 eval $cmd
 touch {output.mergeFqFinished}
