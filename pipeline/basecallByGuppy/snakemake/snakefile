@@ -135,7 +135,7 @@ rule basecall:
     priority:0
     shell:
         """
-cmd="{params.guppy} -c {params.model} -i {params.dir_output} --qscore_filtering --min_qscore=7 -s {params.basecalledDir} -x "cuda:all:100%" --disable_pings"
+cmd="{params.guppy} -c {params.model} -i {params.dir_output} --min_qscore 7 -s {params.basecalledDir} -x "cuda:all:100%" --disable_pings"
 if [ {params.need_h5} = True ]
 then
     cmd="$cmd --fast5_out"
