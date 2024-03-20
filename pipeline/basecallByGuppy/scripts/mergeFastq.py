@@ -81,7 +81,7 @@ def mainBarcode(ls_input, dir_output, threads, fast5):
 @click.argument("ls_input", nargs=-1)
 @click.option("-o", "dir_output", required=True)
 @click.option("-t", "threads", type=int, required=True)
-@click.option("--f5", "fast5", is_flag=True, required=True)
+@click.option("--f5", "fast5", is_flag=True)
 @click.option("--barcode", "withBarcode", is_flag=True)
 def mainCmd(ls_input, dir_output, threads, fast5, withBarcode):
     if withBarcode:
