@@ -49,9 +49,11 @@ def mainBarcode(ls_input, dir_output, threads, fast5):
     sh.mkdir(dir_output, p=True)
     for dir_onePart in ls_input:
         ls_passBarcode = glob.glob(f"{dir_onePart}/pass/*")
+        ls_passBarcode = [x.split('/')[-1] for x in ls_passBarcode]
         for barcode in ls_passBarcode:
             dt_barcodePass[barcode].extend(glob.glob(f"{dir_onePart}/pass/{barcode}/*.fastq"))
         ls_failBarcode = glob.glob(f"{dir_onePart}/fail/*")
+        ls_failBarcode = [x.split('/')[-1] for x in ls_failBarcode]
         for barcode in ls_failBarcode:
             dt_barcodeFail[barcode].extend(glob.glob(f"{dir_onePart}/fail/{barcode}/*.fastq"))
 
