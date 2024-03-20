@@ -79,7 +79,7 @@ def parseDfToParams_mergeFq_basecall_basecalledDir(wildcard):
 
 rule all:
     input:
-        basecallFinished = [resultDir + 'step2_basecall/' + "" + sampleSplit + ".finished" for sampleSplit in df_basecall.index],
+        mergeFqFinished = [resultDir + 'step3_mergeFq/' + "" + sample + ".finished" for sample in df_mergeFq.index],
 
 # parameter's dataframe of splitH5: 
 # |     | barcode_kits   | need_h5   |   nparts | path                                                                                    | dir_output   |
