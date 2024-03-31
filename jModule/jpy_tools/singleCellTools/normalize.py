@@ -594,14 +594,19 @@ def normalizeBySCT(
     if copy:
         return adata
 
-def getSctResiduals(ad, ls_gene, layer='raw', forceOverwrite=False):
+def getSctResiduals(ad, ls_gene, layer='raw', forceOverwrite=False, sctVstPickle=None, sctClipRange=None):
     import pickle
     from ..rTools import py2r, r2py
     from ..otherTools import F
 
     basic.testAllCountIsInt(ad, layer)
-    assert 'sct_vst_pickle' in ad.uns, "sct_vst_pickle not found in adata.uns"
-    assert 'sct_clip_range' in ad.uns, "sct_clip_range not found in adata.layers"
+    if sctVstPickle is None:
+        assert 'sct_vst_pickle' in ad.uns, "sct_vst_pickle not found in adata.uns"
+        sctVstPickle = ad.uns['sct_vst_pickle']
+    if sctClipRange is None:
+        assert 'sct_clip_range' in ad.uns, "sct_clip_range not found in adata.layers"
+        sctClipRange = ad.uns['sct_clip_range']
+
     import rpy2.robjects as ro
     R = ro.r
 
@@ -613,8 +618,8 @@ def getSctResiduals(ad, ls_gene, layer='raw', forceOverwrite=False):
         return None
 
     fcR_getResiduals = R("sctransform::get_residuals")
-    vst_out = pickle.loads(eval(ad.uns['sct_vst_pickle']))
-    ls_clipRange = [float(x) for x in list(ad.uns['sct_clip_range'])]
+    vst_out = pickle.loads(eval(sctVstPickle))
+    ls_clipRange = [float(x) for x in list(sctClipRange)]
     df_residuals = fcR_getResiduals(vst_out, umi=ad[:, ls_gene].to_df(layer).T >> F(py2r) >> F(R("data.matrix")) >> F(R("Matrix::Matrix")), res_clip_range=R.c(*ls_clipRange)) >> F(R("as.data.frame")) >> F(r2py)
     df_residuals = df_residuals.T
     df_residuals = df_residuals - df_residuals.mean()
@@ -938,11 +943,60 @@ class NormAnndata(object):
         self.lastRes['normMethod'] = 'APR'
         gc.collect()
 
-    def useSctransform(self):
-        pass
-    
-    def getSctHvg(self):
-        pass
+    def normBySct(self,
+            batchKey=None,
+            layer=None,
+            nTopGenes=3000,
+            ls_gene=None,
+            vstFlavor="v2",
+            rEnv = None,
+            comps=50,
+            **dt_kwargsToSct,
+        ):
+        layer = self.rawLayer if layer is None else layer
+        if batchKey is None:
+            ad_sct = normalizeBySCT_r(self.ad, layer=layer, nTopGenes=nTopGenes, ls_gene=ls_gene, vstFlavor=vstFlavor, returnOnlyVarGenes=True, doCorrectUmi=False, rEnv=rEnv, runSctOnly=True, **dt_kwargsToSct)
+            self.ad.var['highly_variable'] = ad_sct.var['highly_variable']
+            self.ad.var['highly_variable_rank'] = ad_sct.var['highly_variable_rank']
+            self.ad.uns["sct_vst_pickle"] = ad_sct.uns["sct_vst_pickle"]
+            self.ad.uns["sct_clip_range"] = ad_sct.uns["sct_clip_range"]
+            ls_hvg = ad_sct.var.loc[ad_sct.var['highly_variable']].index.to_list()
+            self.getSctRes(ls_gene=ls_hvg, forceOverwrite=True)
 
-    def getSctRes(self):
-        pass
+        else:
+            self.ad.uns['sctModels'] = {}
+            lsAd_sct = []
+            for sample, _ad in basic.splitAdata(self.ad, batchKey, copy=True, needName=True):
+                ad_sct = normalizeBySCT_r(_ad, layer=layer, nTopGenes=nTopGenes, ls_gene=ls_gene, vstFlavor=vstFlavor, returnOnlyVarGenes=True, doCorrectUmi=False, rEnv=rEnv, runSctOnly=True, **dt_kwargsToSct)
+                _ad.var['highly_variable'] = ad_sct.var['highly_variable']
+                _ad.var['highly_variable_rank'] = ad_sct.var['highly_variable_rank']
+                _ad.uns["sct_vst_pickle"] = ad_sct.uns["sct_vst_pickle"]
+                _ad.uns["sct_clip_range"] = ad_sct.uns["sct_clip_range"]
+                self.ad.uns[f'{sample}_sct_vst_pickle'] = ad_sct.uns["sct_vst_pickle"]
+                self.ad.uns[f'{sample}_sct_clip_range'] = ad_sct.uns["sct_clip_range"]
+
+                lsAd_sct.append(_ad)
+            ls_hvg, _ = getHvgGeneFromSctAdata(lsAd_sct, nTopGenes=nTopGenes, nTopGenesEachAd=nTopGenes)
+            self.getSctRes(ls_gene=ls_hvg, forceOverwrite=True, batchKey=batchKey)
+
+        ad_resi = sc.AnnData(self.ad.obsm['sct_residual'])
+        ad_resi.var['highly_variable']=True
+
+        sc.tl.pca(ad_resi, n_comps=50, use_highly_variable=True)
+        self.ad.obsm['X_pca'] = ad_resi.obsm['X_pca'].copy()
+        self.ad.uns['pca'] = ad_resi.uns['pca'].copy()
+
+
+    def getSctRes(self, ls_gene, layer=None, forceOverwrite=False, batchKey=None):
+        layer = self.rawLayer if layer is None else layer
+        if batchKey is None:
+            getSctResiduals(self.ad, ls_gene, layer=layer, forceOverwrite=forceOverwrite)
+        else:
+            lsAd = []
+            for sample, _ad in basic.splitAdata(self.ad, batchKey, copy=True, needName=True):
+                getSctResiduals(_ad, ls_gene, layer=layer, forceOverwrite=forceOverwrite, sctVstPickle=self.ad.uns[f'{sample}_sct_vst_pickle'], sctClipRange=self.ad.uns[f'{sample}_sct_clip_range'])
+                lsAd.append(_ad)
+            df_resi = pd.concat([_ad.obsm['sct_residual'] for _ad in lsAd], axis=0).reindex(index=self.ad.obs.index)
+            self.ad.obsm['sct_residual'] = df_resi.copy()
+
+        

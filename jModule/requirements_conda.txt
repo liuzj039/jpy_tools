@@ -47,8 +47,8 @@ r-base>=4.1
 r-arrow
 r-reticulate
 r-sctransform
-r-seurat>=4.1,<5.0
-r-seuratobject<5.0
+r-seurat>=4.1,<4.9
+r-seuratobject<4.9
 r-htmltools>0.5.6
 r-tidyverse
 #bioconductor-aucell

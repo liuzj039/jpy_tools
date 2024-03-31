@@ -50,6 +50,7 @@ from . import (
 from .plotting import PlotAnndata
 from .normalize import NormAnndata
 from .annotation import LabelTransferAnndata
+from ..rTools import rcontext
 
 setSeed()
 
@@ -235,6 +236,89 @@ class clusterAnndata(object):
         self.ad = ad
         self.rawLayer = rawLayer
     
+    @rcontext
+    def getSeuratSnn(self, obsm, n_neighbors, n_pcs=50, keyAdded='seurat', rEnv=None, **dt_kwargsToFindNeighbors):
+        """
+        The provided Python function, getSeuratSnn, integrates Python and R environments to perform neighborhood analysis on scRNA-seq data using the Seurat package, a popular tool in the R ecosystem for single-cell genomics analysis. This function requires an anndata object and utilizes both Python and R libraries to calculate shared nearest neighbors (SNN) based on a specified number of principal components (PCs) and neighbors. 
+
+        ### Function Signature
+
+        ```python
+        def getSeuratSnn(self, obsm, n_neighbors, n_pcs=50, keyAdded='seurat', rEnv=None, **dt_kwargsToFindNeighbors):
+        ```
+
+        ### Parameters
+
+        - `obsm` (str): The key within the `.obsm` attribute of the `anndata` object where the dimensionality-reduced data is stored. For example, 'X_pca' for PCA-reduced data.
+        - `n_neighbors` (int): The number of neighbors to use when constructing the SNN graph.
+        - `n_pcs` (int, optional): The number of principal components to consider in the analysis. Defaults to 50.
+        - `keyAdded` (str, optional): The base key used to store the SNN graph and nearest neighbors in the `.obsp` attribute of the `anndata` object. Defaults to 'seurat'.
+        - `rEnv` (rpy2.robjects.environments.Environment, optional): An R environment object used for passing variables between Python and R. If not provided, it may need to be initialized beforehand.
+        - `**dt_kwargsToFindNeighbors`: Arbitrary keyword arguments to be passed to the `FindNeighbors` function in Seurat.
+
+        ### Description
+
+        This function performs the following steps:
+
+        1. Imports necessary R packages and Python modules, particularly for handling sparse matrices and converting between `anndata` objects and Seurat objects.
+        2. Extracts the specified dimensionality-reduced data (`obsm`) up to the number of specified principal components (`n_pcs`) from the `anndata` object associated with the instance (`self.ad`).
+        3. Creates a temporary `anndata` object with this reduced data, copying the 'obs' and 'var' from the original `anndata` object. This temporary object is then used to create a Seurat object.
+        4. Sets up and performs the `FindNeighbors` function in Seurat through R's environment, based on the specified `n_neighbors` and any additional arguments (`**dt_kwargsToFindNeighbors`). This function computes the SNN based on the reduced dataset.
+        5. Converts the Seurat object back into an `anndata` object and updates the original `anndata` object's `.obsp` attribute with the SNN graph and nearest neighbors information under keys derived from the `keyAdded` parameter.
+
+        ### Notes
+
+        - This function requires an understanding of both Python and R programming, as well as familiarity with the `anndata` format used in Python for single-cell analysis and the Seurat package in R.
+        - It leverages `rpy2` to interface between Python and R, allowing for the use of R functions within Python.
+        - The user must ensure that the required R packages (`Seurat`, `DescTools`) are installed in their R environment.
+        - This function is designed to be part of a larger class (indicated by the use of `self`), which should contain the `anndata` object (`self.ad`) to be analyzed.
+
+        ### Example Usage
+
+        This example assumes that `getSeuratSnn` is a method within a class that contains an `anndata` object as `self.ad`.
+
+        ```python
+        # Assuming `ead` is an instance of the class containing `getSeuratSnn`
+        ead.getSeuratSnn(obsm='X_pca', n_neighbors=30)
+        ```
+
+        This call will update the `anndata` object within `analyzer` with the SNN graph and nearest neighbors information, based on the first 50 PCs and 30 neighbors, adding these under keys with the base 'seurat' in the `.obsp` attribute.
+        """
+        import rpy2
+        import rpy2.robjects as ro
+        from rpy2.robjects.packages import importr
+        import scipy.sparse as ss
+        from ..rTools import py2r, ad2so, so2ad
+        importr("Seurat")
+        importr("DescTools")
+
+        ad = self.ad
+        ar_embedding = ad.obsm[obsm][:, :n_pcs]
+
+        ad_temp = sc.AnnData(ss.csr_matrix(ad.shape), obs=ad.obs, var=ad.var)
+        ad_temp.obsm[obsm] = ar_embedding
+
+        ad_temp.layers['count'] = ad_temp.X.copy()
+        ad_temp.layers['norm'] = ad_temp.X.copy()
+
+        so = ad2so(ad_temp, dataLayer='norm', layer='count')
+
+        _obsm = obsm[2:] if obsm.startswith('X_') else obsm
+        dt_kwargs = dict(
+            object=so, 
+            reduction=_obsm, 
+            dims=py2r(np.arange(1, n_pcs + 1)),\
+        )
+        dt_kwargs['k.param'] = n_neighbors
+        dt_kwargs.update(dt_kwargsToFindNeighbors)
+        rEnv['kwargs'] = ro.r.list(**dt_kwargs)
+        ro.r("so <- DoCall(FindNeighbors, kwargs)")
+
+        ad_nn = so2ad(rEnv['so'])
+        ad.obsp[f'{keyAdded}_snn'] = ad_nn.obsp['RNA_snn']
+        ad.obsp[keyAdded] = ad_nn.obsp['RNA_nn']
+
+
     def getShilouetteScore(
             self, ls_res: List[float], obsm: Union[str, np.ndarray], clusterKey:str='leiden', subsample=None, metric='euclidean', show=True, check=True, pcs:int = 50, cores:int = 1, 
         ) -> Dict[str, float]:
@@ -442,13 +526,29 @@ class EnhancedAnndata(object):
         self.ad.obsm = value
 
     @property
+    def obsp(self):
+        return self.ad.obsp
+    
+    @obsp.setter
+    def obsp(self, value):
+        self.ad.obsp = value
+
+    @property
     def varm(self):
         return self.ad.varm
     
     @varm.setter
     def varm(self, value):
         self.ad.varm = value
+
+    @property
+    def varp(self):
+        return self.ad.varp
     
+    @varp.setter
+    def varm(self, value):
+        self.ad.varp = value
+
     @property
     def layers(self):
         return self.ad.layers

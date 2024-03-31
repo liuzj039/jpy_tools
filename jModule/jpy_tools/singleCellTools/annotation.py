@@ -1926,8 +1926,48 @@ class LabelTransferAnndata(object):
         self.ad_query.uns[f'{refLabel}_MetaNeighborUS'] = df_res
         self.addRunInfo('metaNeighbor')
         return df_res
+    
+    def getAUCellScore(
+        self,
+        dt_genes,
+        layer=None,
+        threads=1,
+        aucMaxRank=500,
+        aucMaxPropotion=None,
+        label="AUCell",
+        calcThreshold=False,
+        thresholdsHistCol=5,
+        dt_kwargs2aucell={},
+        chunksize=10000,
+        **dt_kwargs,
+    ):
+        '''It takes a list of gene sets, and calculates the AUCell score for each gene set
 
+        Parameters
+        ----------
+        ad
+            AnnData object
+        dt_genes
+            a dictionary of gene sets. The keys are the names of the gene sets, and the values are lists of gene names.
+        layer
+            the name of the layer to use for the AUCell calculation.
+        threads, optional
+            number of threads to use
+        aucMaxRank, optional
+            the maximum rank of genes used for calculating AUCell score.
+        aucMaxPropotion
+            same as aucMaxRank.
+        label, optional
+            the name of the column in ad.obsm that will contain the AUCell scores
+        calcThreshold, optional
+            whether to calculate the threshold for binarization
+        thresholdsHistCol, optional
+            the number of columns in the histogram of thresholds
+        dt_kwargs2aucell
+            parameters for the aucell function
 
-        
-
-        
+        '''
+        from .geneEnrichInfo import getAUCellScore
+        layer = self.queryLayer if layer is None else layer
+        getAUCellScore(self.ad_query, dt_genes, layer, threads, aucMaxRank, aucMaxPropotion, label, calcThreshold, thresholdsHistCol, dt_kwargs2aucell, chunksize, **dt_kwargs)
+            
