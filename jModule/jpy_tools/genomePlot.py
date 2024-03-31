@@ -36,11 +36,12 @@ class ReadColor(mp.Colors):
 
         super().__init__(data=data, palette=palette, *args, **kwargs)
 
-def processRow(row, number, position='first'):
+
+def processRow(row, number, position="first"):
     # Initialize a row of zeros with the same length as the input row
     new_row = np.zeros_like(row)
     try:
-        if position == 'first':
+        if position == "first":
             # Find the first occurrence of the number
             index = row.tolist().index(number)
         else:
@@ -52,7 +53,8 @@ def processRow(row, number, position='first'):
         assert False, f"Number {number} not found in row {row}"
     return new_row
 
-def setPosition2one(df, number, position='first'):
+
+def setPosition2one(df, number, position="first"):
     """
     For each row in the DataFrame, finds the first or last occurrence of a specified number.
     The found position is set to 1, while all other elements are set to 0.
@@ -67,29 +69,39 @@ def setPosition2one(df, number, position='first'):
     Returns:
     - A new pandas DataFrame with modified rows based on the search criteria.
     """
-    
+
     # Apply the process_row function to each row in the DataFrame
-    new_df = df.apply(processRow, number=number, position=position, axis=1, result_type='expand')
+    new_df = df.apply(
+        processRow, number=number, position=position, axis=1, result_type="expand"
+    )
     return new_df
 
+
 class ReadMeta(RenderPlan):
-    def __init__(self, data, reverse, sr_readStrandInGenome, type='coverage', color='black', linewidths=1, foundNum=1):
-        assert type in ['coverage', '3', '5'], f"Invalid type: {type}"
-        title = {
-            'coverage': 'Coverage',
-            '3': "3' End",
-            '5': "5 ' End"
-        }[type]
+    render_main = True
+    def __init__(
+        self,
+        data,
+        reverse,
+        sr_readStrandInGenome,
+        type="coverage",
+        color="black",
+        linewidths=1,
+        foundNum=1,
+        library=None
+    ):
+        assert type in ["coverage", "3", "5"], f"Invalid type: {type}"
+        title = {"coverage": "Coverage", "3": "3' End", "5": "5 ' End"}[type]
         # if reverse:
         #     data = np.flip(data, 1)
         df = pd.DataFrame(data)
-        if type == 'coverage':
-            df = (df == foundNum)
+        if type == "coverage":
+            df = df == foundNum
             sr = df.sum(axis=0)
         else:
             sr = pd.Series(np.zeros(df.shape[1]))
             for strand, (i, row) in zip(sr_readStrandInGenome, df.iterrows()):
-                if (strand == '+') ^ (type == '3'):
+                if (strand == "+") ^ (type == "3"):
                     index = np.where(row == foundNum)[0][0]
                 else:
                     index = np.where(row == foundNum)[0][-1]
@@ -97,7 +109,6 @@ class ReadMeta(RenderPlan):
         if reverse:
             data = np.flip(data, 1)
             sr = sr[::-1]
-
 
         # elif reverse ^ (type == '3'):
         #     df = setPosition2one(df, 1, position='first')
@@ -109,15 +120,23 @@ class ReadMeta(RenderPlan):
         self.processedCov = sr
         self.color = color
         self.linewidths = linewidths
-        self.title = title
-    
+        if library is None:
+            self.title = title
+        else:
+            self.title = f"{library} ({title})"
+
     def render_ax(self, spec):
         ax = spec.ax
         data = spec.data
         sr = self.processedCov
-        ax.plot([x+0.5 for x in range(len(sr.index))], sr.values, color=self.color, linewidth=self.linewidths)
+        ax.plot(
+            [x + 0.5 for x in range(len(sr.index))],
+            sr.values,
+            color=self.color,
+            linewidth=self.linewidths,
+        )
         ax.set_xlim(0, len(sr.index))
-        ax.set_title(self.title)
+        ax.set_title(self.title, fontdict=dict(va='top'))
 
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -125,6 +144,93 @@ class ReadMeta(RenderPlan):
         # ax.yaxis.set_major_locator(plt.NullLocator())
         ax.spines["bottom"].set_visible(False)
         ax.xaxis.set_major_locator(plt.NullLocator())
+
+class ReadMetaEcdf(RenderPlan):
+    render_main = True
+    def __init__(
+        self,
+        data,
+        reverse,
+        geneStrand,
+        ad,
+        readStrandInGenomeKey,
+        libraryKey,
+        type="3",
+        color="black",
+        linewidths=1,
+        palette=None,
+    ):
+        assert type in ["3", "5"], f"Invalid type: {type}"
+        title = {"3": "3' End", "5": "5 ' End"}[type]
+        # if reverse:
+        #     data = np.flip(data, 1)
+        df = pd.DataFrame(ad.X)
+        sr_readStrandInGenome = ad.obs[readStrandInGenomeKey]
+        sr_library = ad.obs[libraryKey]
+
+        dt_endRes = {}
+        for i in sr_library.cat.categories:
+            dt_endRes[i] = sr = pd.Series(np.zeros(df.shape[1]))
+        
+        for strand, (_, row), library in zip(sr_readStrandInGenome, df.iterrows(), sr_library):
+            if (strand == "+") ^ (type == "3"):
+                index = np.where(row == 1)[0][0]
+            else:
+                index = np.where(row == 1)[0][-1]
+            dt_endRes[library][index] += 1
+        if reverse:
+            data = np.flip(data, 1)
+            for library, sr in dt_endRes.items():
+                dt_endRes[library] = sr[::-1].reset_index(drop=True)
+
+        ls_longDf = []
+        for library, sr in dt_endRes.items():
+            ls_pos = []
+            for i, x in sr.items():
+                ls_pos.extend([i]*int(x))
+            ls_longDf.append(pd.DataFrame({'pos':ls_pos}).assign(Sample=library))
+        df_long = pd.concat(ls_longDf).reset_index(drop=True)
+
+        if palette is None:
+            palette = {}
+            for sample, color in zip(sr_library.cat.categories, sc.pl.palettes.default_28):
+                palette[sample] = color
+
+        # print(df_long)
+
+        self.set_data(data)
+        self.df_long = df_long
+        self.processedCov = dt_endRes
+        self.color = color
+        self.linewidths = linewidths
+        self.reverse = reverse
+        if geneStrand is None:
+            pass
+        else:
+            if geneStrand is '+':
+                self.reverse = not self.reverse
+        self.title = title
+        self.palette = palette
+        # self.libraryKey = libraryKey
+    
+    def render_ax(self, spec):
+        ax = spec.ax
+        data = spec.data
+        df_long = self.df_long
+        sns.ecdfplot(data=df_long, x='pos', hue='Sample', ax=ax, complementary=not self.reverse, palette=self.palette, legend=False)
+
+        ax.set_xlim(0, data.shape[1])
+        ax.set_title(self.title, fontdict=dict(va='top'))
+
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        # ax.spines["bottom"].set_visible(False)
+        ax.xaxis.set_major_locator(plt.NullLocator())
+    
+    def get_legends(self):
+        from legendkit import CatLegend
+        return CatLegend(colors=self.palette.values(), labels=self.palette.keys(), handle='line')
+
 
 def findNumberIntervalsOpen(sequence, target=0):
     sequence = list(sequence)
@@ -168,8 +274,9 @@ class GeneLine(RenderPlan):
         )
         # ax.hlines(df.index+0.5, df['min'], df['max'], colors=self.color, linewidths=1)
 
+
 class LibrarySplitLine(RenderPlan):
-    def __init__(self, data,  color="black", linewidths=2):
+    def __init__(self, data, color="black", linewidths=2):
         self.set_data(data)
         self.color = color
         self.linewidths = linewidths
@@ -184,7 +291,8 @@ class LibrarySplitLine(RenderPlan):
         ax.spines["left"].set_visible(False)
         ax.yaxis.set_major_locator(plt.NullLocator())
         ax.spines["bottom"].set_visible(False)
-        ax.xaxis.set_major_locator(plt.NullLocator())     
+        ax.xaxis.set_major_locator(plt.NullLocator())
+
 
 class GeneSplitLine(RenderPlan):
     render_main = True
@@ -200,7 +308,6 @@ class GeneSplitLine(RenderPlan):
         for i in range(data.shape[0]):
             ax.axhline(y=i, linewidth=self.linewidth, color=self.color)
 
-   
 
 class GeneStruct(RenderPlan):
     def __init__(
@@ -213,7 +320,7 @@ class GeneStruct(RenderPlan):
         exonwidth=9,
         intronwidth=1,
         utrwidth=5,
-        geneNameSize=16,
+        geneNameSize=12,
         xticksMethod="gene",
         xticksSpacing=1000,
         firstPosInGenome=None,
@@ -394,7 +501,7 @@ def bamToBinary(
     sameOriOnly: Optional[bool] = None,
     filterGene: Optional[bool] = None,
     addPolya=True,
-    minPolya=5,
+    # minPolya=5,
 ) -> sc.AnnData:
     """
     ### Documentation for `bamToBinary` Function
@@ -451,7 +558,7 @@ def bamToBinary(
 
     psm = pysam.AlignmentFile(bamPath, "rb")
     ls_read = list(psm.fetch(chromosome, start - padding, end + padding))
-    
+
     if filterGene:
         _ls_read = []
         for x in ls_read:
@@ -494,23 +601,22 @@ def bamToBinary(
         if addPolya:
             if read.has_tag(polyaTag):
                 readPolya = read.get_tag(polyaTag)
-                if readPolya >= minPolya:
-                    if read.is_reverse:
-                        currentMinPos = ls_blocks[0][0] - readPolya
-                        sr_polya = pd.Series(
-                            [2] * readPolya, index=range(currentMinPos, ls_blocks[0][0])
-                        )
-                        sr_binary = pd.concat([sr_polya, sr_binary])
-                    else:
-                        currentMaxPos = ls_blocks[-1][-1] + readPolya
-                        sr_polya = pd.Series(
-                            [2] * readPolya,
-                            index=range(ls_blocks[-1][-1], currentMaxPos),
-                        )
-                        sr_binary = pd.concat([sr_binary, sr_polya])
+                # if readPolya >= minPolya:
+                if read.is_reverse:
+                    currentMinPos = ls_blocks[0][0] - readPolya
+                    sr_polya = pd.Series(
+                        [2] * readPolya, index=range(currentMinPos, ls_blocks[0][0])
+                    )
+                    sr_binary = pd.concat([sr_polya, sr_binary])
+                else:
+                    currentMaxPos = ls_blocks[-1][-1] + readPolya
+                    sr_polya = pd.Series(
+                        [2] * readPolya,
+                        index=range(ls_blocks[-1][-1], currentMaxPos),
+                    )
+                    sr_binary = pd.concat([sr_binary, sr_polya])
         minLeft = currentMinPos if currentMinPos < minLeft else minLeft
         maxRight = currentMaxPos if currentMaxPos > maxRight else maxRight
-
 
         name = read.query_name
         blockStart = ls_blocks[0][0]
@@ -519,12 +625,23 @@ def bamToBinary(
             readType = read.get_tag(typeTag)
         else:
             readType = "Unknown"
-        readStrandInGenome = '-' if read.is_reverse else '+'
+        readStrandInGenome = "-" if read.is_reverse else "+"
         readGene = None
         if read.has_tag(geneTag):
             readGene = read.get_tag(geneTag)
+        polyaLength = 0
+        if read.has_tag(polyaTag):
+            polyaLength = read.get_tag(polyaTag)
         sr_comment = pd.Series(
-            {"name": name, "start": blockStart, "end": blockEnd, "type": readType, 'strandInGenome': readStrandInGenome, 'gene':readGene}
+            {
+                "name": name,
+                "start": blockStart,
+                "end": blockEnd,
+                "type": readType,
+                "strandInGenome": readStrandInGenome,
+                "gene": readGene,
+                "polyaLength": polyaLength,
+            }
         )
 
         ls_posBinary.append(sr_binary)
@@ -543,9 +660,11 @@ def bamToBinary(
         )
     # ad.var.index = ad.var.index.astype(int)
     ad.obs = pd.DataFrame(ls_comment)
-    ad.obs = ad.obs.set_index("name")
-
-    return ad
+    if ad.shape[0] == 0:
+        return None
+    else:
+        ad.obs = ad.obs.set_index("name")
+        return ad
 
 
 def geneBedToBinary(ad, df_bed, gene=None, chromosome=None, start=None, end=None):
@@ -579,6 +698,7 @@ def geneBedToBinary(ad, df_bed, gene=None, chromosome=None, start=None, end=None
     else:
         configName = f"{chromosome}:{start}-{end}"
 
+    # ad = ad.copy()
     ad.var.index = ad.var.index.astype(int)
 
     if gene is None:
@@ -586,13 +706,14 @@ def geneBedToBinary(ad, df_bed, gene=None, chromosome=None, start=None, end=None
             "Chromosome == @chromosome & End >= @start & Start < @end", engine="python"
         )
     else:
-        sr_gene = df_bed.query("Gene == @gene", engine="python").iloc[0]
-        df_geneStruc = pd.DataFrame(sr_gene).T
+        df_geneStruc = df_bed.query("Gene == @gene", engine="python")
+        # df_geneStruc = pd.DataFrame(sr_gene).T
 
         # print(df_geneStruc)
 
+    df_geneStruc = df_geneStruc.sort_values(["Gene", "Name"])
     for _, sr_gene in df_geneStruc.iterrows():
-        geneStruName = sr_gene["Gene"]
+        geneStruName = sr_gene["Name"]
         geneStruStrand = sr_gene["Strand"]
 
         # -1 uncovered; 1: exon, 0:intron, 2: utr
@@ -613,7 +734,7 @@ def geneBedToBinary(ad, df_bed, gene=None, chromosome=None, start=None, end=None
         ad.var[geneStruName].loc[sr_gene["ThickEnd"] : sr_gene["End"]] = 2
 
         ad.uns[geneStruName] = sr_gene.to_dict()
-    ad.uns[f"{configName}_genes"] = df_geneStruc['Gene'].tolist()
+    ad.uns[f"{configName}_genes"] = df_geneStruc["Name"].tolist()
 
     ad.var.index = ad.var.index.astype(str)
 
@@ -632,7 +753,7 @@ class Igv(object):
         sameOriOnly: Optional[bool] = None,
         filterGene: Optional[bool] = None,
         addPolya=True,
-        minPolya=5,
+        # minPolya=5,
         palette=palette,
     ):
         self.df_bed = df_bed
@@ -645,34 +766,61 @@ class Igv(object):
         self.sameOriOnly = sameOriOnly
         self.filterGene = filterGene
         self.addPolya = addPolya
-        self.minPolya = minPolya
+        # self.minPolya = minPolya
         self.palette = palette
         self.dtBamPath = {}
         self.dtAd = {}
-    
+
     def addLibrary(self, name, bamPath):
         self.dtBamPath[name] = bamPath
-    
+
     def synAd(self, configName, ls_name=None):
         if ls_name is None:
             ls_name = list(self.dtBamPath.keys())
-        
+
         _dt_ad = {}
         for name in ls_name:
-            _dt_ad[name] = self.dtAd[f"{name}_{configName}"]
-        self.dtAd[configName] = sc.concat(_dt_ad, join="outer", index_unique='-', fill_value=-1, label='library', uns_merge='same')
-        for geneAnno in _dt_ad[name].var.columns:
-            self.dtAd[configName].var[geneAnno] = _dt_ad[name].var[geneAnno].fillna(-1).astype(int)
+            if f"{name}_{configName}" not in self.dtAd:
+                continue
+            _ad = self.dtAd[f"{name}_{configName}"]
+            _dt_ad[name] = _ad
+        self.dtAd[configName] = sc.concat(
+            _dt_ad,
+            join="outer",
+            # index_unique="-",
+            fill_value=-1,
+            label="library",
+            uns_merge="same",
+        )
+        for geneAnno in _ad.var.columns:
+            self.dtAd[configName].var[geneAnno] = (
+                _ad.var[geneAnno].fillna(-1).astype(int)
+            )
+            self.dtAd[configName] = self.dtAd[configName].copy()
+        ad = self.dtAd[configName]
+        for name in ls_name:
+            if f"{name}_{configName}" not in self.dtAd:
+                continue
+            self.dtAd[f"{name}_{configName}"] = ad[ad.obs['library'] == name].copy()
 
-    def addReadBinary(self, ls_name=None, gene=None, chromosome=None, start=None, end=None, subsampleTo=None):
+    def addReadBinary(
+        self,
+        ls_name=None,
+        gene=None,
+        chromosome=None,
+        start=None,
+        end=None,
+        strand=None,
+        subsampleTo=None,
+    ):
         if not gene is None:
             configName = gene
         else:
             configName = f"{chromosome}:{start}-{end}"
-        
+
         if ls_name is None:
-            ls_name = self.dtBamPath.keys()
-        
+            ls_name = list(self.dtBamPath.keys())
+
         for name in ls_name:
             ad = bamToBinary(
                 self.dtBamPath[name],
@@ -687,15 +835,35 @@ class Igv(object):
                 typeTag=self.typeTag,
                 padding=self.padding,
                 sameOriOnly=self.sameOriOnly,
+                strand=strand,
                 filterGene=self.filterGene,
                 addPolya=self.addPolya,
-                minPolya=self.minPolya,
+                # minPolya=self.minPolya,
             )
-            if not subsampleTo is None:
-                ad = ad[np.random.choice(ad.obs.index, subsampleTo, replace=False)].copy()
-            geneBedToBinary(ad, self.df_bed, gene=gene, chromosome=chromosome, start=start, end=end)
+            if ad is None:
+                print(f"Empty: {name}")
+                continue
+            sr_readId = ad.obs.index
+            # test dup
+            if len(sr_readId) != len(set(sr_readId)):
+                print(name)
+                print("Duplicate read id")
+                sr_readIdDup = sr_readId[sr_readId.duplicated()]
+                print(sr_readIdDup)
+                ad = ad[~ad.obs.index.isin(sr_readIdDup)]
+            if (not subsampleTo is None):
+                if (subsampleTo < ad.shape[0]):
+                    ad = ad[
+                        np.random.choice(ad.obs.index, subsampleTo, replace=False)
+                    ]
+            ad = ad.copy()
+            ad.uns[f"{configName}_strand"] = strand
+
+            geneBedToBinary(
+                ad, self.df_bed, gene=gene, chromosome=chromosome, start=start, end=end
+            )
             self.dtAd[f"{name}_{configName}"] = ad
-        
+
         self.synAd(configName, ls_name)
         # _dt_ad = {}
         # for name in ls_name:
@@ -704,19 +872,73 @@ class Igv(object):
         # for geneAnno in _dt_ad[name].var.columns:
         #     self.dtAd[configName].uns[geneAnno] = _dt_ad[name].uns[geneAnno].fillna(-1).astype(int)
 
-    def filterSplitSort(self, groupby, *, gene=None, chromosome=None, start=None, end=None, ls_name=None, sortby=None, ascending=True, ls_group=None, dt_color=None, ls_addPolyaGroup=None):
+    def filterSplitSort(
+        self,
+        groupby,
+        *,
+        gene=None,
+        chromosome=None,
+        start=None,
+        end=None,
+        ls_name=None,
+        sortby=None,
+        ascending=True,
+        ls_group=None,
+        dt_color=None,
+        ls_addPolyaGroup=None,
+    ):
+        """
+        #### Purpose
+        To preprocess genomic data by filtering based on gene or chromosomal regions, splitting the data into specified groups, and optionally sorting the data within those groups. It also applies coloring schemes to different groups for visualization purposes.
+
+        #### Parameters
+        - `groupby` (str): The column name in the dataset to group the data by.
+        - `gene` (Optional[str]): The gene of interest for filtering the dataset. If provided, the method focuses on data related to this gene.
+        - `chromosome`, `start`, `end` (Optional[str/int]): Chromosomal region specified by chromosome name, start, and end positions for filtering if a specific gene is not provided.
+        - `ls_name` (Optional[list of str or str]): Names of the datasets to process. If `None`, all datasets are considered.
+        - `sortby` (Optional[str]): The column name by which to sort the data within each group.
+        - `ascending` (bool): Determines the sorting order (ascending or not).
+        - `ls_group` (Optional[list of str or str]): Specific groups to include in the analysis. If `None`, all groups are included.
+        - `dt_color` (Optional[dict]): A dictionary mapping group names to colors for visualization. If `None`, a default color palette is used.
+        - `ls_addPolyaGroup` (Optional[list of str]): Additional groups to consider for special treatment in the analysis.
+
+        #### Workflow
+        1. Determines the configuration name based on either the specified gene or chromosomal region.
+        2. Processes the list of dataset names (`ls_name`), ensuring they are in list format.
+        3. Iterates over each dataset:
+            - Sanitizes and filters the dataset based on the specified gene or chromosomal region.
+            - Determines the groups to include in the analysis, using either the specified groups (`ls_group`) or deriving them from the data.
+            - Optionally assigns colors to each group for visualization.
+            - Filters the dataset to include only the specified groups.
+            - Optionally modifies the data based on additional grouping criteria (`ls_addPolyaGroup`).
+            - Applies the group categorizations to the dataset.
+            - Optionally sorts the dataset based on a specified column.
+        4. Updates the processed dataset with new group categorizations and sorting.
+
+        #### Description
+        The `filterSplitSort` method is essential for preparing genomic data for further analysis or visualization, offering flexibility in data manipulation. It enables users to focus on specific genes or chromosomal regions, categorize the data based on user-defined criteria, and visually distinguish these categories using color. Additionally, the method provides options for sorting the data within groups and adjusting the analysis based on additional grouping criteria.
+
+        #### Highlights
+        - Offers flexibility in preprocessing genomic data for analysis or visualization.
+        - Allows focusing on specific genes or chromosomal regions.
+        - Supports categorization and color-coding of data for better visualization.
+        - Provides options for sorting data within groups for organized analysis.
+        """
         if not gene is None:
             configName = gene
         else:
-            configName = f"{chromosome}:{start}-{end}" 
-        
+            configName = f"{chromosome}:{start}-{end}"
+
         if ls_name is None:
-            ls_name = list(self.dtBamPath.keys())
-        
+            _ls_name = list(self.dtBamPath.keys())
+            ls_name = []
+            for name in _ls_name:
+                if f"{name}_{configName}" in self.dtAd:
+                    ls_name.append(name)
+
         if isinstance(ls_name, str):
             ls_name = [ls_name]
-        
-        
+
         ls_groupOrg = ls_group
         _ls_group = None
         for library in ls_name:
@@ -737,17 +959,28 @@ class Igv(object):
 
             ad.obs[groupby] = ad.obs[groupby].cat.set_categories(ls_group)
             if dt_color is None:
-                dt_color = {group: color for group, color in zip(ls_group, sns.color_palette('Paired', n_colors=len(ls_group)).as_hex())}
-            
+                dt_color = {
+                    group: color
+                    for group, color in zip(
+                        ls_group,
+                        sns.color_palette("Paired", n_colors=len(ls_group)).as_hex(),
+                    )
+                }
+
             ad = ad[ad.obs[groupby].isin(ls_group)]
-            dt_numChange = {
-                x:i for i, x in enumerate(ls_group, 10)
-            }
+            if ad.shape[0] > 0:
+                pass
+            else:
+                del(self.dtAd[f"{library}_{configName}"])
+                continue
+            dt_numChange = {x: i for i, x in enumerate(ls_group, 10)}
             dt_readId2Group = ad.obs[groupby].to_dict()
-                
+
             _ls = []
             for readId, sr in tqdm.tqdm(ad.to_df().iterrows(), total=ad.shape[0]):
-                sr = sr.map(lambda _: dt_numChange[dt_readId2Group[readId]] if _ == 1 else _)
+                sr = sr.map(
+                    lambda _: dt_numChange[dt_readId2Group[readId]] if _ == 1 else _
+                )
                 if not ls_addPolyaGroup is None:
                     if dt_readId2Group[readId] in ls_addPolyaGroup:
                         pass
@@ -762,8 +995,8 @@ class Igv(object):
             else:
                 df_sorted = ad.obs.sort_values(by=sortby, ascending=ascending)
                 ad = ad[df_sorted.index]
-            ad.uns['dt_group2code'] = dt_numChange
-            ad.uns['dt_group2color'] = dt_color
+            ad.uns["dt_group2code"] = dt_numChange
+            ad.uns["dt_group2color"] = dt_color
             self.dtAd[f"{library}_{configName}"] = ad
 
         self.synAd(configName, ls_name)
@@ -776,7 +1009,19 @@ class Igv(object):
 
         # self.dtAd[configName] = sc.concat(_dt_ad, join="outer", index_unique='-', fill_value=-1, label='library', uns_merge='same')
 
-    def addReadPlotter(self, configName, library:Union[None, str], h: ma.base.ClusterBoard, reverse, intronWidth=1, geneSplitLineWidth=1, groupby=None, libraryColor=None,):
+    def addReadPlotter(
+        self,
+        configName,
+        library: Union[None, str],
+        h: ma.base.ClusterBoard,
+        reverse,
+        intronWidth=1,
+        geneSplitLineWidth=1,
+        groupby=None,
+        libraryColor=None,
+        leftChunkSize=0,
+        chunkAsLegend=True,
+    ):
         if library is None:
             ad = self.dtAd[configName]
         else:
@@ -785,19 +1030,27 @@ class Igv(object):
         if groupby is None:
             palette = self.palette
         else:
-            assert not configName is None, "configName must be provided when groupby is not None"
-            dt_splitColors = ad.uns['dt_group2color']
-            dt_group2code = ad.uns['dt_group2code']
+            assert (
+                not configName is None
+            ), "configName must be provided when groupby is not None"
+            dt_splitColors = ad.uns["dt_group2color"]
+            dt_group2code = ad.uns["dt_group2code"]
             dt_code2color = {y: dt_splitColors[x] for x, y in dt_group2code.items()}
             palette = self.palette
-            palette.update(dt_code2color)        
+            palette.update(dt_code2color)
 
         if groupby is None:
             h.add_layer(ReadColor(ad.X, reverse, palette=palette), legend=False)
         else:
-            h.add_layer(ReadColor(ad.layers[groupby], reverse, palette=palette), legend=False)
-            h.hsplit(labels=ad.obs[groupby], order=ad.obs[groupby].cat.categories.tolist())
-            h.add_left(mp.Colors(ad.obs[groupby], palette=dt_splitColors), size=0)
+            h.add_layer(
+                ReadColor(ad.layers[groupby], reverse, palette=palette), legend=False
+            )
+            h.hsplit(
+                labels=ad.obs[groupby], order=ad.obs[groupby].cat.categories.tolist()
+            )
+            h.add_left(
+                mp.Colors(ad.obs[groupby], palette=dt_splitColors), size=leftChunkSize, legend=chunkAsLegend
+            )
 
         h.add_layer(GeneLine(ad.X, reverse, linewidths=intronWidth))
         if geneSplitLineWidth > 0:
@@ -807,85 +1060,431 @@ class Igv(object):
                 ratio = [1]
             else:
                 ratio = [len(ad.obs[groupby].cat.categories)]
-            h.add_left(mp.FixedChunk(
-                [library], fill_colors=libraryColor, ratio=ratio
-            ))
+            h.add_left(mp.FixedChunk([library], fill_colors=libraryColor, ratio=ratio), legend=False)
         return h
 
-    def addGeneStructurePlotter(self, h: ma.base.ClusterBoard, reverse, configName, pad=0.8):
-        
+    def addGeneStructurePlotter(
+        self, h: ma.base.ClusterBoard, reverse, configName, addStrandInName=True, pad=0.8, size=0.4
+    ):
+
         ad = self.dtAd[configName]
         ls_genes = ad.uns[f"{configName}_genes"]
         if reverse:
             ls_genes = ls_genes[::-1]
         for gene in ls_genes:
-            h.add_top(GeneStruct(ad.var[[gene]].T.values, gene, ad.uns[gene]['Strand'], reverse, color='black'), pad=pad, size=0.4)
-        
-        return h
-        
+            if addStrandInName:
+                geneName = f"{gene} ({ad.uns[gene]['Strand']})"
+            else:
+                geneName = gene
+            h.add_top(
+                GeneStruct(
+                    ad.var[[gene]].T.values,
+                    geneName,
+                    ad.uns[gene]["Strand"],
+                    reverse,
+                    color="black",
+                ),
+                pad=pad,
+                size=size,
+            )
 
-    def makePlotTemplate(self, ls_name=None, *, gene=None, chromosome=None, start=None, end=None,
-                   width=10, height=5, dt_libraryColor=None, addGeneStruAll=False, groupby=None, 
-                   geneSplitLineWidth=0.2, intronWidth=1, addMetaInfo=True, dt_metaKwargs={'type':'3'}) -> ma.base.ClusterBoard:
+        return h
+
+    def makePlotTemplate(
+        self,
+        ls_name=None,
+        *,
+        gene=None,
+        chromosome=None,
+        start=None,
+        end=None,
+        width=10,
+        height=5,
+        heightAuto=True,
+        dt_libraryColor=None,
+        addGeneStruAll=False,
+        geneStucSize=0.4,
+        addStrandInName=True,
+        groupby=None,
+        geneSplitLineWidth=0.2,
+        intronWidth=1,
+        addMetaInfo=True,
+        leftChunkSize=0,
+        dt_metaKwargs={"type": "3"},
+    ) -> ma.base.ClusterBoard:
+        """This Python function, `makePlotTemplate`, is designed to generate a visual representation of genomic data with various customization options. The purpose of the function is to construct and return a `ClusterBoard` object from the `ma.base` module, which visualizes data for specific genes, chromosomal regions, or entire genomes based on the provided arguments. Here's a breakdown of its functionality and parameters:
+
+        ### Function: `makePlotTemplate`
+
+        #### Purpose
+        Creates a plot template for visualizing genomic data, allowing customization of the plot's appearance and the displayed genomic structures.
+
+        #### Parameters
+        - `ls_name` (Optional[str or list of str]): Names of the datasets to be plotted. If `None`, uses all available datasets.
+        - `gene` (Optional[str]): Name of the gene to be visualized. If provided, plots data related to this gene.
+        - `chromosome` (Optional[str]): The chromosome to be visualized if a specific gene is not provided.
+        - `start`, `end` (Optional[int]): Start and end positions on the chromosome for visualization.
+        - `width`, `height` (int): Dimensions of the plot.
+        - `dt_libraryColor` (Optional[dict]): Dictionary mapping dataset names to colors for the plot.
+        - `addGeneStruAll` (bool): Whether to add gene structure to all plots.
+        - `groupby` (Optional[str]): Parameter to group the data by before plotting.
+        - `geneSplitLineWidth`, `intronWidth` (float): Line widths for gene splits and introns, respectively.
+        - `addMetaInfo` (bool): Whether to add metadata information to the plot.
+        - `leftChunkSize` (int): Size of the left chunk of the plot. For split Group.
+        - `dt_metaKwargs` (dict): Additional keyword arguments for metadata plotting.
+
+        #### Returns
+        - A dictionary (`dt_plotter`) where each key is a library name and each value is a `ClusterBoard` object representing the plot for that library.
+
+        #### Description
+        The function starts by determining the configuration name based on whether a gene or a chromosomal region is specified. It then processes the list of dataset names (`ls_name`), setting default colors if none are provided, and validates the configuration name against available datasets.
+
+        If a grouping is specified, it ensures that the grouping is valid. The function then iterates over each dataset name, constructing a plot (`ClusterBoard` object) for each. It optionally adds gene structure and metadata information to the plot based on the function parameters.
+
+        #### Highlights
+        - The function supports both gene-specific and chromosomal region-specific visualizations.
+        - It allows for a high degree of customization in terms of plot appearance and displayed information.
+        - The return value is a dictionary of `ClusterBoard` objects, allowing for easy access to the plots for further customization or display.
+        """
         if not gene is None:
             configName = gene
         else:
             configName = f"{chromosome}:{start}-{end}"
 
         if ls_name is None:
-            ls_name = list(self.dtBamPath.keys())
-        
+            _ls_name = list(self.dtBamPath.keys())
+            ls_name = []
+            for name in _ls_name:
+                if f"{name}_{configName}" in self.dtAd:
+                    ls_name.append(name)
         if isinstance(ls_name, str):
             ls_name = [ls_name]
-        
+
         if dt_libraryColor is None:
-            dt_libraryColor = {name: '#d6ece1' for name in ls_name}
-        
-        
+            dt_libraryColor = {name: None for name in ls_name}
+
         assert configName in self.dtAd, f"{configName} not in self.dtAd"
 
         if groupby is None:
             pass
         else:
-            assert groupby in self.dtAd[configName].layers, f"please run `filterSplitSort` first"
+            assert (
+                groupby in self.dtAd[configName].layers
+            ), f"please run `filterSplitSort` first"
 
         if len(ls_name) == 1:
             library = ls_name[0]
             ad = self.dtAd[f"{library}_{configName}"]
-            ad.obs['library'] = library
+            ad.obs["library"] = library
         else:
             ad = self.dtAd[configName]
-        
-        ad_all = ad[ad.obs['library'].isin(ls_name)]
+
+        ad_all = ad[ad.obs["library"].isin(ls_name)]
 
         dt_plotter = {}
         addGeneStru = True
-
+        chunkAsLegend = True
         if not gene is None:
-            geneStrand = ad.uns[gene]['Strand']
+            transcript = ad.uns[f'{gene}_genes'][0]
+            geneStrand = ad.uns[transcript]["Strand"]
             if self.reverseStrand is None:
                 reverseStrand = geneStrand == "-"
+            else:
+                reverseStrand = self.reverseStrand
         else:
-            reverseStrand = False if self.reverseStrand is None else self.reverseStrand 
+            reverseStrand = False if self.reverseStrand is None else self.reverseStrand
 
         for library in ls_name:
-            ad = ad_all[ad_all.obs['library'] == library]
-            h = ma.base.ClusterBoard(ad.X, width=width, height=height)
-            h = self.addReadPlotter(configName, library, h, reverseStrand, intronWidth=intronWidth, geneSplitLineWidth=geneSplitLineWidth, groupby=groupby, libraryColor=dt_libraryColor[library])
+            ad = ad_all[ad_all.obs["library"] == library]
+            if heightAuto:
+                _height = ad.shape[0] * 0.1
+                _height = min(_height, height)
+            else:
+                _height = height
+            h = ma.base.ClusterBoard(ad.X, width=width, height=_height)
+            h = self.addReadPlotter(
+                configName,
+                library,
+                h,
+                reverseStrand,
+                intronWidth=intronWidth,
+                geneSplitLineWidth=geneSplitLineWidth,
+                groupby=groupby,
+                libraryColor=dt_libraryColor[library],
+                leftChunkSize=leftChunkSize,
+                chunkAsLegend=chunkAsLegend,
+            )
+            chunkAsLegend = False
             # h.add_layer(ReadColor(ad.X, reverseStrand), legend=False)
             # h.add_layer(GeneLine(ad.X, reverseStrand))
             # h.add_layer(GeneSplitLine(ad.X, linewidth=0))
             if addMetaInfo:
-                h.add_top(ReadMeta(ad.X, reverseStrand, sr_readStrandInGenome=ad.obs['strandInGenome'], **dt_metaKwargs), pad=0.1)
+                if groupby is None:
+                    h.add_top(
+                        ReadMeta(
+                            ad.X,
+                            reverseStrand,
+                            sr_readStrandInGenome=ad.obs["strandInGenome"],
+                            **dt_metaKwargs,
+                        ),
+                        pad=0.1,
+                    )
+                else:
+                    ls_group = ad.obs[groupby].cat.categories
+                    for group in ls_group:
+                        _ad = ad[ad.obs[groupby] == group]
+                        h.add_top(
+                            ReadMeta(
+                                _ad.X,
+                                reverseStrand,
+                                sr_readStrandInGenome=_ad.obs["strandInGenome"],
+                                library=group,
+                                **dt_metaKwargs,
+                            ),
+                            pad=0.2,
+                        )
+            h.add_top(LibrarySplitLine(ad.X, linewidths=5), size=0.1, pad=0.5)
             if addGeneStru:
-                h = self.addGeneStructurePlotter(h, reverseStrand, configName, pad=0.65)
+                h = self.addGeneStructurePlotter(h, reverseStrand, configName, pad=0.5, addStrandInName=addStrandInName, size=geneStucSize)
                 addGeneStru = False
             if addGeneStruAll:
                 addGeneStru = True
             # h.hsplit(labels = ad.obs['type'])
             # h.add_left(mp.Colors(ad.obs['type']), size=0.2, name = 'Read Category')
             # h.add_legends(order=['Read Category'])
-            h.add_bottom(LibrarySplitLine(ad.X), size=0.1)
+            h.add_bottom(LibrarySplitLine(ad.X, linewidths=5), size=0.1)
 
             dt_plotter[library] = h
         return dt_plotter
+
+    def makeMetaOnly(
+        self,
+        ls_name=None,
+        *,
+        gene=None,
+        chromosome=None,
+        start=None,
+        end=None,
+        width=10,
+        addGeneStruAll=False,
+        geneStucSize=0.4,
+        addStrandInName=True,
+        dt_metaKwargs={"type": "3"},
+    ) -> ma.base.ClusterBoard:
+        """This Python function, `makePlotTemplate`, is designed to generate a visual representation of genomic data with various customization options. The purpose of the function is to construct and return a `ClusterBoard` object from the `ma.base` module, which visualizes data for specific genes, chromosomal regions, or entire genomes based on the provided arguments. Here's a breakdown of its functionality and parameters:
+
+        ### Function: `makePlotTemplate`
+
+        #### Purpose
+        Creates a plot template for visualizing genomic data, allowing customization of the plot's appearance and the displayed genomic structures.
+
+        #### Parameters
+        - `ls_name` (Optional[str or list of str]): Names of the datasets to be plotted. If `None`, uses all available datasets.
+        - `gene` (Optional[str]): Name of the gene to be visualized. If provided, plots data related to this gene.
+        - `chromosome` (Optional[str]): The chromosome to be visualized if a specific gene is not provided.
+        - `start`, `end` (Optional[int]): Start and end positions on the chromosome for visualization.
+        - `width`, `height` (int): Dimensions of the plot.
+        - `dt_libraryColor` (Optional[dict]): Dictionary mapping dataset names to colors for the plot.
+        - `addGeneStruAll` (bool): Whether to add gene structure to all plots.
+        - `groupby` (Optional[str]): Parameter to group the data by before plotting.
+        - `geneSplitLineWidth`, `intronWidth` (float): Line widths for gene splits and introns, respectively.
+        - `addMetaInfo` (bool): Whether to add metadata information to the plot.
+        - `leftChunkSize` (int): Size of the left chunk of the plot. For split Group.
+        - `dt_metaKwargs` (dict): Additional keyword arguments for metadata plotting.
+
+        #### Returns
+        - A dictionary (`dt_plotter`) where each key is a library name and each value is a `ClusterBoard` object representing the plot for that library.
+
+        #### Description
+        The function starts by determining the configuration name based on whether a gene or a chromosomal region is specified. It then processes the list of dataset names (`ls_name`), setting default colors if none are provided, and validates the configuration name against available datasets.
+
+        If a grouping is specified, it ensures that the grouping is valid. The function then iterates over each dataset name, constructing a plot (`ClusterBoard` object) for each. It optionally adds gene structure and metadata information to the plot based on the function parameters.
+
+        #### Highlights
+        - The function supports both gene-specific and chromosomal region-specific visualizations.
+        - It allows for a high degree of customization in terms of plot appearance and displayed information.
+        - The return value is a dictionary of `ClusterBoard` objects, allowing for easy access to the plots for further customization or display.
+        """
+        if not gene is None:
+            configName = gene
+        else:
+            configName = f"{chromosome}:{start}-{end}"
+
+        if ls_name is None:
+            _ls_name = list(self.dtBamPath.keys())
+            ls_name = []
+            for name in _ls_name:
+                if f"{name}_{configName}" in self.dtAd:
+                    ls_name.append(name)
+
+        if isinstance(ls_name, str):
+            ls_name = [ls_name]
+
+
+        assert configName in self.dtAd, f"{configName} not in self.dtAd"
+
+        if len(ls_name) == 1:
+            library = ls_name[0]
+            ad = self.dtAd[f"{library}_{configName}"]
+            ad.obs["library"] = library
+        else:
+            ad = self.dtAd[configName]
+
+        ad_all = ad[ad.obs["library"].isin(ls_name)]
+
+        dt_plotter = {}
+        addGeneStru = True
+        if not gene is None:
+            transcript = ad.uns[f'{gene}_genes'][0]
+            geneStrand = ad.uns[transcript]["Strand"]
+            if self.reverseStrand is None:
+                reverseStrand = geneStrand == "-"
+            else:
+                reverseStrand = self.reverseStrand
+        else:
+            reverseStrand = False if self.reverseStrand is None else self.reverseStrand
+
+        for library in ls_name:
+            ad = ad_all[ad_all.obs["library"] == library]
+
+            h = ma.base.ClusterBoard(ad.X, width=width, height=2)
+            h.add_layer(
+                ReadMeta(
+                    ad.X,
+                    reverseStrand,
+                    sr_readStrandInGenome=ad.obs["strandInGenome"],
+                    library=library,
+                    **dt_metaKwargs,
+                ),
+            )
+            # h.add_layer(ReadColor(ad.X, reverseStrand), legend=False)
+            # h.add_layer(GeneLine(ad.X, reverseStrand))
+            # h.add_layer(GeneSplitLine(ad.X, linewidth=0))
+            # h.add_top(
+            #     ReadMeta(
+            #         ad.X,
+            #         reverseStrand,
+            #         sr_readStrandInGenome=ad.obs["strandInGenome"],
+            #         library=library,
+            #         **dt_metaKwargs,
+            #     ),
+            #     pad=0.1,
+            # )
+            # h.add_top(mp.Title(library), size=0.5)
+            # h.add_top(LibrarySplitLine(ad.X, linewidths=5), size=0.1, pad=0.5)
+            if addGeneStru:
+                h = self.addGeneStructurePlotter(h, reverseStrand, configName, pad=0.5, addStrandInName=addStrandInName, size=geneStucSize)
+                addGeneStru = False
+            if addGeneStruAll:
+                addGeneStru = True
+            # h.hsplit(labels = ad.obs['type'])
+            # h.add_left(mp.Colors(ad.obs['type']), size=0.2, name = 'Read Category')
+            # h.add_legends(order=['Read Category'])
+            # h.add_bottom(LibrarySplitLine(ad.X, linewidths=5), size=0.1)
+
+            dt_plotter[library] = h
+        return dt_plotter
+
+
+    def makeMetaOnlyEcdf(
+        self,
+        ls_name=None,
+        *,
+        gene=None,
+        chromosome=None,
+        start=None,
+        end=None,
+        width=10,
+        geneStucSize=0.4,
+        addStrandInName=True,
+        dt_metaKwargs={"type": "3"},
+    ) -> ma.base.ClusterBoard:
+        """This Python function, `makePlotTemplate`, is designed to generate a visual representation of genomic data with various customization options. The purpose of the function is to construct and return a `ClusterBoard` object from the `ma.base` module, which visualizes data for specific genes, chromosomal regions, or entire genomes based on the provided arguments. Here's a breakdown of its functionality and parameters:
+
+        ### Function: `makePlotTemplate`
+
+        #### Purpose
+        Creates a plot template for visualizing genomic data, allowing customization of the plot's appearance and the displayed genomic structures.
+
+        #### Parameters
+        - `ls_name` (Optional[str or list of str]): Names of the datasets to be plotted. If `None`, uses all available datasets.
+        - `gene` (Optional[str]): Name of the gene to be visualized. If provided, plots data related to this gene.
+        - `chromosome` (Optional[str]): The chromosome to be visualized if a specific gene is not provided.
+        - `start`, `end` (Optional[int]): Start and end positions on the chromosome for visualization.
+        - `width`, `height` (int): Dimensions of the plot.
+        - `dt_libraryColor` (Optional[dict]): Dictionary mapping dataset names to colors for the plot.
+        - `addGeneStruAll` (bool): Whether to add gene structure to all plots.
+        - `groupby` (Optional[str]): Parameter to group the data by before plotting.
+        - `geneSplitLineWidth`, `intronWidth` (float): Line widths for gene splits and introns, respectively.
+        - `addMetaInfo` (bool): Whether to add metadata information to the plot.
+        - `leftChunkSize` (int): Size of the left chunk of the plot. For split Group.
+        - `dt_metaKwargs` (dict): Additional keyword arguments for metadata plotting.
+
+        #### Returns
+        - A dictionary (`dt_plotter`) where each key is a library name and each value is a `ClusterBoard` object representing the plot for that library.
+
+        #### Description
+        The function starts by determining the configuration name based on whether a gene or a chromosomal region is specified. It then processes the list of dataset names (`ls_name`), setting default colors if none are provided, and validates the configuration name against available datasets.
+
+        If a grouping is specified, it ensures that the grouping is valid. The function then iterates over each dataset name, constructing a plot (`ClusterBoard` object) for each. It optionally adds gene structure and metadata information to the plot based on the function parameters.
+
+        #### Highlights
+        - The function supports both gene-specific and chromosomal region-specific visualizations.
+        - It allows for a high degree of customization in terms of plot appearance and displayed information.
+        - The return value is a dictionary of `ClusterBoard` objects, allowing for easy access to the plots for further customization or display.
+        """
+        if not gene is None:
+            configName = gene
+        else:
+            configName = f"{chromosome}:{start}-{end}"
+
+        if ls_name is None:
+            _ls_name = list(self.dtBamPath.keys())
+            ls_name = []
+            for name in _ls_name:
+                if f"{name}_{configName}" in self.dtAd:
+                    ls_name.append(name)
+
+        if isinstance(ls_name, str):
+            ls_name = [ls_name]
+
+
+        assert configName in self.dtAd, f"{configName} not in self.dtAd"
+
+        if len(ls_name) == 1:
+            library = ls_name[0]
+            ad = self.dtAd[f"{library}_{configName}"]
+            # ad.obs["library"] = library
+        else:
+            ad = self.dtAd[configName]
+        ad_all = ad[ad.obs["library"].isin(ls_name)]
+
+        if not gene is None:
+            transcript = ad.uns[f'{gene}_genes'][0]
+            geneStrand = ad.uns[transcript]["Strand"]
+            if self.reverseStrand is None:
+                reverseStrand = geneStrand == "-"
+            else:
+                reverseStrand = self.reverseStrand
+        else:
+            reverseStrand = False if self.reverseStrand is None else self.reverseStrand
+            geneStrand = ad.uns[f"{configName}_strand"] 
+
+        ad = ad_all
+
+        h = ma.base.ClusterBoard(ad.X, width=width, height=2)
+        h.add_layer(
+            ReadMetaEcdf(
+                ad.X,
+                reverseStrand,
+                geneStrand,
+                ad,
+                readStrandInGenomeKey='strandInGenome',
+                libraryKey='library',
+                **dt_metaKwargs,
+            ),
+        )
+
+        h = self.addGeneStructurePlotter(h, reverseStrand, configName, pad=0.5, addStrandInName=addStrandInName, size=geneStucSize)
+
+        return h
