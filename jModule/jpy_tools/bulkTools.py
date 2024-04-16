@@ -95,6 +95,7 @@ def deByEdger(ad, layer, obsKey, contrast):
         fit <- glmFit(y,design,)
         lrt <- glmLRT(fit, contrast=contrast)
         lrt <- as.data.frame(lrt)
+        lrt <- tibble::rownames_to_column(data.frame(lrt))
         return(lrt)
     }}
     """
@@ -137,7 +138,7 @@ def deByDeseq2(ad, layer, groupDesign, ls_obs, contrast, shrink:Optional[Literal
             res <- lfcShrink(dds, type=shrink, res=res)
         }
         
-        res <- data.frame(res)
+        res <- tibble::rownames_to_column(data.frame(res))
         """)
         res = r2py(rl['res'])
     return res.copy()

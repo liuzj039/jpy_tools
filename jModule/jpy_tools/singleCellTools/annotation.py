@@ -1,6 +1,6 @@
 from logging import log
 from unittest import result
-import scvi
+
 import pandas as pd
 import numpy as np
 import scanpy as sc
@@ -30,7 +30,7 @@ from typing import (
 )
 import collections
 from IPython.display import display
-from xarray import corr
+# from xarray import corr
 from . import basic
 from ..rTools import rcontext
 from ..otherTools import F
@@ -925,6 +925,8 @@ def labelTransferByScanvi(
     hvgBatch: str, optional
         a string specifying a batch column name to use for highly variable gene selection.
     """
+    import scvi
+
     scvi.settings.seed = 39
     scvi.settings.num_threads = threads
 

@@ -20,7 +20,6 @@ from contextlib import contextmanager
 from rpy2.robjects.lib import grdevices
 from IPython.display import Image, display
 import scanpy as sc
-import muon as mu
 import h5py
 from tempfile import TemporaryDirectory
 import sys
@@ -589,6 +588,7 @@ def so2md(so, rEnv=None, verbose=0, **kwargs):
     import scipy.sparse as ss
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
+    import muon as mu
 
     importr("Seurat")
     R = ro.r

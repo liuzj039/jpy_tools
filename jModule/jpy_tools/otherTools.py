@@ -63,7 +63,7 @@ def setSeed(seed=0):
     import numpy as np
     import random
     import rpy2.robjects as ro
-    import torch
+    
     
     R = ro.r
 
@@ -71,13 +71,18 @@ def setSeed(seed=0):
     os.environ["PYTHONHASHSEED"] = str(seed)
     np.random.seed(seed)
     R("set.seed")(seed)
+
+    try:
+        import torch
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.enabled = False
+    except:
+        pass
     
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.enabled = False
 
 
 class Capturing(list):
@@ -959,7 +964,11 @@ def runBashBySh(contents, **kwargs):
     tempFilePath = tempDirName + '/scripts.sh'
     with open(tempFilePath, 'w') as fh:
         fh.write(contents)
-    run = sh.bash(tempFilePath, **kwargs)
+    try:
+        run = sh.bash(tempFilePath, **kwargs)
+    except:
+        print(run.stderr)
+        assert False
     return run
 
 class MuteInfo:

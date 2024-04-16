@@ -29,24 +29,24 @@ from typing import (
 )
 
 from ..otherTools import setSeed
-from . import (
-    basic,
+# from . import (
+    # basic,
     # spatialTools,
-    annotation,
-    bustools,
-    detectDoublet,
-    diffxpy,
-    scvi,
-    normalize,
-    multiModel,
-    plotting,
-    parseCellranger,
-    geneEnrichInfo,
-    others,
-    parseSnuupy,
+    # annotation,
+    # bustools,
+    # detectDoublet,
+    # diffxpy,
+    # scvi,
+    # normalize,
+    # multiModel,
+    # plotting,
+    # parseCellranger,
+    # geneEnrichInfo,
+    # others,
+    # parseSnuupy,
     # recipe,
-    removeAmbient
-)
+    # removeAmbient
+# )
 from .plotting import PlotAnndata
 from .normalize import NormAnndata
 from .annotation import LabelTransferAnndata
@@ -176,8 +176,8 @@ class DeAnndata(object):
             groupby = self.groupby
         if clusterKey is None:
             clusterKey = self.clusterKey
-        
-        ad = sc.AnnData(self.ad.X, obs=self.ad.obs[[groupby, clusterKey]], var=self.ad.var)
+        _ls_keepCol = [groupby, clusterKey] if replicateKey is None else [groupby, clusterKey, replicateKey]
+        ad = sc.AnnData(self.ad.X, obs=self.ad.obs[_ls_keepCol], var=self.ad.var)
         ad.layers[layer] = self.ad.layers[layer]
 
         lsDf_res = []
@@ -186,14 +186,15 @@ class DeAnndata(object):
                 ls_allSample = _ad.obs[groupby].unique()
                 _groups = [self.controlName, [x for x in ls_allSample if x != self.controlName]]
             if replicateKey is not None:
-                df_res = findDegUsePseudobulk(_ad, compareKey=groupby, replicateKey=replicateKey, method=method, groups=_groups, randomSeed=randomSeed, shrink=shrink, njobs=njobs, layer=layer)
+                df_res = findDegUsePseudobulk(_ad, compareKey=groupby, replicateKey=replicateKey, method=method, groups=_groups, shrink=shrink, njobs=njobs, layer=layer)
                 df_res = df_res.assign(cluster=cluster)
                 lsDf_res.append(df_res)
             elif npseudoRep is not None:
-                df_res = findDegUsePseudoRep(_ad, compareKey=groupby, npseudoRep=npseudoRep, method=method, groups=_groups, randomSeed=randomSeed, shrink=shrink, njobs=njobs, layer=layer)
+                df_res = findDegUsePseudoRep(_ad, compareKey=groupby, npseudoRep=npseudoRep, method=method, groups=_groups, shrink=shrink, njobs=njobs, layer=layer)
                 df_res = df_res.assign(cluster=cluster)
                 lsDf_res.append(df_res)
         df_res = pd.concat(lsDf_res, axis=0, ignore_index=True)
+        self.ad.uns[f'{self.resultKey}_deg'] = df_res
         return df_res
         
 class QcAnndata(object):
@@ -231,13 +232,13 @@ class QcAnndata(object):
         from .removeAmbient import removeAmbientBySoupx
         removeAmbientBySoupx(self.ad, ad_raw, layerAd=self.rawLayer, layerRaw=layerRaw, res=res, correctedLayerName=correctedLayerName, forceAccept=forceAccept, rEnv=rEnv)
 
-class clusterAnndata(object):
+class ClusterAnndata(object):
     def __init__(self, ad, rawLayer):
         self.ad = ad
         self.rawLayer = rawLayer
     
     @rcontext
-    def getSeuratSnn(self, obsm, n_neighbors, n_pcs=50, keyAdded='seurat', rEnv=None, **dt_kwargsToFindNeighbors):
+    def getSeuratSnn(self, obsm, n_neighbors, n_pcs=50, keyAdded='seurat', metric='euclidean', rEnv=None, **dt_kwargsToFindNeighbors):
         """
         The provided Python function, getSeuratSnn, integrates Python and R environments to perform neighborhood analysis on scRNA-seq data using the Seurat package, a popular tool in the R ecosystem for single-cell genomics analysis. This function requires an anndata object and utilizes both Python and R libraries to calculate shared nearest neighbors (SNN) based on a specified number of principal components (PCs) and neighbors. 
 
@@ -310,6 +311,7 @@ class clusterAnndata(object):
             dims=py2r(np.arange(1, n_pcs + 1)),\
         )
         dt_kwargs['k.param'] = n_neighbors
+        dt_kwargs['annoy.metric'] = metric
         dt_kwargs.update(dt_kwargsToFindNeighbors)
         rEnv['kwargs'] = ro.r.list(**dt_kwargs)
         ro.r("so <- DoCall(FindNeighbors, kwargs)")
@@ -396,7 +398,7 @@ class EnhancedAnndata(object):
         self.pl = PlotAnndata(self.ad, rawLayer=self.rawLayer)
         self.norm = NormAnndata(self.ad, rawLayer=self.rawLayer)
         self.qc = QcAnndata(self.ad, rawLayer=self.rawLayer)
-        self.cl = clusterAnndata(self.ad, rawLayer=self.rawLayer)
+        self.cl = ClusterAnndata(self.ad, rawLayer=self.rawLayer)
     
     def initLayer(self, layer=None, total=1e4, needScale=False, logbase=2):
         """
@@ -444,7 +446,7 @@ class EnhancedAnndata(object):
         self.pl = PlotAnndata(self.ad, rawLayer=self.rawLayer)
         self.norm = NormAnndata(self.ad, rawLayer=self.rawLayer)
         self.qc = QcAnndata(self.ad, rawLayer=self.rawLayer)
-        self.cl = clusterAnndata(self.ad, rawLayer=self.rawLayer)
+        self.cl = ClusterAnndata(self.ad, rawLayer=self.rawLayer)
 
     def __repr__(self):
         ls_object = [f"enhancedAnndata: {self.ad.__repr__()}"]

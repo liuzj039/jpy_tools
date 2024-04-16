@@ -32,7 +32,7 @@ from typing import (
 )
 from ..otherTools import F
 import collections
-from xarray import corr
+# from xarray import corr
 import matplotlib as mpl
 from more_itertools import chunked
 import patchworklib as pw
@@ -42,7 +42,7 @@ import marsilea as ma
 import marsilea.plotter as mp
 import legendkit
 import seaborn.objects as so
-from . import basic, geneEnrichInfo
+from . import basic
 from ..soExt import Axhline, Axvline
 
 def umapMultiBatch(
@@ -1263,6 +1263,7 @@ class PlotAnndata(object):
             runPb = True
 
         if runPb:
+            from . import geneEnrichInfo
             ad_pb = geneEnrichInfo._mergeData(ad, ls_group, layer=self.rawLayer)
             basic.initLayer(ad_pb, total=1e6, logbase=2)
             ad_pb.layers['normalize'] = np.exp2(ad_pb.layers['normalize_log']) - 1
@@ -1605,7 +1606,7 @@ class PlotAnndata(object):
             df = df.sample(subsample, random_state=39)
 
         if useObs:
-            df[color].cat.add_categories('None', inplace=True)
+            df[color] = df[color].cat.add_categories('None')
             df[color] = df[color].cat.reorder_categories(['None',*df[color].cat.categories[:-1]])
             df.loc[lambda _: ~_[color].isin(ls_color), color] = 'None'
             df_clusterLabelLoc = df.dropna(subset=[color]).groupby([color, 'groupby'])[['x', 'y']].agg('median').reset_index()
@@ -1737,6 +1738,9 @@ class PlotAnndata(object):
         fig or figconcat
 
         '''
+        if title is None:
+            title = color
+
         dt_kwargs = dict(
                 embed=embed, color=color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme, colorUseObsm=colorUseObsm, fc_additional=fc_additional,legendFigArtistKws=legendFigArtistKws)
         if isinstance(color, str):
@@ -1746,8 +1750,9 @@ class PlotAnndata(object):
             # assert groupby is None, "groupby is not supported when multiple colors are provided"
             if groupby is None:
                 figwrap = FigConcateWrap()
-                for _color in color:
+                for _color, _title in zip(color, title):
                     dt_kwargs['color'] = _color
+                    dt_kwargs['title'] = _title
                     fig = self._embedding(**dt_kwargs)
                     figwrap.addFig(fig >> F(FigConcate))
                 return figwrap.wrapAndGenerate(wrap)
@@ -1755,8 +1760,9 @@ class PlotAnndata(object):
                 figwrap = FigConcateWrap()
                 logger.warning("Both groupby and multiple colors are provided. `Wrap` will be ignored.")
                 dt_kwargs['wrap'] = None
-                for _color in color:
+                for _color, _title in zip(color, title):
                     dt_kwargs['color'] = _color
+                    dt_kwargs['title'] = _title
                     fig = self._embedding(**dt_kwargs)
                     figwrap.addFig(fig >> F(FigConcate))
                 return figwrap.wrapAndGenerate(wrap=1)

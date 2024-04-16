@@ -12,12 +12,13 @@ from marsilea.base import RenderPlan
 import marsilea as ma
 import marsilea.plotter as mp
 import numpy as np
+import scipy.sparse as ss
 
 geneRepBedPath = (
     "/data/Zhaijx/liuzj/data/Araport11/araport11.representative.gene_model.bed"
 )
 
-# 0: Intron, 1: Exon, -1: Uncovered, 2: PolyA
+# 0: Uncovered, 1: Exon, -1:Intron , 2: PolyA
 palette = {0: "#FFFFFF", 1: "#3982b5", -1: "#FFFFFF", 2: "#ee616f"}
 
 
@@ -31,6 +32,7 @@ palette = {0: "#FFFFFF", 1: "#3982b5", -1: "#FFFFFF", 2: "#ee616f"}
 
 class ReadColor(mp.Colors):
     def __init__(self, data, reverse, palette=palette, *args, **kwargs):
+        data = data.A if ss.issparse(data) else data
         if reverse:
             data = np.flip(data, 1)
 
@@ -89,11 +91,15 @@ class ReadMeta(RenderPlan):
         linewidths=1,
         foundNum=1,
         library=None
-    ):
+    ):  
+        import scipy.sparse as ss
         assert type in ["coverage", "3", "5"], f"Invalid type: {type}"
         title = {"coverage": "Coverage", "3": "3' End", "5": "5 ' End"}[type]
         # if reverse:
         #     data = np.flip(data, 1)
+        data = data.copy()
+        data = data.A if ss.issparse(data) else data
+
         df = pd.DataFrame(data)
         if type == "coverage":
             df = df == foundNum
@@ -102,6 +108,8 @@ class ReadMeta(RenderPlan):
             sr = pd.Series(np.zeros(df.shape[1]))
             for strand, (i, row) in zip(sr_readStrandInGenome, df.iterrows()):
                 if (strand == "+") ^ (type == "3"):
+                    # print(df)
+                    # print(row)
                     index = np.where(row == foundNum)[0][0]
                 else:
                     index = np.where(row == foundNum)[0][-1]
@@ -164,13 +172,15 @@ class ReadMetaEcdf(RenderPlan):
         title = {"3": "3' End", "5": "5 ' End"}[type]
         # if reverse:
         #     data = np.flip(data, 1)
-        df = pd.DataFrame(ad.X)
+        _data = ad.X.copy()
+        _mtx = _data.A if ss.issparse(_data) else _data
+        df = pd.DataFrame(_mtx)
         sr_readStrandInGenome = ad.obs[readStrandInGenomeKey]
         sr_library = ad.obs[libraryKey]
 
         dt_endRes = {}
         for i in sr_library.cat.categories:
-            dt_endRes[i] = sr = pd.Series(np.zeros(df.shape[1]))
+            dt_endRes[i] = pd.Series(np.zeros(df.shape[1]))
         
         for strand, (_, row), library in zip(sr_readStrandInGenome, df.iterrows(), sr_library):
             if (strand == "+") ^ (type == "3"):
@@ -232,7 +242,7 @@ class ReadMetaEcdf(RenderPlan):
         return CatLegend(colors=self.palette.values(), labels=self.palette.keys(), handle='line')
 
 
-def findNumberIntervalsOpen(sequence, target=0):
+def findNumberIntervalsOpen(sequence, target):
     sequence = list(sequence)
     intervals = []
     start = None
@@ -252,6 +262,8 @@ class GeneLine(RenderPlan):
     render_main = True
 
     def __init__(self, data, reverse, color="black", linewidths=1):
+        data = data.copy()
+        data = data.A if ss.issparse(data) else data
         if reverse:
             self.set_data(np.flip(data, 1))
         else:
@@ -264,7 +276,7 @@ class GeneLine(RenderPlan):
         ax = spec.ax
         data = spec.data
         # df = pd.DataFrame(np.where(data == 1, )).T.groupby(0)[1].agg(['min', 'max'])
-        sr = pd.DataFrame(data).apply(findNumberIntervalsOpen, axis=1).explode()
+        sr = pd.DataFrame(data).apply(findNumberIntervalsOpen, target=-1, axis=1).explode()
         ax.hlines(
             sr.index + 0.5,
             sr.str[0],
@@ -357,7 +369,7 @@ class GeneStruct(RenderPlan):
             colors=self.color,
             linewidths=self.exonwidth,
         )
-        ls_intron = findNumberIntervalsOpen(sr, 0)
+        ls_intron = findNumberIntervalsOpen(sr, -1)
         ax.hlines(
             [0] * len(ls_intron),
             [x[0] for x in ls_intron],
@@ -649,15 +661,16 @@ def bamToBinary(
     if cutRead:
         ad = sc.AnnData(
             X=pd.DataFrame(ls_posBinary, columns=range(start - padding, end + padding))
-            .fillna(-1)
+            .fillna(0)
             .astype(int)
         )
     else:
         ad = sc.AnnData(
             X=pd.DataFrame(ls_posBinary, columns=range(minLeft, maxRight))
-            .fillna(-1)
+            .fillna(0)
             .astype(int)
         )
+    ad.X = ss.csc_matrix(ad.X.astype(np.int8))
     # ad.var.index = ad.var.index.astype(int)
     ad.obs = pd.DataFrame(ls_comment)
     if ad.shape[0] == 0:
@@ -716,10 +729,10 @@ def geneBedToBinary(ad, df_bed, gene=None, chromosome=None, start=None, end=None
         geneStruName = sr_gene["Name"]
         geneStruStrand = sr_gene["Strand"]
 
-        # -1 uncovered; 1: exon, 0:intron, 2: utr
-        ad.var[geneStruName] = -1
+        # 0 uncovered; 1: exon, -1:intron, 2: utr
+        ad.var[geneStruName] = 0
 
-        ad.var[geneStruName].loc[sr_gene["Start"] : sr_gene["End"]] = 0
+        ad.var[geneStruName].loc[sr_gene["Start"] : sr_gene["End"]] = -1
 
         for blockStart, size in zip(
             sr_gene["BlockStarts"].split(","), sr_gene["BlockSizes"].split(",")
@@ -774,7 +787,37 @@ class Igv(object):
     def addLibrary(self, name, bamPath):
         self.dtBamPath[name] = bamPath
 
-    def synAd(self, configName, ls_name=None):
+    # def synAd(self, configName, ls_name=None):
+    #     if ls_name is None:
+    #         ls_name = list(self.dtBamPath.keys())
+
+    #     _dt_ad = {}
+    #     for name in ls_name:
+    #         if f"{name}_{configName}" not in self.dtAd:
+    #             continue
+    #         _ad = self.dtAd[f"{name}_{configName}"]
+    #         _dt_ad[name] = _ad
+    #     self.dtAd[configName] = sc.concat(
+    #         _dt_ad,
+    #         join="outer",
+    #         # index_unique="-",
+    #         fill_value=-1,
+    #         label="library",
+    #         uns_merge="same",
+    #     )
+    #     for geneAnno in _ad.var.columns:
+    #         self.dtAd[configName].var[geneAnno] = (
+    #             _ad.var[geneAnno].fillna(-1).astype(int)
+    #         )
+    #         self.dtAd[configName] = self.dtAd[configName].copy()
+    #         import gc;gc.collect()
+    #     ad = self.dtAd[configName]
+    #     for name in ls_name:
+    #         if f"{name}_{configName}" not in self.dtAd:
+    #             continue
+    #         self.dtAd[f"{name}_{configName}"] = ad[ad.obs['library'] == name].copy()
+    #         import gc;gc.collect()
+    def synAdAndRemove(self, configName, ls_name=None):
         if ls_name is None:
             ls_name = list(self.dtBamPath.keys())
 
@@ -784,24 +827,32 @@ class Igv(object):
                 continue
             _ad = self.dtAd[f"{name}_{configName}"]
             _dt_ad[name] = _ad
-        self.dtAd[configName] = sc.concat(
-            _dt_ad,
-            join="outer",
-            # index_unique="-",
-            fill_value=-1,
-            label="library",
-            uns_merge="same",
-        )
+
+        # get concated obs
+        df_obs = pd.concat([_ad.obs.assign(library=library) for library,_ad in _dt_ad.items()])
+        df_obs['library'] = df_obs['library'].astype('category').cat.set_categories(ls_name)
+        # get concated layer and X
+        dt_layer = {}
+        for key in _dt_ad[list(_dt_ad.keys())[0]].layers.keys():
+            dt_layer[key] = pd.concat([_ad.to_df(key) for _ad in _dt_ad.values()], axis=0).reindex(df_obs.index)
+        df_x = pd.concat([_ad.to_df() for _ad in _dt_ad.values()], axis=0).reindex(df_obs.index)
+        # get concated var
+        df_var = pd.DataFrame(index=df_x.columns)
+        ad_concated = sc.AnnData(df_x, obs=df_obs, var=df_var, layers=dt_layer, uns=_ad.uns.copy())
         for geneAnno in _ad.var.columns:
-            self.dtAd[configName].var[geneAnno] = (
-                _ad.var[geneAnno].fillna(-1).astype(int)
+            ad_concated.var[geneAnno] = (
+                _ad.var[geneAnno].fillna(0).astype(int)
             )
-            self.dtAd[configName] = self.dtAd[configName].copy()
-        ad = self.dtAd[configName]
+        ad_concated._sanitize()
+        self.dtAd[configName] = ad_concated
+        self.dtAd[f"{configName}_raw"] = ad_concated
+        ad = self.dtAd[f"{configName}_raw"]
         for name in ls_name:
             if f"{name}_{configName}" not in self.dtAd:
                 continue
-            self.dtAd[f"{name}_{configName}"] = ad[ad.obs['library'] == name].copy()
+            self.dtAd[f"{name}_{configName}"] = None
+        import gc;gc.collect()
+            
 
     def addReadBinary(
         self,
@@ -855,22 +906,45 @@ class Igv(object):
                 if (subsampleTo < ad.shape[0]):
                     ad = ad[
                         np.random.choice(ad.obs.index, subsampleTo, replace=False)
-                    ]
-            ad = ad.copy()
+                    ].copy()
+
             ad.uns[f"{configName}_strand"] = strand
 
             geneBedToBinary(
                 ad, self.df_bed, gene=gene, chromosome=chromosome, start=start, end=end
             )
-            self.dtAd[f"{name}_{configName}"] = ad
+            ad.obs['library'] = name
 
-        self.synAd(configName, ls_name)
-        # _dt_ad = {}
-        # for name in ls_name:
-        #     _dt_ad[name] = self.dtAd[f"{name}_{configName}"]
-        # self.dtAd[configName] = sc.concat(_dt_ad, join="outer", index_unique='-', fill_value=-1, label='library', uns_merge='same')
-        # for geneAnno in _dt_ad[name].var.columns:
-        #     self.dtAd[configName].uns[geneAnno] = _dt_ad[name].uns[geneAnno].fillna(-1).astype(int)
+            if configName in self.dtAd:
+                ad_all = self.dtAd[configName]
+                # get concated obs
+                df_obs = pd.concat([ad_all.obs, ad.obs])
+
+                # get concated layer and X
+                dt_layer = {}
+                df_mat = pd.DataFrame.sparse.from_spmatrix(ad.X, index=ad.obs.index, columns=ad.var.index)
+                df_matAll = pd.DataFrame.sparse.from_spmatrix(ad_all.X, index=ad_all.obs.index, columns=ad_all.var.index)
+
+                df_x = pd.concat([df_matAll, df_mat], axis=0).fillna(0).astype(pd.SparseDtype(np.int8, 0)).reindex(df_obs.index)
+                # get concated var
+                df_var = pd.DataFrame(index=df_x.columns)
+                ad_concated = sc.AnnData(df_x, obs=df_obs, var=df_var, layers=dt_layer, uns=ad_all.uns.copy())
+                for geneAnno in ad_all.var.columns:
+                    ad_concated.var[geneAnno] = (
+                        ad_all.var[geneAnno].fillna(0).astype(int)
+                    )
+                ad_concated._sanitize()
+
+                self.dtAd[configName] = ad_concated
+                self.dtAd[f"{configName}_raw"] = ad_concated
+                import gc;gc.collect()
+
+            else:
+                self.dtAd[configName] = ad
+                self.dtAd[f"{configName}_raw"] = ad
+
+            ad = self.dtAd[configName]
+            ad.obs['library'] = ad.obs['library'].astype('category').cat.set_categories(ls_name)
 
     def filterSplitSort(
         self,
@@ -880,10 +954,11 @@ class Igv(object):
         chromosome=None,
         start=None,
         end=None,
-        ls_name=None,
+        # ls_name=None,
         sortby=None,
         ascending=True,
         ls_group=None,
+        changeColor=True,
         dt_color=None,
         ls_addPolyaGroup=None,
     ):
@@ -928,78 +1003,152 @@ class Igv(object):
             configName = gene
         else:
             configName = f"{chromosome}:{start}-{end}"
+        if ls_addPolyaGroup is None:
+            pass
+        else:
+            assert changeColor, "ls_addPolyaGroup is only compatible with changeColor"
 
-        if ls_name is None:
-            _ls_name = list(self.dtBamPath.keys())
-            ls_name = []
-            for name in _ls_name:
-                if f"{name}_{configName}" in self.dtAd:
-                    ls_name.append(name)
+        # if ls_name is None:
+        #     _ls_name = list(self.dtBamPath.keys())
+        #     ls_name = []
+        #     for name in _ls_name:
+        #         if f"{name}_{configName}" in self.dtAd:
+        #             ls_name.append(name)
 
-        if isinstance(ls_name, str):
-            ls_name = [ls_name]
+        # if isinstance(ls_name, str):
+        #     ls_name = [ls_name]
 
-        ls_groupOrg = ls_group
-        _ls_group = None
-        for library in ls_name:
-            ad = self.dtAd[f"{library}_{configName}"]
-            ad._sanitize()
-
-            if ls_groupOrg is None:
-                ls_group = ad.obs[groupby].cat.categories.tolist()
-            elif isinstance(ls_groupOrg, str):
-                ls_group = [ls_groupOrg]
-            else:
-                ls_group = ls_groupOrg
-
-            if _ls_group is None:
-                _ls_group = ls_group
-            else:
-                assert _ls_group == ls_group, f"Group not match: {library}"
-
-            ad.obs[groupby] = ad.obs[groupby].cat.set_categories(ls_group)
-            if dt_color is None:
-                dt_color = {
-                    group: color
-                    for group, color in zip(
-                        ls_group,
-                        sns.color_palette("Paired", n_colors=len(ls_group)).as_hex(),
-                    )
-                }
-
-            ad = ad[ad.obs[groupby].isin(ls_group)]
-            if ad.shape[0] > 0:
-                pass
-            else:
-                del(self.dtAd[f"{library}_{configName}"])
-                continue
-            dt_numChange = {x: i for i, x in enumerate(ls_group, 10)}
-            dt_readId2Group = ad.obs[groupby].to_dict()
-
-            _ls = []
-            for readId, sr in tqdm.tqdm(ad.to_df().iterrows(), total=ad.shape[0]):
-                sr = sr.map(
-                    lambda _: dt_numChange[dt_readId2Group[readId]] if _ == 1 else _
+        ad = self.dtAd[f"{configName}_raw"]
+        
+        if ls_group is None:
+            ls_group = ad.obs[groupby].cat.categories.tolist()
+        if isinstance(ls_group, str):
+            ls_group = [ls_group]
+        ad = ad[ad.obs[groupby].isin(ls_group)]
+        ad.obs[groupby] = ad.obs[groupby].cat.set_categories(ls_group)
+        if dt_color is None:
+            dt_color = {
+                group: color
+                for group, color in zip(
+                    ls_group,
+                    sns.color_palette("Paired", n_colors=len(ls_group)).as_hex(),
                 )
+            }
+        dt_numChange = {x: i for i, x in enumerate(ls_group, 10)}
+        # dt_readId2Group = ad.obs[groupby].to_dict()
+
+        if changeColor:
+            lsDf = []
+            df = pd.DataFrame.sparse.from_spmatrix(ad.X, index=ad.obs.index, columns=ad.var.index) if ss.isspmatrix(ad.X) else ad.to_df()
+            for name, _df in df.groupby(ad.obs[groupby]):
+                _df = _df.applymap(lambda _: dt_numChange[name] if _ == 1 else _)
                 if not ls_addPolyaGroup is None:
-                    if dt_readId2Group[readId] in ls_addPolyaGroup:
+                    if name in ls_addPolyaGroup:
                         pass
                     else:
-                        sr = sr.map(lambda _: -1 if _ == 2 else _)
-                # print(sr.unique())
-                _ls.append(sr)
-            df_changeNum = pd.DataFrame(_ls)
-            ad.layers[groupby] = df_changeNum.reindex(ad.obs.index)
-            if sortby is None:
-                pass
-            else:
-                df_sorted = ad.obs.sort_values(by=sortby, ascending=ascending)
-                ad = ad[df_sorted.index]
-            ad.uns["dt_group2code"] = dt_numChange
-            ad.uns["dt_group2color"] = dt_color
-            self.dtAd[f"{library}_{configName}"] = ad
+                        if ss.isspmatrix(ad.X):
+                            sm = _df.sparse.to_coo().tocsr()
+                            nninds = sm.nonzero()
+                            keep = np.where(sm.data != 2)[0]
+                            sm_filtered = ss.csr_matrix((sm.data[keep], (nninds[0][keep], nninds[1][keep])), shape=sm.shape)
+                            _df = pd.DataFrame.sparse.from_spmatrix(sm_filtered, index=_df.index, columns=_df.columns)
+                        else:
+                            _df = _df.applymap(lambda _: 0 if _ == 2 else _)
+                lsDf.append(_df)
+            df_changeNum = pd.concat(lsDf, axis=0)
+            # for readId, sr in tqdm.tqdm(ad.to_df().iterrows(), total=ad.shape[0]):
+            #     sr = sr.map(
+            #         lambda _: dt_numChange[dt_readId2Group[readId]] if _ == 1 else _
+            #     )
+            #     if not ls_addPolyaGroup is None:
+            #         if dt_readId2Group[readId] in ls_addPolyaGroup:
+            #             pass
+            #         else:
+            #             sr = sr.map(lambda _: 0 if _ == 2 else _)
+            #     # print(sr.unique())
+            #     _ls.append(sr)
+            # df_changeNum = pd.DataFrame(_ls)
+            ad.layers[groupby] = df_changeNum.reindex(ad.obs.index).copy()
+        else:
+            pass
 
-        self.synAd(configName, ls_name)
+        if sortby is None:
+            pass
+        else:
+            df_sorted = ad.obs.sort_values(by=sortby, ascending=ascending)
+            ad = ad[df_sorted.index]
+        ad.uns["dt_group2code"] = dt_numChange
+        ad.uns["dt_group2color"] = dt_color
+        self.dtAd[f"{configName}"] = ad
+
+
+
+
+        # ls_groupOrg = ls_group
+        # _ls_group = None
+        # for library in ls_name:
+        #     ad = self.dtAd[f"{library}_{configName}"]
+        #     ad._sanitize()
+
+        #     if ls_groupOrg is None:
+        #         ls_group = ad.obs[groupby].cat.categories.tolist()
+        #     elif isinstance(ls_groupOrg, str):
+        #         ls_group = [ls_groupOrg]
+        #     else:
+        #         ls_group = ls_groupOrg
+
+        #     if _ls_group is None:
+        #         _ls_group = ls_group
+        #     else:
+        #         assert _ls_group == ls_group, f"Group not match: {library}"
+
+        #     ad.obs[groupby] = ad.obs[groupby].cat.set_categories(ls_group)
+        #     if dt_color is None:
+        #         dt_color = {
+        #             group: color
+        #             for group, color in zip(
+        #                 ls_group,
+        #                 sns.color_palette("Paired", n_colors=len(ls_group)).as_hex(),
+        #             )
+        #         }
+
+        #     ad = ad[ad.obs[groupby].isin(ls_group)]
+        #     if ad.shape[0] > 0:
+        #         pass
+        #     else:
+        #         del(self.dtAd[f"{library}_{configName}"])
+        #         continue
+        #     dt_numChange = {x: i for i, x in enumerate(ls_group, 10)}
+        #     dt_readId2Group = ad.obs[groupby].to_dict()
+            
+        #     if changeColor:
+        #         _ls = []
+        #         for readId, sr in tqdm.tqdm(ad.to_df().iterrows(), total=ad.shape[0]):
+        #             sr = sr.map(
+        #                 lambda _: dt_numChange[dt_readId2Group[readId]] if _ == 1 else _
+        #             )
+        #             if not ls_addPolyaGroup is None:
+        #                 if dt_readId2Group[readId] in ls_addPolyaGroup:
+        #                     pass
+        #                 else:
+        #                     sr = sr.map(lambda _: -1 if _ == 2 else _)
+        #             # print(sr.unique())
+        #             _ls.append(sr)
+        #         df_changeNum = pd.DataFrame(_ls)
+        #         ad.layers[groupby] = df_changeNum.reindex(ad.obs.index)
+        #     else:
+        #         pass
+            
+        #     if sortby is None:
+        #         pass
+        #     else:
+        #         df_sorted = ad.obs.sort_values(by=sortby, ascending=ascending)
+        #         ad = ad[df_sorted.index]
+        #     ad.uns["dt_group2code"] = dt_numChange
+        #     ad.uns["dt_group2color"] = dt_color
+        #     self.dtAd[f"{library}_{configName}"] = ad
+
+        # self.synAd(configName, ls_name)
         # _dt_ad = {}
         # for name in ls_name:
         #     _dt_ad[name] = self.dtAd[f"{name}_{configName}"]
@@ -1025,7 +1174,8 @@ class Igv(object):
         if library is None:
             ad = self.dtAd[configName]
         else:
-            ad = self.dtAd[f"{library}_{configName}"]
+            ad = self.dtAd[configName]
+            ad = ad[ad.obs['library'] == library]
 
         if groupby is None:
             palette = self.palette
@@ -1051,8 +1201,8 @@ class Igv(object):
             h.add_left(
                 mp.Colors(ad.obs[groupby], palette=dt_splitColors), size=leftChunkSize, legend=chunkAsLegend
             )
-
-        h.add_layer(GeneLine(ad.X, reverse, linewidths=intronWidth))
+        if intronWidth > 0:
+            h.add_layer(GeneLine(ad.X, reverse, linewidths=intronWidth))
         if geneSplitLineWidth > 0:
             h.add_layer(GeneSplitLine(ad.X, linewidth=geneSplitLineWidth))
         if not libraryColor is None:
@@ -1151,19 +1301,17 @@ class Igv(object):
         else:
             configName = f"{chromosome}:{start}-{end}"
 
+        assert configName in self.dtAd, f"{configName} not in self.dtAd"
+
         if ls_name is None:
-            _ls_name = list(self.dtBamPath.keys())
-            ls_name = []
-            for name in _ls_name:
-                if f"{name}_{configName}" in self.dtAd:
-                    ls_name.append(name)
+            ls_name = list(self.dtAd[configName].obs['library'].cat.categories)
         if isinstance(ls_name, str):
             ls_name = [ls_name]
 
         if dt_libraryColor is None:
             dt_libraryColor = {name: None for name in ls_name}
 
-        assert configName in self.dtAd, f"{configName} not in self.dtAd"
+        
 
         if groupby is None:
             pass
@@ -1172,12 +1320,12 @@ class Igv(object):
                 groupby in self.dtAd[configName].layers
             ), f"please run `filterSplitSort` first"
 
-        if len(ls_name) == 1:
-            library = ls_name[0]
-            ad = self.dtAd[f"{library}_{configName}"]
-            ad.obs["library"] = library
-        else:
-            ad = self.dtAd[configName]
+        # if len(ls_name) == 1:
+        #     library = ls_name[0]
+        #     ad = self.dtAd[f"{library}_{configName}"]
+        #     ad.obs["library"] = library
+        # else:
+        ad = self.dtAd[configName]
 
         ad_all = ad[ad.obs["library"].isin(ls_name)]
 
@@ -1438,26 +1586,19 @@ class Igv(object):
         else:
             configName = f"{chromosome}:{start}-{end}"
 
-        if ls_name is None:
-            _ls_name = list(self.dtBamPath.keys())
-            ls_name = []
-            for name in _ls_name:
-                if f"{name}_{configName}" in self.dtAd:
-                    ls_name.append(name)
 
-        if isinstance(ls_name, str):
-            ls_name = [ls_name]
+
 
 
         assert configName in self.dtAd, f"{configName} not in self.dtAd"
 
-        if len(ls_name) == 1:
-            library = ls_name[0]
-            ad = self.dtAd[f"{library}_{configName}"]
-            # ad.obs["library"] = library
-        else:
-            ad = self.dtAd[configName]
-        ad_all = ad[ad.obs["library"].isin(ls_name)]
+        ad = self.dtAd[configName]
+        if ls_name is None:
+            ls_name = ad.obs["library"].cat.categories
+        elif isinstance(ls_name, str):
+            ls_name = [ls_name]
+            
+        ad = ad[ad.obs["library"].isin(ls_name)]
 
         if not gene is None:
             transcript = ad.uns[f'{gene}_genes'][0]
@@ -1470,8 +1611,7 @@ class Igv(object):
             reverseStrand = False if self.reverseStrand is None else self.reverseStrand
             geneStrand = ad.uns[f"{configName}_strand"] 
 
-        ad = ad_all
-
+        # print(ad)
         h = ma.base.ClusterBoard(ad.X, width=width, height=2)
         h.add_layer(
             ReadMetaEcdf(

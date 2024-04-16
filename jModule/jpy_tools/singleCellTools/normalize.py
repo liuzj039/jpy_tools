@@ -30,8 +30,8 @@ from typing import (
     Callable,
 )
 import collections
-from xarray import corr
-import muon as mu
+# from xarray import corr
+# import muon as mu
 from . import basic
 from ..otherTools import setSeed
 from ..rTools import rcontext

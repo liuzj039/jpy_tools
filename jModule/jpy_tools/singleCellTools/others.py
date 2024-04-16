@@ -1116,6 +1116,7 @@ def clusteringAndCalculateShilouetteScore(
             for res in tqdm.tqdm(ls_res, desc="res"):
                 sc.tl.leiden(ad, resolution=float(res), key_added=f"temp_{res}")
                 lsDf.append(ad.obs[f"temp_{res}"])
+                del(ad.obs[f"temp_{res}"])
         else:
             _ad = sc.AnnData(ss.csc_matrix(ad.shape), obs=ad.obs.copy(), var=ad.var.copy())
             _ad.obsp['connectivities'] = ad.obsp['connectivities']
