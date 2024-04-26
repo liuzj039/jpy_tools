@@ -2287,7 +2287,7 @@ def findDegUsePseudobulk(
         if method == 'DESeq2':
             ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByDeseq2)(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, a, b), shrink=shrink) for a,b in combinations(groups, 2))
         else:
-            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByEdger)(ad_merged, 'raw', compareKey, f"{compareKey}{a}-{compareKey}{b}") for a,b in combinations(groups, 2))
+            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByEdger)(ad_merged, 'raw', compareKey, f"x{a}-x{b}") for a,b in combinations(groups, 2))
         for i,(a,b) in enumerate(combinations(groups, 2)):
             ls_res[i] = ls_res[i].assign(a=a, b=b)
         # ls_res = []
@@ -2307,7 +2307,7 @@ def findDegUsePseudobulk(
         if method == 'DESeq2':
             ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByDeseq2)(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, b, a), shrink=shrink) for b in groups)
         else:
-            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByEdger)(ad_merged, 'raw', compareKey, f"{compareKey}{b}-{compareKey}{a}") for b in groups)
+            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByEdger)(ad_merged, 'raw', compareKey, f"x{b}-x{a}") for b in groups)
         for i,b in enumerate(groups):
             ls_res[i] = ls_res[i].assign(a=a, b=b)
         # ls_res = []

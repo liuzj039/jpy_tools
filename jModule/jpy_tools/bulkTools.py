@@ -72,42 +72,60 @@ def counts2tpm(ad, layer, bed_path, fc_logScale:Optional[Callable] = None):
         ad.layers['tpm'] = df_tpm
 
 
-def deByEdger(ad, layer, obsKey, contrast):
+def deByEdger(ad, layer, obsKey, contrast, filterByEdger=True):
     # import rpy2.robjects as ro
     # from rpy2.robjects.packages import importr
     # R = ro.r
     from statsmodels.stats.multitest import fdrcorrection
 
-    importr("edgeR")
+    edgeR = importr("edgeR")
     dfR_exp = py2r(ad.to_df(layer).T)
     vtR_group = py2r(ad.obs[obsKey])
     
-    funcR_callEdgeRContrast = R(
-        f"""
-    \(dfR_exp,{obsKey}, contrast) {{
-        y <- DGEList(counts=dfR_exp,group={obsKey})
-        keep <- filterByExpr(y)
-        y <- y[keep,,keep.lib.sizes=FALSE]
-        y <- calcNormFactors(y)
-        design <- model.matrix(~0+{obsKey})
-        contrast <- do.call(makeContrasts, list(contrast, levels=design))
-        y <- estimateDisp(y,design)
-        fit <- glmFit(y,design,)
-        lrt <- glmLRT(fit, contrast=contrast)
-        lrt <- as.data.frame(lrt)
-        lrt <- tibble::rownames_to_column(data.frame(lrt))
-        return(lrt)
-    }}
-    """
-    )
+    degLs = edgeR.DGEList(counts=dfR_exp,group=vtR_group)
+    if filterByEdger:
+        keep = edgeR.filterByExpr(degLs)
+        degLs = R("""\(x, y) {
+            x[y,,keep.lib.sizes=F]
+            }""")(degLs, keep)
+    degLs = edgeR.calcNormFactors(degLs)
+    design = R("""\(x) {
+        model.matrix(~0 + x)
+    }""")(vtR_group) 
+    degLs = edgeR.estimateDisp(degLs,design)
+    fit = edgeR.glmFit(degLs,design,)
+    contrast = R.makeContrasts(contrast, levels=design)
+    lrt = edgeR.glmLRT(fit, contrast=contrast)
+    df_res = r2py(R("tibble::rownames_to_column")(lrt)).rename(columns={'rowname':'gene'})
+    df_res["fdr"] = fdrcorrection(df_res["PValue"])[1]
 
-    renv = ro.Environment()
-    with ro.local_context(renv) as rl:
-        df_lrt = funcR_callEdgeRContrast(dfR_exp, vtR_group, contrast) >> F(
-            r2py
-        )
-        df_lrt["fdr"] = fdrcorrection(df_lrt["PValue"])[1]
-    return df_lrt.copy()
+    # funcR_callEdgeRContrast = R(
+    #     f"""
+    # \(dfR_exp,{obsKey}, contrast) {{
+    #     y <- DGEList(counts=dfR_exp,group={obsKey})
+    #     keep <- filterByExpr(y)
+    #     y <- y[keep,,keep.lib.sizes=FALSE]
+    #     y <- calcNormFactors(y)
+    #     design <- model.matrix(~0+{obsKey})
+    #     contrast <- do.call(makeContrasts, list(contrast, levels=design))
+    #     y <- estimateDisp(y,design)
+    #     fit <- glmFit(y,design,)
+    #     lrt <- glmLRT(fit, contrast=contrast)
+    #     lrt <- as.data.frame(lrt)
+    #     lrt <- tibble::rownames_to_column(data.frame(lrt))
+    #     return(lrt)
+    # }}
+    # """
+    # )
+
+    # renv = ro.Environment()
+    # with ro.local_context(renv) as rl:
+    #     df_lrt = funcR_callEdgeRContrast(dfR_exp, vtR_group, contrast) >> F(
+    #         r2py
+    #     )
+    #     df_lrt["fdr"] = fdrcorrection(df_lrt["PValue"])[1]
+    # return df_lrt.copy()
+    return df_res
 
 def deByDeseq2(ad, layer, groupDesign, ls_obs, contrast, shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None):
     "coef only worked for apeglm shrink"

@@ -23,6 +23,7 @@ from seaborn._core.groupby import GroupBy
 from seaborn._stats.base import Stat
 from seaborn._core.typing import Vector
 import pandas as pd
+from loguru import logger
 
 def mvLegToAx(fig, ax, loc, bbox_to_anchor=None, **kwargs):
     import inspect
@@ -401,3 +402,85 @@ class KdeDensityColor(Stat):
         res['color'] = res['color1']
         res = res.drop(columns=['color1'])
         return res
+    
+@dataclasses.dataclass
+class BoxStat(Stat):
+    upper: bool = True
+    outliers: bool = False
+    boundary: bool = False
+    group_by_orient: ClassVar[bool] = True
+    def boxstat(self, data: pd.DataFrame, var:str):
+        df = data.copy()
+        upper = self.upper
+        outliers = self.outliers
+        boundary = self.boundary
+        df['_value'] = df[var]
+        if upper:
+            boxEdge = df['_value'].quantile(0.75)
+            lineEdge = min(df['_value'].max(), df['_value'].quantile(0.75)+ 1.5 * (df['_value'].quantile(0.75)-df['_value'].quantile(0.25)))
+            df_filtered = df.query("`_value` > @lineEdge", engine='python')
+        else:
+            boxEdge = df['_value'].quantile(0.25)
+            lineEdge = max(df['_value'].min(), df['_value'].quantile(0.25)- 1.5 * (df['_value'].quantile(0.75)-df['_value'].quantile(0.25)))
+            df_filtered = df.query("`_value` < @lineEdge", engine='python')
+        if outliers:
+            df_filtered = df_filtered.drop(columns=['_value'])
+            return df_filtered
+        elif boundary:
+            return pd.DataFrame([lineEdge], columns=[var])
+        else:
+            return pd.DataFrame([lineEdge, boxEdge], columns=[var])
+
+
+    def __call__(self, data: pd.DataFrame, groupby: GroupBy, orient:str, scales: Dict[str, Scale]) -> pd.DataFrame:
+        var = {"x": "y", "y": "x"}[orient]
+        res = (
+            groupby
+            .apply(data, self.boxstat, var)
+        )
+        return res
+
+
+def addBoxBySo(p:so.Plot, showOutliers:bool=True, showBoundary:bool=True, dodge=True, dodgeWidth=0.1, width=0.8, orient:str='v'):
+    
+    if dodge:
+        if width != 0.8:
+            logger.warning("dodge is not supported when width is not 0.8")
+            width = 0.8
+        p = (
+            p.add(Box(alpha=.35, width=width), so.Perc([25, 75]), so.Dodge(gap=dodgeWidth))
+            .add(so.Range(), BoxStat(), so.Dodge(gap=dodgeWidth), legend=False)
+            .add(so.Range(), BoxStat(False), so.Dodge(gap=dodgeWidth), legend=False)
+            .add(so.Dash(width=width), so.Perc([50]), so.Dodge(gap=dodgeWidth), legend=False)
+        )
+        if showOutliers:
+            p = (
+                p.add(so.Dots(), BoxStat(outliers=True), so.Dodge(gap=dodgeWidth), legend=False)
+                .add(so.Dots(), BoxStat(False, outliers=True), so.Dodge(gap=dodgeWidth), legend=False)
+            )
+        if showBoundary:
+            marker = '_' if orient == 'v' else '|'
+            p = (
+                p.add(so.Dots(marker=marker, pointsize=15 * width / 0.8), BoxStat(boundary=True), so.Dodge(gap=dodgeWidth), legend=False)
+                .add(so.Dots(marker=marker, pointsize=15 * width / 0.8), BoxStat(False, boundary=True), so.Dodge(gap=dodgeWidth), legend=False)
+            )
+    else:
+        p = (
+            p.add(Box(alpha=.35, width=width), so.Perc([25, 75]))
+            .add(so.Range(), BoxStat(), legend=False)
+            .add(so.Range(), BoxStat(False), legend=False)
+            .add(so.Dash(width=width), so.Perc([50]), legend=False)
+        )
+        if showOutliers:
+            p = (
+                p.add(so.Dots(), BoxStat(outliers=True), legend=False)
+                .add(so.Dots(), BoxStat(False, outliers=True),legend=False)
+            )
+        if showBoundary:
+            marker = '_' if orient == 'v' else '|'
+            p = (
+                p.add(so.Dots(marker=marker, pointsize=25 * width / 0.8), BoxStat(boundary=True), legend=False)
+                .add(so.Dots(marker=marker, pointsize=25 * width / 0.8), BoxStat(False, boundary=True), legend=False)
+            )
+
+    return p
