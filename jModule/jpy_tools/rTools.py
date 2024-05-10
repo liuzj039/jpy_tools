@@ -13,7 +13,6 @@
 # from gokceneraslan
 import numpy as np
 import pandas as pd
-from jpy_tools import settings
 import functools
 import scipy.sparse as sp
 from contextlib import contextmanager
