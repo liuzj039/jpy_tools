@@ -118,4 +118,4 @@ def removeAmbientBySoupx(ad:sc.AnnData, ad_raw:sc.AnnData, layerAd:str='raw', la
 
     ad.layers[correctedLayerName] = r2py(rEnv['out']).T
 
-    ad.obs['ambientRnaFractionEstimatedBySoupx'] = 1 - (ad.layers['soupX_corrected'].sum(1).A.reshape(-1) / ad.layers['raw'].sum(1).A.reshape(-1))
+    ad.obs['ambientRnaFractionEstimatedBySoupx'] = 1 - (ad.layers[correctedLayerName].sum(1).A.reshape(-1) / ad.layers['raw'].sum(1).A.reshape(-1))

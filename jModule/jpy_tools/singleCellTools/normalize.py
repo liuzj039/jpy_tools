@@ -871,12 +871,21 @@ class NormAnndata(object):
 
         ad = self.ad
 
+
         if preCluster is None:
             logger.info(f"cluster information is not specified, `connectivity` stored in anndata and reslution {resolution} will be used to cluster cells")
             logger.warning("I strongly recommend you to specify `preCluster` to avoid repeated clustering")
+            ad_bc = ad
+            ad = sc.AnnData(ad_bc.layers["normalize_log"].copy(), obs=ad.obs.copy())
+            sc.pp.highly_variable_genes(ad, n_top_genes=3000)
+            sc.tl.pca(ad, n_comps=50, use_highly_variable=True)
+            sc.pp.neighbors(ad)
             sc.tl.leiden(ad, resolution=resolution, key_added="scran_used_cluster")
+            ad_bc.obs["scran_used_cluster"] = ad.obs["scran_used_cluster"].copy()
+            ad = ad_bc
         else:
             ad.obs["scran_used_cluster"] = self.ad.obs[preCluster]
+        
         
         if threads == 1:
             BPPARAM = bp.SerialParam()
