@@ -357,6 +357,7 @@ class ClusterAnndata(object):
             dt_kwargsForCellex: dict = {},
         ):
         from .geneEnrichInfo import calculateEnrichScoreByCellex
+        np.float = np.float64
         layer = self.rawLayer if layer is None else layer
         calculateEnrichScoreByCellex(self.ad, layer=layer, clusterName=clusterName, batchKey=batchKey, copy=False, check=check, kayAddedPrefix=kayAddedPrefix, dt_kwargsForCellex=dt_kwargsForCellex)
 

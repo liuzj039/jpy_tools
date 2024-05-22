@@ -863,6 +863,7 @@ class NormAnndata(object):
         import rpy2.robjects as ro
         from rpy2.robjects.packages import importr
         from scipy.sparse import csr_matrix, isspmatrix
+        import scipy.sparse as ss
         from ..rTools import py2r, r2py
 
         R = ro.r
@@ -893,8 +894,12 @@ class NormAnndata(object):
             BPPARAM = bp.MulticoreParam(threads)
         
         dfR_clusterInfo = py2r(ad.obs['scran_used_cluster'])
-        mtxR = py2r(ad.layers[self.rawLayer].T)
+        mtx = ad.layers[self.rawLayer]
+        if ss.issparse(mtx):
+            if not isinstance(mtx, ss.csr_matrix):
+                mtx = ss.csr_matrix(mtx)
 
+        mtxR = py2r(mtx.T)
         logger.info("calculate size factor")
         vtR_sizeFactor = R.calculateSumFactors(
             mtxR,
@@ -991,7 +996,7 @@ class NormAnndata(object):
         ad_resi = sc.AnnData(self.ad.obsm['sct_residual'])
         ad_resi.var['highly_variable']=True
 
-        sc.tl.pca(ad_resi, n_comps=50, use_highly_variable=True)
+        sc.tl.pca(ad_resi, n_comps=comps, use_highly_variable=True)
         self.ad.obsm['X_pca'] = ad_resi.obsm['X_pca'].copy()
         self.ad.uns['pca'] = ad_resi.uns['pca'].copy()
 

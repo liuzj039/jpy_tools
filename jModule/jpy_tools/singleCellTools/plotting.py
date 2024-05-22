@@ -1500,8 +1500,8 @@ class PlotAnndata(object):
             return h
     
     def _embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
-                  cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0.9,
-                  figsize=(8,6), legendCol=1, legendInFig=False, legendFigArtistKws={'weight':'bold'}, fc_legendInFig=lambda _: _.split(':')[0], needLegend=True, subsample=None, showTickLabels=False, italicTitle=None,
+                  cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0,
+                  figsize=(8,6), legendCol=1, legendInFig=False, legendFigArtistKws={'weight':'bold'}, fc_legendInFig=lambda _: _.split(':')[0], needLegend=True, subsample=None, showTickLabels=False, italicTitle=None, tightLayout=False,
                   fc_additional = lambda _: _, colorUseObsm=None,
                   dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}) -> plt.Figure:
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
@@ -1660,8 +1660,13 @@ class PlotAnndata(object):
         g = fc_additional(g)
         fig = plt.figure(figsize=figsize)
         p = g.on(fig).plot()
+        p._repr_png_()
+        plt.close()
         # p._repr_png_()
         # fig = p._figure 
+
+        if tightLayout:
+            fig.tight_layout()
 
         if needLegend:
             if useObs:
@@ -1691,14 +1696,26 @@ class PlotAnndata(object):
             ax.xaxis.label.set_visible(True)
         # if italicTitle:
         #         ax.set_title(ax.get_title(), fontstyle='italic')
-
+        
+        if titleLocY > 0:
+            pass
+        else:
+            
+            # fig.suptitle(title, y=0.9, va='baseline', fontstyle='italic' if italicTitle else 'normal') # initialization, make ax title 's pixel coordination is poivided at the suptitle-included figure case
+            suptitleLocation = 0
+            for ax in fig.axes:
+                newY = fig.transFigure.inverted().transform(ax.title.get_tightbbox())[1,1]
+                if newY > suptitleLocation:
+                    suptitleLocation = newY
+            titleLocY = suptitleLocation
+            logger.info(f"Title location: {titleLocY}")
         fig.suptitle(title, y=titleLocY, va='baseline', fontstyle='italic' if italicTitle else 'normal')
-        plt.close()
+        
         return fig
 
     def embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
-                  cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0.9,
-                  figsize=(8,6), legendCol=1, legendInFig=False, legendFigArtistKws={'weight':'bold'}, fc_legendInFig=lambda _: _.split(':')[0], needLegend=True, subsample=None, showTickLabels=False, italicTitle=None,
+                  cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0,
+                  figsize=(8,6), legendCol=1, legendInFig=False, legendFigArtistKws={'weight':'bold'}, fc_legendInFig=lambda _: _.split(':')[0], needLegend=True, subsample=None, showTickLabels=False, italicTitle=None, tightLayout=False,
                   fc_additional=lambda _: _, colorUseObsm=None,
                   dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
@@ -1742,7 +1759,7 @@ class PlotAnndata(object):
             title = color
 
         dt_kwargs = dict(
-                embed=embed, color=color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme, colorUseObsm=colorUseObsm, fc_additional=fc_additional,legendFigArtistKws=legendFigArtistKws)
+                embed=embed, color=color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme, tightLayout=tightLayout, colorUseObsm=colorUseObsm, fc_additional=fc_additional,legendFigArtistKws=legendFigArtistKws)
         if isinstance(color, str):
             return self._embedding(**dt_kwargs)
         else:

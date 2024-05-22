@@ -1969,6 +1969,7 @@ class LabelTransferAnndata(object):
             parameters for the aucell function
 
         '''
+        np.object = object
         from .geneEnrichInfo import getAUCellScore
         layer = self.queryLayer if layer is None else layer
         getAUCellScore(self.ad_query, dt_genes, layer, threads, aucMaxRank, aucMaxPropotion, label, calcThreshold, thresholdsHistCol, dt_kwargs2aucell, chunksize, **dt_kwargs)

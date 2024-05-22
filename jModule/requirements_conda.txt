@@ -51,6 +51,7 @@ r-seurat>=4.1,<4.9
 r-seuratobject<4.9
 r-htmltools>0.5.6
 r-tidyverse
+r-matrix=1.6_1.1
 #bioconductor-aucell
 #bioconductor-cellid
 bioconductor-deseq2
