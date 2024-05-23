@@ -60,6 +60,7 @@ bioconductor-deseq2
 bioconductor-scdblfinder
 bioconductor-scran
 bioconductor-singlecellexperiment
+bioconductor-glmgampoi
 #bioconductor-clusterprofiler
 
 # pip only

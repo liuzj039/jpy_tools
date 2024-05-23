@@ -171,17 +171,17 @@ def byScDblFinder(
     tempAd = basic.getPartialLayersAdata(adata, layer, obsInfoLs=ls_obsInfo)
     tempAd.layers["counts"] = tempAd.X
 
-    logger.info("start to transfer adata to R")
+    logger.info("Convert adata to Seurat object")
     so = ad2so(tempAd, layer='counts')
     tempAdr = Seurat.as_SingleCellExperiment(so)
     del tempAd
     del so
 
-    logger.info("start to calculate doublet score")
+    logger.info("Calculate doublet score")
 
     tempAdr = scDblFinder.scDblFinder(tempAdr, samples=batch_key, dbr=doubletRatio, BPPARAM=BPPARAM)
 
-    logger.info("start to intergrate result with adata")
+    logger.info("Intergrate result with adata")
     # scDblFinderResultDf = r2py(R.as_data_frame(tempAdr.slots["colData"]))
     scDblFinderResultDfR = rBase.as_data_frame(tempAdr.slots["colData"], row_names = R('row.names')(tempAdr.slots["colData"]), stringsAsFactors=False)
     scDblFinderResultDf = r2py(scDblFinderResultDfR)
