@@ -1,0 +1,147 @@
+configfile: "/public/home/liuzj/scripts/pipeline/combineSnuupyAndSiceloreResult/snakemake/config.yaml"
+pipelineDir = config['pipelineDir']
+combineScriptDir = config['combineScriptDir']
+
+
+rule all:
+    input:
+        generateMtxFinished = f"{config['resultDir']}step7_generateMtx/generateMtxFinished.empty"
+
+rule combineResult:
+    input:
+        siceloreBam = config['siceloreBam'],
+        siceloreFasta = config['siceloreFasta'],
+        snuupyFea = config['snuupyFea'],
+        snuupyFasta = config['snuupyFasta']
+    output:
+        combineFasta = f"{config['resultDir']}step1_combineResult/combineFasta.fa",
+        combineFea = f"{config['resultDir']}step1_combineResult/combineFea.feather"
+    params:
+        gpu = "0"
+
+    threads:1
+    shell:
+        """
+cd {pipelineDir}
+cd {combineScriptDir}
+python ./mergeSnuupyAndSiceloreResults.py --si-bam {input.siceloreBam} --si-fasta {input.siceloreFasta} --sn-fasta {input.snuupyFasta} --sn-fea {input.snuupyFea} --out-fasta {output.combineFasta} --out-fea {output.combineFea}
+        """
+
+rule minimapMappingPolished:
+    input:
+        combineFasta = f"{config['resultDir']}step1_combineResult/combineFasta.fa"
+    output:
+        polishedMappingResult = f"{config['resultDir']}step2_minimapMappingPolished/polishedMappingResult.bam"
+    params:
+        minimap2Path = config['minimap2Path'],
+        genomeFa = config['genomeFa'],
+        geneAnnoBed = config['geneAnnoBed'],
+        gpu = "0"
+
+    threads:56
+    shell:
+        """
+cd {pipelineDir}
+{params.minimap2Path} -ax splice --secondary=no -uf --MD --sam-hit-only -t {threads} --junc-bed {params.geneAnnoBed} {params.genomeFa} {input.combineFasta} |samtools sort - -o {output.polishedMappingResult} && samtools index {output.polishedMappingResult}
+        """
+
+rule addGeneName:
+    input:
+        polishedMappingResult = f"{config['resultDir']}step2_minimapMappingPolished/polishedMappingResult.bam"
+    output:
+        polishedReadsAddGNPickle = f"{config['resultDir']}step3_addGeneName/polishedReadsAddGNPickle.pickle",
+        polishedReadsAddGNBam = f"{config['resultDir']}step3_addGeneName/polishedReadsAddGNBam.bam"
+    params:
+        geneAnnoBed = config['geneAnnoBed'],
+        bedtoolsPath = config['bedtoolsPath'],
+        gpu = "0"
+
+    threads:2
+    shell:
+        """
+cd {pipelineDir}
+python ./snuupy/snuupy.py addGeneName -i {input.polishedMappingResult} --bed {params.geneAnnoBed} --out-pickle {output.polishedReadsAddGNPickle} --out-bam {output.polishedReadsAddGNBam} --bedtools {params.bedtoolsPath}
+        """
+
+rule getSpliceInfo:
+    input:
+        polishedMappingResult = f"{config['resultDir']}step2_minimapMappingPolished/polishedMappingResult.bam",
+        polishedReadsAddGNPickle = f"{config['resultDir']}step3_addGeneName/polishedReadsAddGNPickle.pickle"
+    output:
+        splicingInfo = f"{config['resultDir']}step4_getSpliceInfo/splicingInfo.tsv"
+    params:
+        bedtoolsPath = config['bedtoolsPath'],
+        geneAnnoRepreBed = config['geneAnnoRepreBed'],
+        gpu = "0"
+
+    threads:2
+    shell:
+        """
+cd {pipelineDir}
+python ./snuupy/snuupy.py getSpliceInfo -i {input.polishedMappingResult} -b {params.geneAnnoRepreBed} -o {output.splicingInfo} -g {input.polishedReadsAddGNPickle} --bedtools {params.bedtoolsPath}
+        """
+
+rule addPolyATag:
+    input:
+        combineFea = f"{config['resultDir']}step1_combineResult/combineFea.feather",
+        polishedReadsAddGNBam = f"{config['resultDir']}step3_addGeneName/polishedReadsAddGNBam.bam",
+        rawNanoporeFa = config['rawNanoporeFa'],
+        nanoporeWorkspace = config['nanoporeWorkspace'],
+        nanoporeSeqSummary = config['nanoporeSeqSummary'],
+        geneAnnoBed = config['geneAnnoBed']
+    output:
+        polishedReadsAddGNPABam = f"{config['resultDir']}step5_addPolyATag/polishedReadsAddGNPABam.bam"
+    params:
+        polyACallerTemp = f"{config['resultDir']}step5_addPolyATag/polyACallerTemp/",
+        genomeFa = config['genomeFa'],
+        geneAnnoBed = config['geneAnnoBed'],
+        minimap2Path = config['minimap2Path'],
+        gpu = "0"
+
+    threads:56
+    shell:
+        """
+cd {pipelineDir}
+python ./snuupy/snuupy.py addPolyATag --in-fasta {input.rawNanoporeFa}     --genome {params.genomeFa} -t {threads} --in-f5-workspace {input.nanoporeWorkspace}     --in-f5-summary {input.nanoporeSeqSummary} --bed {params.geneAnnoBed}     --tempDir {params.polyACallerTemp} --feather {input.combineFea}     --in-bam {input.polishedReadsAddGNBam} --out-bam {output.polishedReadsAddGNPABam}     --minimap {params.minimap2Path}
+        """
+
+rule polyAClusterDetected:
+    input:
+        polishedReadsAddGNPABam = f"{config['resultDir']}step5_addPolyATag/polishedReadsAddGNPABam.bam"
+    output:
+        polyAClusterDetectedFinished = f"{config['resultDir']}step6_polyAClusterDetected/polyAClusterDetectedFinished.empty"
+    params:
+        polyACluster = f"{config['resultDir']}step6_polyAClusterDetected/polyACluster/",
+        geneNot12Bed = config['geneNot12Bed'],
+        genomeFa = config['genomeFa'],
+        gpu = "0"
+
+    threads:56
+    shell:
+        """
+cd {pipelineDir}
+python ./snuupy/snuupy.py polyAClusterDetected --infile {input.polishedReadsAddGNPABam} --gene-bed {params.geneNot12Bed} --out-dir {params.polyACluster} -t {threads} --fasta {params.genomeFa} && touch {output.polyAClusterDetectedFinished}
+        """
+
+rule generateMtx:
+    input:
+        splicingInfo = f"{config['resultDir']}step4_getSpliceInfo/splicingInfo.tsv",
+        polishedReadsAddGNPABam = f"{config['resultDir']}step5_addPolyATag/polishedReadsAddGNPABam.bam",
+        polyAClusterDetectedFinished = f"{config['resultDir']}step6_polyAClusterDetected/polyAClusterDetectedFinished.empty"
+    output:
+        generateMtxFinished = f"{config['resultDir']}step7_generateMtx/generateMtxFinished.empty"
+    params:
+        IlluminaMultiMat = f"{config['resultDir']}step7_generateMtx/IlluminaMultiMat/",
+        NanoporeMultiMat = f"{config['resultDir']}step7_generateMtx/NanoporeMultiMat/",
+        usedIntron = config['usedIntron'],
+        cellRangerH5 = config['cellRangerH5'],
+        polya_clusterFiltered = f"{config['resultDir']}step6_polyAClusterDetected/polyACluster/polya_cluster.filtered.bed",
+        gpu = "0"
+
+    threads:2
+    shell:
+        """
+cd {pipelineDir}
+python ./snuupy/snuupy.py generateMtx -i {input.splicingInfo} --in-illumina {params.cellRangerH5} --apa-pac {params.polya_clusterFiltered} --apa-bam {input.polishedReadsAddGNPABam} --ir --ir-list {params.usedIntron} --out-nanopore {params.NanoporeMultiMat} --out-illumina {params.IlluminaMultiMat} && touch {output.generateMtxFinished}
+        """
+
