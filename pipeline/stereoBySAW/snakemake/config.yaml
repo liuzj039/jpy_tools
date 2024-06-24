@@ -1,0 +1,22 @@
+singularity:
+  /public/home/liuzj/softwares/anaconda3/envs/SAW/bin/singularity
+container:
+  ~/singularity_containers/SAW_v2.1.0.sif
+bindDir:
+  
+
+barcodeToPos:
+  /public/home/liuzj/projects/singleCell/soybean/01_data/bgiSptialTran_raw/00.rawdata/SS200000118TL_D4.barcodeToPos.h5
+read1:
+  /public/home/liuzj/projects/singleCell/soybean/01_data/bgiSptialTran_raw/00.rawdata/SS200000118TL_D4_DP8400028098TL_L01_read_1.fq.gz
+read2:
+  /public/home/liuzj/projects/singleCell/soybean/01_data/bgiSptialTran_raw/00.rawdata/SS200000118TL_D4_DP8400028098TL_L01_read_2.fq.gz
+
+genomeIndex:
+  ~/data/SAW_index/soybass_with_rhizobium/
+gtf:
+  ~/data/soybase_with_rhizobium/merge.gtf.addTrsAndGene.gtf
+resultDir:
+  /data/Zhaijx/liuzj/projects/singleCell/soybean/02_result/sptialTran/output_with_rhizobium
+pipelineDir:
+  '~'
