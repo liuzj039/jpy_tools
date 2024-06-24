@@ -1,0 +1,8 @@
+pipelineDir:
+  "/public1/software/liuzj/scripts/pipeline/online_hisat/"
+resultDir:
+  "/public1/software/liuzj/scripts/pipeline/online_hisat/"
+sraRunTable:
+  "/public1/software/liuzj/scripts/pipeline/online_hisat/SraRunTable.txt"
+hisat2Index:
+  "/data/Zhaijx/liuzj/data/medtrA17_4/hisat2index/hisat2_tran_index"

@@ -1,0 +1,51 @@
+import pandas as pd
+#configfile: "/public1/software/liuzj/scripts/pipeline/online_hisat/config.yaml"
+pipelineDir = config['pipelineDir']
+resultDir = config["resultDir"].rstrip("/") + "/"
+pipelineDir = config["pipelineDir"].rstrip("/") + "/"
+
+
+## get parameter of rule `hisat2mapping` ##
+df_sra = pd.read_csv(config["sraRunTable"])[["Run", "Experiment"]]
+df_hisat2mapping = (
+    pd.DataFrame(df_sra.groupby("Experiment")["Run"].agg(list))
+    .rename(columns={"Run": "srr"})
+    .assign(srr=lambda df: df["srr"].map(lambda x: ",".join(x)))
+)
+df_hisat2mapping = df_hisat2mapping.assign(hisat2Index = config['hisat2Index'], resultDir = lambda df:df.index)
+for column in ['resultDir']:
+    df_hisat2mapping[column] = resultDir + 'step1_hisat2mapping/' + df_hisat2mapping[column]
+
+rule all:
+    input:
+        hisat2mappingFinished = [resultDir + 'step1_hisat2mapping/' + "" + Experiment + ".finished" for Experiment in df_hisat2mapping.index],
+
+# parameter's dataframe of hisat2mapping: 
+# | Experiment   | srr                                                    | hisat2Index                                                      | resultDir   |
+# |:-------------|:-------------------------------------------------------|:-----------------------------------------------------------------|:------------|
+# | ERX1492305   | ERR1421635,ERR1421719,ERR1421695,ERR1421656,ERR1421743 | /data/Zhaijx/liuzj/data/medtrA17_4/hisat2index/hisat2_tran_index | ERX1492305  |
+# | ERX1492306   | ERR1421696,ERR1421667,ERR1421744,ERR1421720,ERR1421636 | /data/Zhaijx/liuzj/data/medtrA17_4/hisat2index/hisat2_tran_index | ERX1492306  |
+rule hisat2mapping:
+    input:
+    output:
+        hisat2mappingFinished = resultDir + 'step1_hisat2mapping/' + '{Experiment}.finished',
+    params:
+        gpu = 0,
+        srr = lambda wildcard: df_hisat2mapping.at[wildcard.Experiment, 'srr'],
+        hisat2Index = lambda wildcard: df_hisat2mapping.at[wildcard.Experiment, 'hisat2Index'],
+        resultDir = lambda wildcard: df_hisat2mapping.at[wildcard.Experiment, 'resultDir'],
+    threads:2
+    priority:0
+    shell:
+        """
+mkdir -p {params.resultDir}
+/public/apps/hisat2_2.1.0/bin/hisat2 -p {threads} -k 1 --dta -q --phred33 -x {params.hisat2Index} --sra-acc {params.srr} -S {params.resultDir}/unsorted.sam
+samtools sort {params.resultDir}/unsorted.sam -@ {threads} -O bam -o {params.resultDir}/sorted.bam
+samtools index {params.resultDir}/sorted.bam
+rm {params.resultDir}/unsorted.sam
+java -jar /public/apps/picard_2.20.2/picard.jar MarkDuplicates VALIDATION_STRINGENCY=SILENT REMOVE_DUPLICATES=true SORTING_COLLECTION_SIZE_RATIO=0.01 I={params.resultDir}/sorted.bam O={params.resultDir}/deduped.sorted.bam M={params.resultDir}/dedup.log
+samtools index {params.resultDir}/deduped.sorted.bam
+touch {output.hisat2mappingFinished}
+        """
+
+
