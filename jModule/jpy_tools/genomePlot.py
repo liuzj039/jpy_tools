@@ -612,7 +612,7 @@ def bamToBinary(
 
         if addPolya:
             if read.has_tag(polyaTag):
-                readPolya = read.get_tag(polyaTag)
+                readPolya = int(read.get_tag(polyaTag))
                 # if readPolya >= minPolya:
                 if read.is_reverse:
                     currentMinPos = ls_blocks[0][0] - readPolya
@@ -892,8 +892,8 @@ class Igv(object):
                 # minPolya=self.minPolya,
             )
             if ad is None:
-                print(f"Empty: {name}")
-                continue
+                logger.error(f"Empty: {name}")
+                assert False, f"Empty: {name}"
             sr_readId = ad.obs.index
             # test dup
             if len(sr_readId) != len(set(sr_readId)):
@@ -1035,6 +1035,8 @@ class Igv(object):
                 )
             }
         dt_numChange = {x: i for i, x in enumerate(ls_group, 10)}
+        if ad.shape[0] == 0:
+            assert False, "Filter out all data."
         # dt_readId2Group = ad.obs[groupby].to_dict()
 
         if changeColor:
@@ -1047,11 +1049,15 @@ class Igv(object):
                         pass
                     else:
                         if ss.isspmatrix(ad.X):
-                            sm = _df.sparse.to_coo().tocsr()
-                            nninds = sm.nonzero()
-                            keep = np.where(sm.data != 2)[0]
-                            sm_filtered = ss.csr_matrix((sm.data[keep], (nninds[0][keep], nninds[1][keep])), shape=sm.shape)
-                            _df = pd.DataFrame.sparse.from_spmatrix(sm_filtered, index=_df.index, columns=_df.columns)
+                            try:
+                                sm = _df.sparse.to_coo().tocsr()
+                                nninds = sm.nonzero()
+                                keep = np.where(sm.data != 2)[0]
+                                sm_filtered = ss.csr_matrix((sm.data[keep], (nninds[0][keep], nninds[1][keep])), shape=sm.shape)
+                                _df = pd.DataFrame.sparse.from_spmatrix(sm_filtered, index=_df.index, columns=_df.columns)
+                            except AttributeError:
+                                logger.warning("Sparse matrix error, may be caused by version issue.")
+                                _df = _df.applymap(lambda _: 0 if _ == 2 else _)
                         else:
                             _df = _df.applymap(lambda _: 0 if _ == 2 else _)
                 lsDf.append(_df)
@@ -1080,9 +1086,6 @@ class Igv(object):
         ad.uns["dt_group2code"] = dt_numChange
         ad.uns["dt_group2color"] = dt_color
         self.dtAd[f"{configName}"] = ad
-
-
-
 
         # ls_groupOrg = ls_group
         # _ls_group = None

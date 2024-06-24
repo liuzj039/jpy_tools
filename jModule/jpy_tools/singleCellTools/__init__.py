@@ -322,7 +322,7 @@ class ClusterAnndata(object):
 
 
     def getShilouetteScore(
-            self, ls_res: List[float], obsm: Union[str, np.ndarray], clusterKey:str='leiden', subsample=None, metric='euclidean', show=True, check=True, pcs:int = 50, cores:int = 1, 
+            self, ls_res: List[float], obsm: Union[str, np.ndarray], clusterKey:str='leiden', subsample=None, metric='euclidean', show=True, check=True, pcs:int = 50, cores:int = 1, n_iterations=-1
         ) -> Dict[str, float]:
         '''The function performs clustering using the Leiden algorithm on an AnnData object and calculates the silhouette score for each clustering result.
 
@@ -345,21 +345,38 @@ class ClusterAnndata(object):
 
         '''
         from .others import clusteringAndCalculateShilouetteScore
-        return clusteringAndCalculateShilouetteScore(self.ad, ls_res, obsm, clusterKey=clusterKey, subsample=subsample, metric=metric, show=show, check=check, pcs=pcs, cores=cores)
+        return clusteringAndCalculateShilouetteScore(self.ad, ls_res, obsm, clusterKey=clusterKey, subsample=subsample, metric=metric, show=show, check=check, pcs=pcs, cores=cores, n_iterations=n_iterations)
 
     def getClusterSpecGeneByCellex(
             self,
-            clusterName: str = "leiden",
+            clusterKey: str = "leiden",
             batchKey: Optional[str] = None,
             check=True,
             kayAddedPrefix: Optional[str] = None,
             layer=None,
+            subsample=None,
             dt_kwargsForCellex: dict = {},
         ):
         from .geneEnrichInfo import calculateEnrichScoreByCellex
-        np.float = np.float64
+        np.float = np.float32
         layer = self.rawLayer if layer is None else layer
-        calculateEnrichScoreByCellex(self.ad, layer=layer, clusterName=clusterName, batchKey=batchKey, copy=False, check=check, kayAddedPrefix=kayAddedPrefix, dt_kwargsForCellex=dt_kwargsForCellex)
+        calculateEnrichScoreByCellex(self.ad, layer=layer, clusterName=clusterKey, batchKey=batchKey, copy=False, check=check, kayAddedPrefix=kayAddedPrefix, dt_kwargsForCellex=dt_kwargsForCellex, subsample=subsample)
+    
+    def calculateSplitPvalueByScshc(
+        self, ls_hvg: List[str], clusterKey: str, batchKey: Optional[str]=None, layer: str=None, 
+        alpha: float=0.05, posthoc: bool=True, num_PCs: int=30, cores: int=12, rCores: int = 1, resultKey=None
+    ):
+        from .others import calucatePvalueForEachSplitUseScshc
+        ad = self.ad
+        layer = self.rawLayer if layer is None else layer
+        if resultKey is None:
+            resultKey = f"scshc_{clusterKey}"
+        dt_p, linkage = calucatePvalueForEachSplitUseScshc(
+            ad, ls_hvg, clusterKey, batchKey=batchKey, layer=layer, alpha=alpha, posthoc=posthoc, num_PCs=num_PCs, cores=cores, rCores=rCores
+        )
+        ad.uns[f"{resultKey}_pvalue"] = dt_p
+        ad.uns[f"{resultKey}_linkage"] = linkage
+
 
 class EnhancedAnndata(object):
     """
@@ -374,7 +391,7 @@ class EnhancedAnndata(object):
     - de (DeAnndata): An instance of the DeAnndata class for differential expression analysis functionalities.
     """
 
-    def __init__(self, ad: sc.AnnData, rawLayer:Optional[str] = None):
+    def __init__(self, ad: sc.AnnData, rawLayer:Optional[str] = None, reinit=True):
         """
         Initialize the EnhancedAnndata class.
 
@@ -394,8 +411,9 @@ class EnhancedAnndata(object):
         # test whether '_' in ad.var.index 
         if ad.var.index.str.contains('_').any():
             logger.warning("The index of ad.var contains '_' which may cause some problems, please remove it first")
-                
-        self.rawLayer = rawLayer
+        
+        if reinit:
+            self.rawLayer = rawLayer
         self.pl = PlotAnndata(self.ad, rawLayer=self.rawLayer)
         self.norm = NormAnndata(self.ad, rawLayer=self.rawLayer)
         self.qc = QcAnndata(self.ad, rawLayer=self.rawLayer)
@@ -417,7 +435,7 @@ class EnhancedAnndata(object):
         ad.X = ad.layers['normalize_log'].copy()
     
     def copy(self) -> 'EnhancedAnndata':
-        return EnhancedAnndata(self.ad.copy(), rawLayer=self.rawLayer)
+        return EnhancedAnndata(self.ad.copy(), rawLayer=self.rawLayer, reinit=False)
 
     def subsample(self, n:int, randomSeed:int=39, copy:bool=False) -> 'EnhancedAnndata':
         """
@@ -466,7 +484,7 @@ class EnhancedAnndata(object):
         Returns:
             EnhancedAnndata: The subset of the current dataset.
         """
-        return EnhancedAnndata(self.ad[key], rawLayer=self.rawLayer)
+        return EnhancedAnndata(self.ad[key], rawLayer=self.rawLayer, reinit=False)
     
     def to_df(self, layer=None) -> pd.DataFrame:
         return self.ad.to_df(layer=layer)

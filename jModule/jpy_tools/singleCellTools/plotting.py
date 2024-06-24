@@ -1273,8 +1273,8 @@ class PlotAnndata(object):
 
     def histogram(
             self, variable, groupby=None, wrap=4, bins=50, binrange=None, markLine:Optional[List[float]]=None, 
-            addStat:Optional[Literal['mean', 'median']]=None, fc_additional:Optional[Callable]=None,
-            dt_kwargsForHist={'common_norm':False, 'stat': 'percent'}
+            addStat:Optional[Literal['mean', 'median']]=None, fc_additional:Optional[Callable]=None, dt_kwargsToBars={},
+            dt_kwargsToHist={'common_norm':False, 'stat': 'percent'}
         ):
         '''The `plotHist` function is used to plot histograms of a variable in an AnnData object, with optional grouping and additional statistical measures.
 
@@ -1296,8 +1296,8 @@ class PlotAnndata(object):
             The `addStat` parameter is an optional parameter that allows you to add additional statistics to the histogram plot. It accepts a list of strings, where each string represents a statistic to be added. The supported statistics are 'mean' and 'median'.
         fc_additional : Optional[Callable]
             The `fc_additional` parameter is an optional callable function that allows you to add additional plot elements or customize the plot further. It takes in a `Plot` object `p` as input and should return the modified `Plot` object. You can use this parameter to add any additional plot elements or
-        dt_kwargsForHist
-            The `dt_kwargsForHist` parameter is a dictionary that contains additional keyword arguments for the `Hist` plot. These arguments are used to customize the histogram plot. The available options are:
+        dt_kwargsToHist
+            The `dt_kwargsToHist` parameter is a dictionary that contains additional keyword arguments for the `Hist` plot. These arguments are used to customize the histogram plot. The available options are:
 
         Returns
         -------
@@ -1322,8 +1322,8 @@ class PlotAnndata(object):
         p = (
             so.Plot(df.reset_index())
             .add(
-                so.Bars(color="#9DC3E7"),
-                so.Hist(bins=bins, binrange=binrange, **dt_kwargsForHist),
+                so.Bars(**dt_kwargsToBars),
+                so.Hist(bins=bins, binrange=binrange, **dt_kwargsToHist),
                 x=variable,
             )
         )
@@ -1419,7 +1419,7 @@ class PlotAnndata(object):
 
     def heatmapGeneExp(
             self, ls_group: Union[None, List[str]], ls_leftAnno:List[str], dt_genes:Dict[str, List[str]], layer='normalize_log', height=10, width=10, cmap='Reds', standardScale=None, showGeneCounts=False,
-            addGeneName:bool=False, addGeneCatName:bool=True, geneSpace=0.005, cellSpace=0.003, needExp=False, useObsm=False, cellSplitBy=None, **dt_forHeatmap):
+            addGeneName:bool=False, addGeneCatName:bool=True, geneSpace=0.005, cellSpace=0.003, needExp=False, useObsm=False, cellSplitBy=None, dt_forChunk={}, **dt_forHeatmap):
         '''The `heatmapGeneExp` function generates a heatmap of gene expression in a single-cell RNA sequencing dataset, with options for customization such as color mapping, scaling, and showing gene counts.
 
         Parameters
@@ -1474,7 +1474,7 @@ class PlotAnndata(object):
         for group in ls_leftAnno[::-1]:
             ls_obsGroup = ad_pb.obs[group]
             h.add_left(
-                mp.Colors(ls_obsGroup, palette=self.getAdColors(group), label=group), size=0.15, pad=pad, name=group
+                mp.Colors(ls_obsGroup, palette=self.getAdColors(group), label=group, **dt_forChunk), size=0.15, pad=pad, name=group
             )
             pad=0
 
@@ -1556,6 +1556,7 @@ class PlotAnndata(object):
             _ad.obsm[embed] = ad.obsm[embed]
             _ad.obs = ad.obsm[colorUseObsm].combine_first(ad.obs)
             useObs = True
+            ad.obs['embedding_color_temp'] = _ad[color]
             ad = _ad
 
         if groupby is None:
@@ -1578,6 +1579,11 @@ class PlotAnndata(object):
             if ad.obs[color].dtype.name == 'category':
                 dt_colors = self.getAdColors(color)
                 dt_colors['None'] = 'silver'
+                if colorUseObsm is None:
+                    pass
+                else:
+                    del self.ad.obs['embedding_color_temp']
+                    del self.ad.uns['embedding_color_temp_colors']
                 if ls_color is None:
                     ls_color = ad.obs[color].cat.categories
                 # ls_group = [x for x in ls_group if ~pd.isna(x)]
@@ -1859,10 +1865,8 @@ class PlotAnndata(object):
             text.set(clip_on=False)
         return g, fig
     
-    def clusterSankey(self, source, target, recoverDefaultRc=True, otherLabel='Others',**dt_args):
-        dt_rc = dict(plt.rcParams)
-        
-        import pysankey
+    def clusterSankey(self, source, target, recoverDefaultRc=True, otherLabel='Others', ax=None, value_loc="none", title_side='bottom', titles=None, **dt_args):
+
         ad = self.ad
         ad._sanitize()
 
@@ -1883,9 +1887,20 @@ class PlotAnndata(object):
         dt_colors[f"{otherLabel} "] = '#696969'
         # return df_anno
 
-        ax = pysankey.sankey(df_anno[source], df_anno[target], colorDict=dt_colors, **dt_args)
-        if recoverDefaultRc:
-            plt.rcParams.update(dt_rc)
+        try:
+            import ausankey as sky
+            df_sankey = df_anno.value_counts(sort=False).rename('Counts').to_frame().reset_index()
+            df_sankey = df_sankey[sum([[x,'Counts'] for x in [source, target]], [])]
+            titles = [source, target] if titles is None else titles
+            sky.sankey(df_sankey, value_loc=value_loc, titles=titles, title_side=title_side, color_dict=dt_colors, ax=ax, **dt_args)
+
+        except ModuleNotFoundError:
+            logger.warning("ausankey not found. Using pysankey instead.")
+            dt_rc = dict(plt.rcParams)
+            import pysankey
+            ax = pysankey.sankey(df_anno[source], df_anno[target], colorDict=dt_colors, ax=ax, **dt_args)
+            if recoverDefaultRc:
+                plt.rcParams.update(dt_rc)
         return ax
     
     def clusterCompareHeatmap(self, source, target, scaleAxis=0, figsize=(8,8), dendrogram=True):

@@ -1064,7 +1064,7 @@ def calucatePvalueForEachSplitUseScshc(
     return dt_p, linkage
 
 def clusteringAndCalculateShilouetteScore(
-        ad:sc.AnnData, ls_res: List[float], obsm: Union[str, np.ndarray], clusterKey:str='leiden', subsample=None, metric='euclidean', show=True, check=True, pcs:int = 50, cores:int = 1, 
+        ad:sc.AnnData, ls_res: List[float], obsm: Union[str, np.ndarray], clusterKey:str='leiden', subsample=None, metric='euclidean', show=True, check=True, pcs:int = 50, cores:int = 1, n_iterations=-1
     ) -> Dict[str, float]:
     '''The function performs clustering using the Leiden algorithm on an AnnData object and calculates the silhouette score for each clustering result.
 
@@ -1114,12 +1114,12 @@ def clusteringAndCalculateShilouetteScore(
         if cores == 1:
             lsDf = []
             for res in tqdm.tqdm(ls_res, desc="res"):
-                sc.tl.leiden(ad, resolution=float(res), key_added=f"temp_{res}")
+                sc.tl.leiden(ad, resolution=float(res), key_added=f"temp_{res}", n_iterations=n_iterations)
                 lsDf.append(ad.obs[f"temp_{res}"])
                 del(ad.obs[f"temp_{res}"])
         else:
             _ad = sc.AnnData(ss.csc_matrix(ad.shape), obs=ad.obs.copy(), var=ad.var.copy())
-            _ad.obsp['connectivities'] = ad.obsp['connectivities']
+            _ad.obsp['connectivities'] = ad.obsp['connectivities'].copy()
             def fc(ad, res):
                 sc.tl.leiden(ad, resolution=float(res), key_added=f"temp_{res}", obsp='connectivities')
                 return ad.obs[f"temp_{res}"].copy()

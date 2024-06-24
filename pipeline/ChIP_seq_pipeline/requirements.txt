@@ -1,0 +1,4 @@
+fastp
+bowtie2
+deeptools
+macs2

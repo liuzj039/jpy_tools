@@ -94,8 +94,11 @@ def deByEdger(ad, layer, obsKey, contrast, filterByEdger=True):
     }""")(vtR_group) 
     degLs = edgeR.estimateDisp(degLs,design)
     fit = edgeR.glmFit(degLs,design,)
+    # print(contrast)
+    # print(design)
     contrast = R.makeContrasts(contrast, levels=design)
     lrt = edgeR.glmLRT(fit, contrast=contrast)
+    lrt = R("as.data.frame")(lrt)
     df_res = r2py(R("tibble::rownames_to_column")(lrt)).rename(columns={'rowname':'gene'})
     df_res["fdr"] = fdrcorrection(df_res["PValue"])[1]
 

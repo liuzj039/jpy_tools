@@ -480,6 +480,7 @@ def calculateEnrichScoreByCellex(
     copy: bool = False,
     check=True,
     kayAddedPrefix: Optional[str] = None,
+    subsample=None,
     dt_kwargsForCellex: dict = {},
 ) -> Optional[anndata.AnnData]:
     """
@@ -581,6 +582,16 @@ def calculateEnrichScoreByCellex(
         # adata.uns[f"{kayAddedPrefix}_cellex_all"] = df_others.copy()
 
         adata.uns[f"{kayAddedPrefix}_cellexES"] = df_result.copy()
+    if subsample is None:
+        adata_org = adata
+    else:
+        if subsample < 1:
+            subsample = int(subsample * adata.shape[0])
+        np.random.seed(39)
+        adata_org = adata
+        adata = adata[np.random.choice(adata.shape[0], subsample, replace=False)].copy()
+        sc.pp.filter_genes(adata, min_cells=3)
+        logger.info(f"subsample {subsample} cells from {adata_org.shape[0]} cells")
 
     adata.var = adata.var.rename_axis(index=None)
     adata = adata.copy() if copy else adata
@@ -594,14 +605,15 @@ def calculateEnrichScoreByCellex(
         layer = None
     if batchKey is None:
         _singleBatch(adata, layer, clusterName, kayAddedPrefix, dt_kwargsForCellex)
+        adata_org.uns[f"{kayAddedPrefix}_cellexES"] = adata.uns[f"{kayAddedPrefix}_cellexES"]
     else:
         ls_batchAd = basic.splitAdata(adata, batchKey, needName=True)
-        adata.uns[f"{kayAddedPrefix}_cellexES"] = {}
+        adata_org.uns[f"{kayAddedPrefix}_cellexES"] = {}
         for sample, ad_batch in ls_batchAd:
             _singleBatch(
                 ad_batch, layer, clusterName, kayAddedPrefix, dt_kwargsForCellex
             )
-            adata.uns[f"{kayAddedPrefix}_cellexES"][sample] = ad_batch.uns[
+            adata_org.uns[f"{kayAddedPrefix}_cellexES"][sample] = ad_batch.uns[
                 f"{kayAddedPrefix}_cellexES"
             ]
 

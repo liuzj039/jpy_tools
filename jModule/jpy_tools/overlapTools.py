@@ -14,6 +14,7 @@ from cycler import cycler
 import pandas as pd
 import numpy as np
 import scipy
+from joblib import Parallel, delayed
 
 
 class GeneOverlapBase(object):
@@ -55,7 +56,8 @@ class GeneOverlapBase(object):
         self.df_overlapInfo = None
         self.categoryTarget = categoryTarget
 
-    def sMod(self, N, m, n1, n2):
+    @staticmethod
+    def sMod(N, m, n1, n2):
         """
         Computes the probability of observing m or more shared genes between two groups.
 
@@ -129,8 +131,34 @@ class GeneOverlapBase(object):
         N_n1 = N - n1
         n1_n2 = len(set_n1 - set_n2)
         return N, m, n1, n2, N_n1, n1_n2
-        
-    def getOverlapInfo(self, ls_groups=None, diagS=1e-323, diagQ=1, additionalTest=False):
+    
+    @staticmethod
+    def getOverlapResSingle(comp1, comp2, N, m, n1, n2, N_n1, n1_n2, diagS, diagQ, additionalTest):
+        from scipy.stats import chi2_contingency, fisher_exact
+        if comp1 == comp2:
+            smodP = diagS
+            qmod = diagQ
+            chi2P = diagS
+            fisherP = diagS
+        else:
+            try:
+                smodP = GeneOverlapBase.sMod(N, m, n1, n2)
+                if additionalTest:
+                    chi2P = chi2_contingency([[N_n1, n1], [n1_n2, m]]).pvalue
+                    chi2P = max(chi2P, diagS)
+                    fisherP = fisher_exact([[N_n1, n1], [n1_n2, m]]).pvalue
+                    fisherP = max(fisherP, diagS)
+                else:
+                    chi2P = diagS
+                    fisherP = diagS
+            except:
+                assert False, (comp1, comp2, N, m, n1, n2)
+            qmod = m / n1 if n1 > 0 else 0
+        jaccard = m / (n1 + n2 - m) if (n1 + n2 - m) > 0 else 0
+        return comp1, comp2, N, m, n1, n2, N_n1, n1_n2, smodP, jaccard, qmod, chi2P, fisherP
+
+
+    def getOverlapInfo(self, ls_groups=None, diagS=1e-323, diagQ=1, additionalTest=False, threads=64):
         """
         Computes overlap statistics between all pairs of groups.
 
@@ -154,43 +182,52 @@ class GeneOverlapBase(object):
         categoryTarget = self.categoryTarget
 
         if ls_groups is None:
-            ls_groups = df[groupKey].unique().tolist()
+            ls_groups = df[groupKey].astype('category').cat.categories
         
         ls_res = []
+        ls_parameters = []
         for comp1, comp2 in tqdm(product(ls_groups, ls_groups), total=len(ls_groups)**2):
-            try: 
-                df_comp1 = df.query(f"{groupKey} == @comp1")
-                df_comp2 = df.query(f"{groupKey} == @comp2")
+            df_comp1 = df.query(f"{groupKey} == @comp1")
+            df_comp2 = df.query(f"{groupKey} == @comp2")
+            try:
                 N, m, n1, n2, N_n1, n1_n2 = self.getSmodParameter(df_comp1, df_comp2, geneKey, categoryKey, categoryTarget)
-                if comp1 == comp2:
-                    smodP = diagS
-                    qmod = diagQ
-                    chi2P = diagS
-                    fisherP = diagS
-                else:
-                    try:
-                        smodP = self.sMod(N, m, n1, n2)
-                        if additionalTest:
-                            chi2P = chi2_contingency([[N_n1, n1], [n1_n2, m]]).pvalue
-                            chi2P = max(chi2P, diagS)
-                            fisherP = fisher_exact([[N_n1, n1], [n1_n2, m]]).pvalue
-                            fisherP = max(fisherP, diagS)
-                        else:
-                            chi2P = diagS
-                            fisherP = diagS
-                    except:
-                        print(comp1, comp2, N, m, n1, n2)
-                        assert False
-                    qmod = m / n1 if n1 > 0 else 0
-                jaccard = m / (n1 + n2 - m) if (n1 + n2 - m) > 0 else 0
-
-                ls_res.append([comp1, comp2, N, m, n1, n2, N_n1, n1_n2, smodP, jaccard, qmod, chi2P, fisherP])
+                ls_parameters.append([comp1, comp2, N, m, n1, n2, N_n1, n1_n2])
             except:
                 assert False, f"Error in {comp1} and {comp2}"
+        
+        ls_res = Parallel(n_jobs=threads)(delayed(self.getOverlapResSingle)(comp1, comp2, N, m, n1, n2, N_n1, n1_n2, diagS, diagQ, additionalTest) for comp1, comp2, N, m, n1, n2, N_n1, n1_n2 in tqdm(ls_parameters))
+
+            #     if comp1 == comp2:
+            #         smodP = diagS
+            #         qmod = diagQ
+            #         chi2P = diagS
+            #         fisherP = diagS
+            #     else:
+            #         try:
+            #             smodP = self.sMod(N, m, n1, n2)
+            #             if additionalTest:
+            #                 chi2P = chi2_contingency([[N_n1, n1], [n1_n2, m]]).pvalue
+            #                 chi2P = max(chi2P, diagS)
+            #                 fisherP = fisher_exact([[N_n1, n1], [n1_n2, m]]).pvalue
+            #                 fisherP = max(fisherP, diagS)
+            #             else:
+            #                 chi2P = diagS
+            #                 fisherP = diagS
+            #         except:
+            #             print(comp1, comp2, N, m, n1, n2)
+            #             assert False
+            #         qmod = m / n1 if n1 > 0 else 0
+            #     jaccard = m / (n1 + n2 - m) if (n1 + n2 - m) > 0 else 0
+
+            #     ls_res.append([comp1, comp2, N, m, n1, n2, N_n1, n1_n2, smodP, jaccard, qmod, chi2P, fisherP])
+            # except:
+            #     assert False, f"Error in {comp1} and {comp2}"
         df_res = pd.DataFrame(ls_res, columns=['comp1', 'comp2', 'N', 'm', 'n1', 'n2', 'N_n1', 'n1_n2', 'smod', 'jaccard', 'qmod', 'chi2P', 'fisherP'])           
         df_res['smod'] = -np.log10(df_res['smod'])
         df_res['chi2'] = -np.log10(df_res['chi2P'])
         df_res['fisher'] = -np.log10(df_res['fisherP'])
+        df_res['comp1'] = df_res['comp1'].astype('category').cat.set_categories(ls_groups)
+        df_res['comp2'] = df_res['comp2'].astype('category').cat.set_categories(ls_groups)
         self.ls_groups = ls_groups
         self.df_overlapInfo = df_res
     

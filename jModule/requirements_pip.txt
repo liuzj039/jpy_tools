@@ -12,3 +12,4 @@ legendkit
 #snapatac2
 #scikit-misc==0.1.4
 pertpy
+gene-trajectory

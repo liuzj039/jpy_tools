@@ -441,46 +441,55 @@ class BoxStat(Stat):
         return res
 
 
-def addBoxBySo(p:so.Plot, showOutliers:bool=True, showBoundary:bool=True, dodge=True, dodgeWidth=0.1, width=0.8, orient:str='v'):
-    
+def addBoxBySo(
+        p:so.Plot, showOutliers:bool=True, showBoundary:bool=True, dodge=True, dodgeWidth=0.1, width=0.8, orient:str='v', legend=True, edgewidth=3,
+        dt_kwargs4Box={"alpha":0.35}, dt_kwargs4Range={}, dt_kwargs4Dots={}, dt_kwargs4Boundary={}
+    ):
+    if edgewidth is None:
+        pass
+    else:
+        dt_kwargs4Box["edgewidth"] = edgewidth
+        dt_kwargs4Range["linewidth"] = edgewidth
+        dt_kwargs4Boundary["stroke"] = edgewidth
+
     if dodge:
         if width != 0.8:
             logger.warning("dodge is not supported when width is not 0.8")
             width = 0.8
         p = (
-            p.add(Box(alpha=.35, width=width), so.Perc([25, 75]), so.Dodge(gap=dodgeWidth))
-            .add(so.Range(), BoxStat(), so.Dodge(gap=dodgeWidth), legend=False)
-            .add(so.Range(), BoxStat(False), so.Dodge(gap=dodgeWidth), legend=False)
-            .add(so.Dash(width=width), so.Perc([50]), so.Dodge(gap=dodgeWidth), legend=False)
+            p.add(Box(width=width, **dt_kwargs4Box), so.Perc([25, 75]), so.Dodge(gap=dodgeWidth), legend=legend)
+            .add(so.Range({'capstyle':'butt'}, **dt_kwargs4Range), BoxStat(), so.Dodge(gap=dodgeWidth), legend=False)
+            .add(so.Range({'capstyle':'butt'}, **dt_kwargs4Range), BoxStat(False), so.Dodge(gap=dodgeWidth), legend=False)
+            .add(so.Dash({'capstyle':'butt'}, **dt_kwargs4Range, width=width), so.Perc([50]), so.Dodge(gap=dodgeWidth), legend=False)
         )
         if showOutliers:
             p = (
-                p.add(so.Dots(), BoxStat(outliers=True), so.Dodge(gap=dodgeWidth), legend=False)
-                .add(so.Dots(), BoxStat(False, outliers=True), so.Dodge(gap=dodgeWidth), legend=False)
+                p.add(so.Dots(**dt_kwargs4Dots), BoxStat(outliers=True), so.Dodge(gap=dodgeWidth), legend=False)
+                .add(so.Dots(**dt_kwargs4Dots), BoxStat(False, outliers=True), so.Dodge(gap=dodgeWidth), legend=False)
             )
         if showBoundary:
             marker = '_' if orient == 'v' else '|'
             p = (
-                p.add(so.Dots(marker=marker, pointsize=15 * width / 0.8), BoxStat(boundary=True), so.Dodge(gap=dodgeWidth), legend=False)
-                .add(so.Dots(marker=marker, pointsize=15 * width / 0.8), BoxStat(False, boundary=True), so.Dodge(gap=dodgeWidth), legend=False)
+                p.add(so.Dots(marker=marker, pointsize=15 * width / 0.8, **dt_kwargs4Boundary), BoxStat(boundary=True), so.Dodge(gap=dodgeWidth), legend=False)
+                .add(so.Dots(marker=marker, pointsize=15 * width / 0.8, **dt_kwargs4Boundary), BoxStat(False, boundary=True), so.Dodge(gap=dodgeWidth), legend=False)
             )
     else:
         p = (
-            p.add(Box(alpha=.35, width=width), so.Perc([25, 75]))
-            .add(so.Range(), BoxStat(), legend=False)
-            .add(so.Range(), BoxStat(False), legend=False)
-            .add(so.Dash(width=width), so.Perc([50]), legend=False)
+            p.add(Box(width=width, **dt_kwargs4Box), so.Perc([25, 75]), legend=legend)
+            .add(so.Range({'capstyle':'butt'}, **dt_kwargs4Range), BoxStat(), legend=False)
+            .add(so.Range({'capstyle':'butt'}, **dt_kwargs4Range), BoxStat(False), legend=False)
+            .add(so.Dash({'capstyle':'butt'}, **dt_kwargs4Range, width=width), so.Perc([50]), legend=False)
         )
         if showOutliers:
             p = (
-                p.add(so.Dots(), BoxStat(outliers=True), legend=False)
-                .add(so.Dots(), BoxStat(False, outliers=True),legend=False)
+                p.add(so.Dots(**dt_kwargs4Dots), BoxStat(outliers=True), legend=False)
+                .add(so.Dots(**dt_kwargs4Dots), BoxStat(False, outliers=True),legend=False)
             )
         if showBoundary:
             marker = '_' if orient == 'v' else '|'
             p = (
-                p.add(so.Dots(marker=marker, pointsize=25 * width / 0.8), BoxStat(boundary=True), legend=False)
-                .add(so.Dots(marker=marker, pointsize=25 * width / 0.8), BoxStat(False, boundary=True), legend=False)
+                p.add(so.Dots(marker=marker, pointsize=25 * width / 0.8, **dt_kwargs4Boundary), BoxStat(boundary=True), legend=False)
+                .add(so.Dots(marker=marker, pointsize=25 * width / 0.8, **dt_kwargs4Boundary), BoxStat(False, boundary=True), legend=False)
             )
 
     return p

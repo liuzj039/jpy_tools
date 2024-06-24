@@ -1,0 +1,47 @@
+import os
+from glob import glob
+
+configfile: 
+    "config.yml"
+
+workdir:
+    config['workdir']
+
+mode = config['mode']
+
+if mode == 'pe':
+    chipseq_smk = 'chipseq_pe.smk'
+else:
+    chipseq_smk = 'chipseq_se.smk'
+
+include:
+    "snakemake/"+chipseq_smk
+
+include:
+    "snakemake/callpeak.smk"
+
+# create log dir
+if not os.path.exists('log'):
+    os.makedirs('log', exist_ok=True)
+
+
+sample_name = config['sample_name']
+if not sample_name:
+    sample_name =  [os.path.basename(fn.split('_1')[0]) for fn in glob('raw_data/*_1.fastq.gz')]
+
+onsuccess:
+    shell("send.py log -l {log}")
+
+onerror:
+    shell("send.py log -l {log} --return_code 1")
+
+rule all:
+    input:
+        expand('aligned_data/{sample_name}.sorted.rmdup.bam', sample_name=sample_name),
+        expand('bw_files/{sample_name}.sorted.rmdup.CPM.bw', sample_name=sample_name),
+        expand('deeptools_profile/{sample_name}.scale.png', sample_name=sample_name),
+
+rule callpeak:
+    input:
+        'macs2_result/{treatment}_peaks.narrowPeak',
+        'bw_compare/{treatment}.compare.bw'
