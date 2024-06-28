@@ -969,6 +969,7 @@ class NormAnndata(object):
             sctOnly=False,
             **dt_kwargsToSct,
         ):
+        from joblib import Parallel, delayed
         layer = self.rawLayer if layer is None else layer
         if batchKey is None:
             ad_sct = normalizeBySCT_r(self.ad, layer=layer, nTopGenes=nTopGenes, ls_gene=ls_gene, vstFlavor=vstFlavor, returnOnlyVarGenes=True, doCorrectUmi=False, rEnv=rEnv, runSctOnly=True, **dt_kwargsToSct)
@@ -980,31 +981,45 @@ class NormAnndata(object):
             self.getSctRes(ls_gene=ls_hvg, forceOverwrite=True)
 
         else:
-            from concurrent.futures import ProcessPoolExecutor
-            executor = ProcessPoolExecutor(njobs)
-            ls_task = []
             self.ad.uns['sctModels'] = {}
+
+            # from concurrent.futures import ProcessPoolExecutor
+            # executor = ProcessPoolExecutor(njobs)
+            # ls_task = []
+            # lsAd_sct = []
+            # ls_sample = []
+            # for sample, _ad in basic.splitAdata(self.ad, batchKey, copy=True, needName=True):
+            #     task = executor.submit(normalizeBySCT_r, _ad, layer=layer, nTopGenes=nTopGenes, ls_gene=ls_gene, vstFlavor=vstFlavor, returnOnlyVarGenes=True, doCorrectUmi=False, rEnv=rEnv, runSctOnly=True, **dt_kwargsToSct)
+            #     ls_task.append(task)
+            #     lsAd_sct.append(_ad)
+            #     ls_sample.append(sample)
+
+            # for task, _ad, sample in zip(ls_task, lsAd_sct, ls_sample):
+            #     # ad_sct = normalizeBySCT_r(_ad, layer=layer, nTopGenes=nTopGenes, ls_gene=ls_gene, vstFlavor=vstFlavor, returnOnlyVarGenes=True, doCorrectUmi=False, rEnv=rEnv, runSctOnly=True, **dt_kwargsToSct)
+            #     ad_sct = task.result()
+            #     _ad.var['highly_variable'] = ad_sct.var['highly_variable']
+            #     _ad.var['highly_variable_rank'] = ad_sct.var['highly_variable_rank']
+            #     _ad.uns["sct_vst_pickle"] = ad_sct.uns["sct_vst_pickle"]
+            #     _ad.uns["sct_clip_range"] = ad_sct.uns["sct_clip_range"]
+            #     self.ad.uns['sctModels'][f'{sample}_sct_vst_pickle'] = ad_sct.uns["sct_vst_pickle"]
+            #     self.ad.uns['sctModels'][f'{sample}_sct_clip_range'] = ad_sct.uns["sct_clip_range"]
+            #     # self.ad.uns[f'{sample}_sct_vst_pickle'] = ad_sct.uns["sct_vst_pickle"]
+            #     # self.ad.uns[f'{sample}_sct_clip_range'] = ad_sct.uns["sct_clip_range"]
+            # executor.shutdown()
+
             lsAd_sct = []
             ls_sample = []
             for sample, _ad in basic.splitAdata(self.ad, batchKey, copy=True, needName=True):
-                task = executor.submit(normalizeBySCT_r, _ad, layer=layer, nTopGenes=nTopGenes, ls_gene=ls_gene, vstFlavor=vstFlavor, returnOnlyVarGenes=True, doCorrectUmi=False, rEnv=rEnv, runSctOnly=True, **dt_kwargsToSct)
-                ls_task.append(task)
                 lsAd_sct.append(_ad)
                 ls_sample.append(sample)
+            lsAd_sct = Parallel(n_jobs=njobs)(
+                delayed(normalizeBySCT_r)(_ad, layer=layer, nTopGenes=nTopGenes, ls_gene=ls_gene, vstFlavor=vstFlavor, returnOnlyVarGenes=True, doCorrectUmi=False, rEnv=rEnv, runSctOnly=True, **dt_kwargsToSct) for _ad in lsAd_sct
+            )
 
-            for task, _ad, sample in zip(ls_task, lsAd_sct, ls_sample):
-                # ad_sct = normalizeBySCT_r(_ad, layer=layer, nTopGenes=nTopGenes, ls_gene=ls_gene, vstFlavor=vstFlavor, returnOnlyVarGenes=True, doCorrectUmi=False, rEnv=rEnv, runSctOnly=True, **dt_kwargsToSct)
-                ad_sct = task.result()
-                _ad.var['highly_variable'] = ad_sct.var['highly_variable']
-                _ad.var['highly_variable_rank'] = ad_sct.var['highly_variable_rank']
-                _ad.uns["sct_vst_pickle"] = ad_sct.uns["sct_vst_pickle"]
-                _ad.uns["sct_clip_range"] = ad_sct.uns["sct_clip_range"]
+            for ad_sct, sample in zip(lsAd_sct, ls_sample):
                 self.ad.uns['sctModels'][f'{sample}_sct_vst_pickle'] = ad_sct.uns["sct_vst_pickle"]
                 self.ad.uns['sctModels'][f'{sample}_sct_clip_range'] = ad_sct.uns["sct_clip_range"]
-                # self.ad.uns[f'{sample}_sct_vst_pickle'] = ad_sct.uns["sct_vst_pickle"]
-                # self.ad.uns[f'{sample}_sct_clip_range'] = ad_sct.uns["sct_clip_range"]
-            executor.shutdown()
-            
+
             ls_hvg, _ = getHvgGeneFromSctAdata(lsAd_sct, nTopGenes=nTopGenes, nTopGenesEachAd=nTopGenes)
             self.ad.var['highly_variable'] = self.ad.var.index.isin(ls_hvg)
 
