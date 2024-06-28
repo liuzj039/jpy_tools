@@ -1173,3 +1173,32 @@ def cld(df, p, lvl_order=None):
     }
     """)(res) >> F(lambda _: {x:y for x,y in zip(_.names, _)})
     return dt_cld
+
+def sizeLegendShowatDataPos(ls_data, ar_size, filterEdge=True):
+    """size_legend_kws={"show_at": `sizeLegendShowatDataPos`, "spacing":'uniform'}"""
+
+    ls_pos = [(x - ar_size.min()) / (ar_size.max() - ar_size.min()) for x in ls_data]
+    # print(ls_pos)
+
+    addMin = False
+    addMax = False
+    _ls_pos = []
+    for x in ls_pos:
+        if x < 0:
+            addMin = True
+        elif x > 1:
+            addMax = True
+        else:
+            # print(x)
+            _ls_pos.append(x)
+    ls_pos = _ls_pos
+    if filterEdge:
+        pass
+    else:
+        if addMin:
+            _ls_pos = [0] + ls_pos
+        if addMax:
+            _ls_pos = ls_pos + [1]
+        ls_pos = _ls_pos
+    ls_pos = sorted(list(set(ls_pos)))
+    return ls_pos

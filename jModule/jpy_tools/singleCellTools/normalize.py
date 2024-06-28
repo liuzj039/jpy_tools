@@ -999,8 +999,10 @@ class NormAnndata(object):
                 _ad.var['highly_variable_rank'] = ad_sct.var['highly_variable_rank']
                 _ad.uns["sct_vst_pickle"] = ad_sct.uns["sct_vst_pickle"]
                 _ad.uns["sct_clip_range"] = ad_sct.uns["sct_clip_range"]
-                self.ad.uns[f'{sample}_sct_vst_pickle'] = ad_sct.uns["sct_vst_pickle"]
-                self.ad.uns[f'{sample}_sct_clip_range'] = ad_sct.uns["sct_clip_range"]
+                self.ad.uns['sctModels'][f'{sample}_sct_vst_pickle'] = ad_sct.uns["sct_vst_pickle"]
+                self.ad.uns['sctModels'][f'{sample}_sct_clip_range'] = ad_sct.uns["sct_clip_range"]
+                # self.ad.uns[f'{sample}_sct_vst_pickle'] = ad_sct.uns["sct_vst_pickle"]
+                # self.ad.uns[f'{sample}_sct_clip_range'] = ad_sct.uns["sct_clip_range"]
             executor.shutdown()
             
             ls_hvg, _ = getHvgGeneFromSctAdata(lsAd_sct, nTopGenes=nTopGenes, nTopGenesEachAd=nTopGenes)
@@ -1027,9 +1029,14 @@ class NormAnndata(object):
         if batchKey is None:
             getSctResiduals(self.ad, ls_gene, layer=layer, forceOverwrite=forceOverwrite)
         else:
+            dt_sctModels = self.ad.uns.get('sctModels', {})
+            if dt_sctModels == {}:
+                logger.warning("sctModels is not found in adata.uns['sctModels']")
+                dt_sctModels = self.ad.uns
+
             lsAd = []
             for sample, _ad in basic.splitAdata(self.ad, batchKey, copy=True, needName=True):
-                getSctResiduals(_ad, ls_gene, layer=layer, forceOverwrite=forceOverwrite, sctVstPickle=self.ad.uns[f'{sample}_sct_vst_pickle'], sctClipRange=self.ad.uns[f'{sample}_sct_clip_range'])
+                getSctResiduals(_ad, ls_gene, layer=layer, forceOverwrite=forceOverwrite, sctVstPickle=dt_sctModels[f'{sample}_sct_vst_pickle'], sctClipRange=dt_sctModels[f'{sample}_sct_clip_range'])
                 lsAd.append(_ad)
             df_resi = pd.concat([_ad.obsm['sct_residual'] for _ad in lsAd], axis=0).reindex(index=self.ad.obs.index)
             self.ad.obsm['sct_residual'] = df_resi.copy()
