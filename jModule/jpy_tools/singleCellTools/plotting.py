@@ -1556,7 +1556,7 @@ class PlotAnndata(object):
             _ad.obsm[embed] = ad.obsm[embed]
             _ad.obs = ad.obsm[colorUseObsm].combine_first(ad.obs)
             useObs = True
-            ad.obs['embedding_color_temp'] = _ad[color]
+            ad.obs['embedding_color_temp'] = _ad.obs[color]
             ad = _ad
 
         if groupby is None:
@@ -1765,7 +1765,11 @@ class PlotAnndata(object):
             title = color
 
         dt_kwargs = dict(
-                embed=embed, color=color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, showTickLabels=showTickLabels, dt_theme=dt_theme, tightLayout=tightLayout, colorUseObsm=colorUseObsm, fc_additional=fc_additional,legendFigArtistKws=legendFigArtistKws)
+                embed=embed, color=color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, 
+                cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, 
+                italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, 
+                legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, 
+                showTickLabels=showTickLabels, dt_theme=dt_theme, tightLayout=tightLayout, colorUseObsm=colorUseObsm, fc_additional=fc_additional,legendFigArtistKws=legendFigArtistKws)
         if isinstance(color, str):
             return self._embedding(**dt_kwargs)
         else:
