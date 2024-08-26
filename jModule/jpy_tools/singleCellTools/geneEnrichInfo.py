@@ -617,6 +617,8 @@ def calculateEnrichScoreByCellex(
                 f"{kayAddedPrefix}_cellexES"
             ]
 
+    ls_cutoff = [0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
+    print(pd.concat([adata_org.uns[f"{kayAddedPrefix}_cellexES"].query(f"enrichScore > {x}").value_counts(clusterName).rename(x) for x in ls_cutoff], axis=1).rename_axis('cutoff', axis=1))
     if copy:
         return adata
 
@@ -1092,6 +1094,14 @@ def getAUCellScore(
         parameters for the aucell function
 
     '''
+    from distutils.version import LooseVersion
+    import dask
+    if (LooseVersion(pd.__version__) >= LooseVersion("2.0.0")) and (LooseVersion(dask.__version__) <= LooseVersion("2024.7.0")):
+        pd.Int64Index = pd.Int64Dtype
+        pd.Float64Index = pd.Float64Dtype
+        pd.UInt64Index = pd.UInt64Dtype
+        pd.core.strings.StringMethods = pd.core.strings.accessor.StringMethods
+        
     from pyscenic.transform import df2regulons
     from pyscenic.aucell import aucell
     from pyscenic.plotting import plot_binarization

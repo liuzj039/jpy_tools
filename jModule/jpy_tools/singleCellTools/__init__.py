@@ -376,7 +376,7 @@ class ClusterAnndata(object):
         )
         ad.uns[f"{resultKey}_pvalue"] = dt_p
         ad.uns[f"{resultKey}_linkage"] = linkage
-
+    
 
 class EnhancedAnndata(object):
     """

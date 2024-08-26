@@ -456,7 +456,7 @@ def toPkl(
     #     "scem": "/scem/work/liuzj/tmp/python_pkl/",
     # }
     dt_ip = {"ipf": "172.18.6.205", "scem": "172.18.5.205"}
-    dt_scpConfig = {"ipf": "", "scem": "-P 2323"}
+    dt_scpConfig = {"gpu": "", "cpu": ""}
 
     dt_currentServer = {x: os.path.exists(y) for x, y in dt_dirPkl.items()}
     ls_currentServer = [x for x, y in dt_currentServer.items() if y]

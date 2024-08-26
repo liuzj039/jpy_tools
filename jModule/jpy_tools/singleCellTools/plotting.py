@@ -1558,6 +1558,7 @@ class PlotAnndata(object):
             useObs = True
             ad.obs['embedding_color_temp'] = _ad.obs[color]
             ad = _ad
+            
 
         if groupby is None:
             pass
@@ -1577,13 +1578,13 @@ class PlotAnndata(object):
         if useObs:
             italicTitle = False if italicTitle is None else italicTitle
             if ad.obs[color].dtype.name == 'category':
-                dt_colors = self.getAdColors(color)
-                dt_colors['None'] = 'silver'
                 if colorUseObsm is None:
-                    pass
+                    dt_colors = self.getAdColors(color)
                 else:
+                    dt_colors = self.getAdColors('embedding_color_temp')
                     del self.ad.obs['embedding_color_temp']
                     del self.ad.uns['embedding_color_temp_colors']
+                dt_colors['None'] = 'silver'
                 if ls_color is None:
                     ls_color = ad.obs[color].cat.categories
                 # ls_group = [x for x in ls_group if ~pd.isna(x)]
@@ -1785,14 +1786,18 @@ class PlotAnndata(object):
                 return figwrap.wrapAndGenerate(wrap)
             else:
                 figwrap = FigConcateWrap()
-                logger.warning("Both groupby and multiple colors are provided. `Wrap` will be ignored.")
-                dt_kwargs['wrap'] = None
+                # logger.warning("Both groupby and multiple colors are provided. `Wrap` will be ignored.")
+                wrap = dt_kwargs.pop('wrap')
+                # fc_additional = dt_kwargs.pop('fc_additional')
+                # fc_additional = lambda _: _.share(x=False, y=False)
+                # dt_kwargs['fc_additional'] = fc_additional
+                # dt_kwargs['wrap'] = None
                 for _color, _title in zip(color, title):
                     dt_kwargs['color'] = _color
                     dt_kwargs['title'] = _title
                     fig = self._embedding(**dt_kwargs)
                     figwrap.addFig(fig >> F(FigConcate))
-                return figwrap.wrapAndGenerate(wrap=1)
+                return figwrap.wrapAndGenerate(wrap=wrap)
             
 
     def catplot(self, x, y, kind, hue=None, gene:bool=False, layer=None, **dt_args):
@@ -1935,7 +1940,7 @@ class PlotAnndata(object):
 
     def geneCompare(self, g1, g2, min_g1=0, max_g1=None, min_g2=0, max_g2=None, cellSize=2, layer='normalize_log', figsize=(10, 6)):
         ad = self.ad
-        _ad = ad[:, [g1, g2]]
+        _ad = ad[:, [g1, g2]].copy()
         df_for2dScatter = _ad.to_df(layer)
         df_for2dScatter['total'] = df_for2dScatter[g1] + df_for2dScatter[g2]
         if max_g1 is None:

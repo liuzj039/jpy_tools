@@ -13,8 +13,8 @@ class jtConfig:
             "/public/home/liuzj/softwares/anaconda3/envs/seurat_disk/lib/R/library"
         )
         self.dt_dirPkl = {
-            "ipf": "/public/home/liuzj/tmp/python_pkl/",
-            "scem": "/scem/work/liuzj/tmp/python_pkl/",
+            "gpu": "/datapool/home/zhijian/tempFiles/",
+            "cpu": "/scem/work/liuzj/tmp/python_pkl/",
         }
     def __str__(self):
         dt_config = {

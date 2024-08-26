@@ -1,6 +1,7 @@
 """
 Normalization tools
 """
+
 from logging import log
 import pandas as pd
 import numpy as np
@@ -30,11 +31,13 @@ from typing import (
     Callable,
 )
 import collections
+
 # from xarray import corr
 # import muon as mu
 from . import basic
 from ..otherTools import setSeed
 from ..rTools import rcontext
+
 
 def normalizeMultiAd(multiAd, removeAmbiguous=True):
     """
@@ -63,8 +66,8 @@ def normalizeByScran(
     needNormalizePre: bool = True,
     resolutionPre: float = 0.7,
     clusterInfo: Optional[str] = None,
-    threads = 1, 
-    calculate = True,
+    threads=1,
+    calculate=True,
     copy: bool = False,
 ) -> anndata.AnnData:
     """
@@ -137,10 +140,7 @@ def normalizeByScran(
     mtx_R = py2r(adata.layers[layer].T)
     logger.info("calculate size factor")
     sizeFactorSr_r = R.calculateSumFactors(
-        mtx_R,
-        clusters=inputGroupDf_r,
-        BPPARAM=BPPARAM,
-        **{"min.mean": 0.1}
+        mtx_R, clusters=inputGroupDf_r, BPPARAM=BPPARAM, **{"min.mean": 0.1}
     )
     # sizeFactorSr_r = R.sizeFactors(
     #     R.computeSumFactors(
@@ -253,6 +253,7 @@ def normalizeByScranMultiBatchNorm(
     logger.info(f"output data shape: {adOrg.shape}")
     return adOrg
 
+
 @rcontext
 def normalizeBySCT_r(
     ad,
@@ -263,16 +264,16 @@ def normalizeBySCT_r(
     vstFlavor="v2",
     returnOnlyVarGenes=False,
     doCorrectUmi=True,
-    returnMuon = False,
-    returnSo = False,
-    rEnv = None,
-    debug = False,
-    runSctOnly = False,
+    returnMuon=False,
+    returnSo=False,
+    rEnv=None,
+    debug=False,
+    runSctOnly=False,
     **dt_kwargsToSct,
 ):
-    '''`normalizeBySCT_r` is a function that takes in a single-cell RNA-seq dataset and returns a
+    """`normalizeBySCT_r` is a function that takes in a single-cell RNA-seq dataset and returns a
     normalized version of the dataset.
-    
+
     Parameters
     ----------
     ad
@@ -291,8 +292,8 @@ def normalizeBySCT_r(
         whether to correct for UMI counts
     returnMuon, optional
         if True, return the muon object.
-    
-    '''
+
+    """
     import rpy2
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
@@ -304,13 +305,16 @@ def normalizeBySCT_r(
     rBase = importr("base")
     rUtils = importr("utils")
     Seurat = importr("Seurat")
+    magrittr = importr("magrittr")
 
     R = ro.r
     setSeed()
+
     def setSctVstToAd(ad, rEnv):
         model = R("levels(x = so_sct[['SCT']])")
         assert len(list(model)) == 1, "model must be 1"
-        R("""
+        R(
+            """
         SCTModel_to_vst <- function(SCTModel) {
             feature.params <- c("theta", "(Intercept)",  "log_umi")
             feature.attrs <- c("residual_mean", "residual_variance" )
@@ -327,16 +331,17 @@ def normalizeBySCT_r(
 
         clip_range = SCTResults(object = so_sct[["SCT"]], slot = "clips", model = "model1")$sct
         vst_out <- SCTModel_to_vst(SCTModel = slot(object = so_sct[['SCT']], name = "SCTModel.list")[[model]])
-        """)
-        vst_out = rEnv['vst_out']
-        ad.uns['sct_vst_pickle'] = str(pickle.dumps(vst_out))
-        ad.uns['sct_clip_range'] = list(rEnv['clip_range'])
-
-
+        """
+        )
+        vst_out = rEnv["vst_out"]
+        ad.uns["sct_vst_pickle"] = str(pickle.dumps(vst_out))
+        ad.uns["sct_clip_range"] = list(rEnv["clip_range"])
 
     so = ad2so(ad, layer=layer, lightMode=True)
     if debug:
-        import pdb;pdb.set_trace()
+        import pdb
+
+        pdb.set_trace()
     dt_kwargsToSct["variable.features.n"] = nTopGenes
     dt_kwargsToSct["residual.features"] = (
         R("NULL") if ls_gene is None else R.c(*[x.replace("_", "-") for x in ls_gene])
@@ -358,28 +363,27 @@ def normalizeBySCT_r(
     so_sct = rEnv["so_sct"]
     setSctVstToAd(ad, rEnv)
     ls_hvg = list(rEnv["ls_hvg"])
-    
-    ls_var =  R("VariableFeatures")(so_sct, assay='SCT') >> F(list)
-    dt_var = {ls_var[i]:i for i in range(len(ls_var))}
-    ad.var['highly_variable'] = ad.var.index.isin(dt_var)
-    ad.var['highly_variable_rank'] = ad.var.index.map(lambda x:dt_var.get(x, np.nan))
+
+    ls_var = R("VariableFeatures")(so_sct, assay="SCT") >> F(list)
+    dt_var = {ls_var[i]: i for i in range(len(ls_var))}
+    ad.var["highly_variable"] = ad.var.index.isin(dt_var)
+    ad.var["highly_variable_rank"] = ad.var.index.map(lambda x: dt_var.get(x, np.nan))
     if runSctOnly:
         return ad
 
-    
     md_sct = so2md(so_sct)
-    md_sct['SCT_scale.data'].var['highly_variable'] = md_sct['SCT_scale.data'].var.index.isin(ls_hvg)
-    md_sct['SCT_scale.data'].X = md_sct['SCT_scale.data'].layers['SCT_scale.data']
+    md_sct["SCT_scale.data"].var["highly_variable"] = md_sct[
+        "SCT_scale.data"
+    ].var.index.isin(ls_hvg)
+    md_sct["SCT_scale.data"].X = md_sct["SCT_scale.data"].layers["SCT_scale.data"]
     md_sct.uns["sct_vst_pickle"] = ad.uns["sct_vst_pickle"]
     md_sct.uns["sct_clip_range"] = ad.uns["sct_clip_range"]
 
-    sc.tl.pca(md_sct['SCT_scale.data'])
-    ad.obsm['X_pca_sct'] = md_sct['SCT_scale.data'].obsm['X_pca'].copy()
-    ad.uns['pca_sct'] = md_sct['SCT_scale.data'].uns['pca'].copy()
-    ad.obsm['SCT_data'] = md_sct['SCT'].layers['SCT_data']
-    ad.uns['SCT_data_features'] = md_sct['SCT'].var.index.to_list()
-    
-
+    sc.tl.pca(md_sct["SCT_scale.data"])
+    ad.obsm["X_pca_sct"] = md_sct["SCT_scale.data"].obsm["X_pca"].copy()
+    ad.uns["pca_sct"] = md_sct["SCT_scale.data"].uns["pca"].copy()
+    ad.obsm["SCT_data"] = md_sct["SCT"].layers["SCT_data"]
+    ad.uns["SCT_data_features"] = md_sct["SCT"].var.index.to_list()
 
     # ad_sct = so2ad(so_sct, verbose=0)
     # ad_sct.var['highly_variable'] = ad_sct.var.index.isin(ls_hvg)
@@ -402,10 +406,10 @@ def normalizeBySCT_r(
         return so_sct
     else:
         return md_sct
-    
-    
+
+
 def getHvgGeneFromSctAdata(ls_ad, nTopGenes=3000, nTopGenesEachAd=3000):
-    '''> get the top  HVGs that are shared across all adatas
+    """> get the top  HVGs that are shared across all adatas
 
     Parameters
     ----------
@@ -420,22 +424,36 @@ def getHvgGeneFromSctAdata(ls_ad, nTopGenes=3000, nTopGenesEachAd=3000):
     -------
         A list of genes that are highly variable across all adatas.
 
-    '''
+    """
     import pickle
+
     for ad in ls_ad:
-        assert 'highly_variable_rank' in ad.var.columns, "adata must have highly_variable_rank"
+        assert (
+            "highly_variable_rank" in ad.var.columns
+        ), "adata must have highly_variable_rank"
     ls_allGenes = []
     for ad in ls_ad:
-        vst_out = pickle.loads(eval(ad.uns['sct_vst_pickle']))
+        vst_out = pickle.loads(eval(ad.uns["sct_vst_pickle"]))
         ls_allGenes.extend(list(vst_out[2].rownames))
-    ls_allGenes = pd.Series(ls_allGenes).value_counts().loc[lambda x: x == len(ls_ad)].index.to_list()
-    
+    ls_allGenes = (
+        pd.Series(ls_allGenes)
+        .value_counts()
+        .loc[lambda x: x == len(ls_ad)]
+        .index.to_list()
+    )
 
     ls_allHvg = []
     for ad in ls_ad:
-        ls_allHvg.extend(ad.var.sort_values('highly_variable_rank').loc[lambda _: _.highly_variable].index[:nTopGenesEachAd].to_list())
+        ls_allHvg.extend(
+            ad.var.sort_values("highly_variable_rank")
+            .loc[lambda _: _.highly_variable]
+            .index[:nTopGenesEachAd]
+            .to_list()
+        )
     ls_allHvg = [x for x in ls_allHvg if x in ls_allGenes]
-    assert len(set(ls_allHvg)) > nTopGenes, "nTopGenes must be smaller than total number of HVGs"
+    assert (
+        len(set(ls_allHvg)) > nTopGenes
+    ), "nTopGenes must be smaller than total number of HVGs"
     ls_hvgCounts = pd.Series(ls_allHvg).value_counts()
 
     ls_usedHvg = []
@@ -447,14 +465,19 @@ def getHvgGeneFromSctAdata(ls_ad, nTopGenes=3000, nTopGenesEachAd=3000):
 
     needAnotherCounts = nTopGenes - len(ls_usedHvg)
     df_remainGeneRank = pd.DataFrame(index=list(set(ls_allGenes) - set(ls_usedHvg)))
-    for i,ad in enumerate(ls_ad):
-        df_remainGeneRank[f"{i}"] = ad.var['highly_variable_rank']
+    for i, ad in enumerate(ls_ad):
+        df_remainGeneRank[f"{i}"] = ad.var["highly_variable_rank"]
     df_remainGeneRank = df_remainGeneRank.sort_index()
-    df_remainGeneRank['count'] = pd.notna(df_remainGeneRank).sum(1)
-    df_remainGeneRank['median'] = df_remainGeneRank.drop(columns='count').apply('median', axis=1)
-    df_remainGeneRank = df_remainGeneRank.sort_values(['count', 'median'], ascending=[False, True])
+    df_remainGeneRank["count"] = pd.notna(df_remainGeneRank).sum(1)
+    df_remainGeneRank["median"] = df_remainGeneRank.drop(columns="count").apply(
+        "median", axis=1
+    )
+    df_remainGeneRank = df_remainGeneRank.sort_values(
+        ["count", "median"], ascending=[False, True]
+    )
     ls_usedHvg.extend(df_remainGeneRank.iloc[:needAnotherCounts].index.to_list())
     return ls_usedHvg, df_remainGeneRank
+
 
 def normalizeBySCT(
     adata: anndata.AnnData,
@@ -594,39 +617,56 @@ def normalizeBySCT(
     if copy:
         return adata
 
-def getSctResiduals(ad, ls_gene, layer='raw', forceOverwrite=False, sctVstPickle=None, sctClipRange=None):
+
+def getSctResiduals(
+    ad, ls_gene, layer="raw", forceOverwrite=False, sctVstPickle=None, sctClipRange=None
+):
     import pickle
     from ..rTools import py2r, r2py
     from ..otherTools import F
 
     basic.testAllCountIsInt(ad, layer)
     if sctVstPickle is None:
-        assert 'sct_vst_pickle' in ad.uns, "sct_vst_pickle not found in adata.uns"
-        sctVstPickle = ad.uns['sct_vst_pickle']
+        assert "sct_vst_pickle" in ad.uns, "sct_vst_pickle not found in adata.uns"
+        sctVstPickle = ad.uns["sct_vst_pickle"]
     if sctClipRange is None:
-        assert 'sct_clip_range' in ad.uns, "sct_clip_range not found in adata.layers"
-        sctClipRange = ad.uns['sct_clip_range']
+        assert "sct_clip_range" in ad.uns, "sct_clip_range not found in adata.layers"
+        sctClipRange = ad.uns["sct_clip_range"]
 
     import rpy2.robjects as ro
+
     R = ro.r
 
-    if ('sct_residual' not in ad.obsm.keys()) or forceOverwrite:
+    if ("sct_residual" not in ad.obsm.keys()) or forceOverwrite:
         ls_gene = ls_gene
     else:
-        ls_gene = list(set(ls_gene) - set(ad.obsm['sct_residual'].columns))
+        ls_gene = list(set(ls_gene) - set(ad.obsm["sct_residual"].columns))
     if len(ls_gene) == 0:
         return None
 
     fcR_getResiduals = R("sctransform::get_residuals")
     vst_out = pickle.loads(eval(sctVstPickle))
     ls_clipRange = [float(x) for x in list(sctClipRange)]
-    df_residuals = fcR_getResiduals(vst_out, umi=ad[:, ls_gene].to_df(layer).T >> F(py2r) >> F(R("data.matrix")) >> F(R("Matrix::Matrix")), res_clip_range=R.c(*ls_clipRange)) >> F(R("as.data.frame")) >> F(r2py)
+    df_residuals = (
+        fcR_getResiduals(
+            vst_out,
+            umi=ad[:, ls_gene].to_df(layer).T
+            >> F(py2r)
+            >> F(R("data.matrix"))
+            >> F(R("Matrix::Matrix")),
+            res_clip_range=R.c(*ls_clipRange),
+        )
+        >> F(R("as.data.frame"))
+        >> F(r2py)
+    )
     df_residuals = df_residuals.T
     df_residuals = df_residuals - df_residuals.mean()
-    if ('sct_residual' not in ad.obsm.keys()) or forceOverwrite:
-        ad.obsm['sct_residual'] = df_residuals
+    if ("sct_residual" not in ad.obsm.keys()) or forceOverwrite:
+        ad.obsm["sct_residual"] = df_residuals
     else:
-        ad.obsm['sct_residual'] = pd.concat([ad.obsm['sct_residual'], df_residuals], axis=1)
+        ad.obsm["sct_residual"] = pd.concat(
+            [ad.obsm["sct_residual"], df_residuals], axis=1
+        )
 
 
 @rcontext
@@ -644,7 +684,8 @@ def integrateBySeurat(
     identify_top_genes_by_seurat=False,
     dt_integrateDataParams={},
     saveSeurat=None,
-    rEnv = None,
+    returnData: Optional[Literal["ad", "so", "both"]] = "ad",
+    rEnv=None,
 ) -> sc.AnnData:
     """`integrateBySeurat` takes an AnnData object, a batch key, and a few other parameters, and returns a
     Seurat object with the integrated data
@@ -718,7 +759,6 @@ def integrateBySeurat(
         lsR_features = R.c(*ls_features)
 
     so = ad2so(ad, layer=layer, ls_obs=[batch_key])
-
 
     rEnv["so"] = so
     rEnv["batch_key"] = batch_key
@@ -798,29 +838,48 @@ def integrateBySeurat(
     dtR_integrateDataParams$dims <- 1:dims
     dtR_integrateDataParams$`k.weight` <- k.weight
     so.combined <- DescTools::DoCall(IntegrateData, dtR_integrateDataParams)
+    DefaultAssay(so.combined) <- 'integrated'
     """
     )
     if not saveSeurat is None:
         rEnv["saveSeurat"] = saveSeurat
         R("saveRDS(so.combined, file = saveSeurat)")  # save seurat object
     so_combined = R("so.combined")
-    ad_combined = so2ad(so_combined)
-    ad_combined = ad_combined[ad.obs.index]
-    if normalization_method == "LogNormalize":
-        ad.obsm["seurat_integrated_data"] = ad_combined.to_df("integrated_data").copy()
-        ad_combined.X = ad_combined.layers["integrated_data"].copy()
-        sc.pp.scale(ad_combined)
+    if returnData == "so":
+        return so_combined
     else:
-        ad.obsm["seurat_integrated_data"] = ad_combined.to_df("integrated_data").copy()
-        ad.obsm["seurat_integrated_scale.data"] = ad_combined.obsm["integrated_scale.data"].copy()
-        ad_combined.X = ad_combined.obsm["integrated_scale.data"].copy()
+        ad_combined = so2ad(so_combined)
+        ad_combined = ad_combined[ad.obs.index]
+        if normalization_method == "LogNormalize":
+            ad.obsm["seurat_integrated_data"] = ad_combined.to_df(
+                "integrated_data"
+            ).copy()
+            ad_combined.X = ad_combined.layers["integrated_data"].copy()
+            sc.pp.scale(ad_combined)
+        else:
+            ad.obsm["seurat_integrated_data"] = ad_combined.to_df(
+                "integrated_data"
+            ).copy()
+            ad.obsm["seurat_integrated_scale.data"] = ad_combined.obsm[
+                "integrated_scale.data"
+            ].copy()
+            ad_combined.X = ad_combined.obsm["integrated_scale.data"].copy()
 
-    sc.tl.pca(ad_combined, use_highly_variable=False)
-    ad.obsm["X_pca_seurat"] = ad_combined.obsm["X_pca"].copy()
-    return ad_combined
+        sc.tl.pca(ad_combined, use_highly_variable=False)
+        ad.obsm["X_pca_seurat"] = ad_combined.obsm["X_pca"].copy()
+        ad.uns["pca_seurat"] = ad_combined.uns["pca"].copy()
+        if returnData is None:
+            return
+        elif returnData == "ad":
+            return ad_combined
+        else:
+            return ad_combined, so
+
 
 class NormAnndata(object):
-    def __init__(self, ad:sc.AnnData, rawLayer:str='raw', lastResKey:str='lastNorm'):
+    def __init__(
+        self, ad: sc.AnnData, rawLayer: str = "raw", lastResKey: str = "lastNorm"
+    ):
         """
         Initialize a Normalizer object with the given AnnData object and raw layer name.
 
@@ -831,7 +890,7 @@ class NormAnndata(object):
         self.ad = ad
         self.rawLayer = rawLayer
         self.lastResKey = lastResKey
-    
+
     @property
     def lastRes(self):
         lastResKey = self.lastResKey
@@ -840,13 +899,22 @@ class NormAnndata(object):
         else:
             self.ad.uns[lastResKey] = {}
             return self.ad.uns[lastResKey]
-    
+
     def __repr__(self):
-        contents = f"NormAnndata object, rawLayer: {self.rawLayer}, lastRes: {self.lastRes}\n"  + self.ad.__repr__()
+        contents = (
+            f"NormAnndata object, rawLayer: {self.rawLayer}, lastRes: {self.lastRes}\n"
+            + self.ad.__repr__()
+        )
         return contents
 
-    def getSizeFactorByScran(self, resolution:float=2, preCluster:Optional[str]=None, threads:int=1, dt_kwargs2scran:dict={"min.mean": 0.1}):
-        '''The `getSizeFactorByScran` function calculates size factors for each cell in an AnnData object using the scran package in R, and stores the results in the AnnData object.
+    def getSizeFactorByScran(
+        self,
+        resolution: float = 2,
+        preCluster: Optional[str] = None,
+        threads: int = 1,
+        dt_kwargs2scran: dict = {"min.mean": 0.1},
+    ):
+        """The `getSizeFactorByScran` function calculates size factors for each cell in an AnnData object using the scran package in R, and stores the results in the AnnData object.
 
         Parameters
         ----------
@@ -859,7 +927,7 @@ class NormAnndata(object):
         dt_kwargs2scran : dict
             The `dt_kwargs2scran` parameter is a dictionary that contains additional arguments to be passed to the `calculateSumFactors` function from the `scran` package in R. These arguments control the behavior of the size factor calculation. In the code snippet, the default value for `dt_kwargs
 
-        '''
+        """
         import rpy2.robjects as ro
         from rpy2.robjects.packages import importr
         from scipy.sparse import csr_matrix, isspmatrix
@@ -872,10 +940,13 @@ class NormAnndata(object):
 
         ad = self.ad
 
-
         if preCluster is None:
-            logger.info(f"cluster information is not specified, `connectivity` stored in anndata and reslution {resolution} will be used to cluster cells")
-            logger.warning("I strongly recommend you to specify `preCluster` to avoid repeated clustering")
+            logger.info(
+                f"cluster information is not specified, `connectivity` stored in anndata and reslution {resolution} will be used to cluster cells"
+            )
+            logger.warning(
+                "I strongly recommend you to specify `preCluster` to avoid repeated clustering"
+            )
             ad_bc = ad
             ad = sc.AnnData(ad_bc.layers["normalize_log"].copy(), obs=ad.obs.copy())
             sc.pp.highly_variable_genes(ad, n_top_genes=3000)
@@ -886,14 +957,13 @@ class NormAnndata(object):
             ad = ad_bc
         else:
             ad.obs["scran_used_cluster"] = self.ad.obs[preCluster]
-        
-        
+
         if threads == 1:
             BPPARAM = bp.SerialParam()
         else:
             BPPARAM = bp.MulticoreParam(threads)
-        
-        dfR_clusterInfo = py2r(ad.obs['scran_used_cluster'])
+
+        dfR_clusterInfo = py2r(ad.obs["scran_used_cluster"])
         mtx = ad.layers[self.rawLayer]
         if ss.issparse(mtx):
             if not isinstance(mtx, ss.csr_matrix):
@@ -902,16 +972,17 @@ class NormAnndata(object):
         mtxR = py2r(mtx.T)
         logger.info("calculate size factor")
         vtR_sizeFactor = R.calculateSumFactors(
-            mtxR,
-            clusters=dfR_clusterInfo,
-            BPPARAM=BPPARAM,
-            **dt_kwargs2scran
+            mtxR, clusters=dfR_clusterInfo, BPPARAM=BPPARAM, **dt_kwargs2scran
         )
         sr_sizeFactor = r2py(vtR_sizeFactor).copy()
         logger.info("process result")
         ad.obs["scran_sizeFactor"] = sr_sizeFactor
-        ad.layers['scran_norm_count'] = csr_matrix(ad.layers['raw'].multiply(1 / ad.obs['scran_sizeFactor'].values.reshape(-1, 1)))
-    
+        ad.layers["scran_norm_count"] = csr_matrix(
+            ad.layers["raw"].multiply(
+                1 / ad.obs["scran_sizeFactor"].values.reshape(-1, 1)
+            )
+        )
+
     def normByApr(self, nTopGenes=3000, batchKey=None, onlyRunPca=True, comps=50):
         import gc
         import scipy.sparse as ss
@@ -919,15 +990,23 @@ class NormAnndata(object):
         ad = self.ad
         ad.X = ad.layers[self.rawLayer].copy()
         if batchKey is None:
-            sc.experimental.pp.highly_variable_genes(ad, n_top_genes=nTopGenes, batch_key=batchKey)
+            sc.experimental.pp.highly_variable_genes(
+                ad, n_top_genes=nTopGenes, batch_key=batchKey
+            )
         else:
-            ls_geneExpInAllSample = basic.filterGeneBasedOnSample(ad, batchKey, layer=self.rawLayer)
+            ls_geneExpInAllSample = basic.filterGeneBasedOnSample(
+                ad, batchKey, layer=self.rawLayer
+            )
             _ad = ad[:, ls_geneExpInAllSample]
-            df_hvg = sc.experimental.pp.highly_variable_genes(_ad, n_top_genes=nTopGenes, batch_key=batchKey, inplace=False)
-            ad.var['highly_variable'] = df_hvg.reindex(ad.var.index)['highly_variable'].fillna(False)
+            df_hvg = sc.experimental.pp.highly_variable_genes(
+                _ad, n_top_genes=nTopGenes, batch_key=batchKey, inplace=False
+            )
+            ad.var["highly_variable"] = df_hvg.reindex(ad.var.index)[
+                "highly_variable"
+            ].fillna(False)
 
-        ad_apr = ad[:, ad.var['highly_variable']].copy()
-        del(ad_apr.uns)
+        ad_apr = ad[:, ad.var["highly_variable"]].copy()
+        del ad_apr.uns
 
         if batchKey is None:
             sc.experimental.pp.normalize_pearson_residuals(ad_apr)
@@ -938,50 +1017,71 @@ class NormAnndata(object):
                 lsAd_apr.append(_ad)
             ad_apr = sc.concat(lsAd_apr)
             ad_apr = ad_apr[ad.obs.index]
-        
+
         if onlyRunPca:
-            ad_apr.var['highly_variable'] = True
+            ad_apr.var["highly_variable"] = True
             sc.tl.pca(ad_apr, n_comps=comps, use_highly_variable=True)
-            ad.obsm['X_pca'] = ad_apr.obsm['X_pca'].copy()
-            ad.uns['pca'] = ad_apr.uns['pca'].copy()
+            ad.obsm["X_pca"] = ad_apr.obsm["X_pca"].copy()
+            ad.uns["pca"] = ad_apr.uns["pca"].copy()
         else:
-            df_apr = pd.DataFrame.sparse.from_spmatrix(ss.csc_matrix(ad_apr.X), index=ad_apr.obs.index, columns=ad_apr.var.index)
+            df_apr = pd.DataFrame.sparse.from_spmatrix(
+                ss.csc_matrix(ad_apr.X),
+                index=ad_apr.obs.index,
+                columns=ad_apr.var.index,
+            )
             ls_otherGenes = [x for x in ad.var.index if x not in ad_apr.var.index]
-            df_others = pd.DataFrame.sparse.from_spmatrix(ss.csc_matrix((ad.shape[0], len(ls_otherGenes))), index=ad.obs.index, columns=ls_otherGenes)
+            df_others = pd.DataFrame.sparse.from_spmatrix(
+                ss.csc_matrix((ad.shape[0], len(ls_otherGenes))),
+                index=ad.obs.index,
+                columns=ls_otherGenes,
+            )
             df_final = pd.concat([df_apr, df_others], axis=1)
             df_final = df_final.reindex(columns=ad.var.index)
-            ad.layers['APR'] = df_final
-            ad.X = ad.layers['APR'].copy()
+            ad.layers["APR"] = df_final
+            ad.X = ad.layers["APR"].copy()
             sc.tl.pca(ad, n_comps=comps, use_highly_variable=True)
 
-        self.lastRes['normMethod'] = 'APR'
+        self.lastRes["normMethod"] = "APR"
         gc.collect()
 
-    def normBySct(self,
-            batchKey=None,
-            layer=None,
-            nTopGenes=3000,
-            ls_gene=None,
-            vstFlavor="v2",
-            rEnv = None,
-            comps=50,
-            njobs=4,
-            sctOnly=False,
-            **dt_kwargsToSct,
-        ):
+    def normBySct(
+        self,
+        batchKey=None,
+        layer=None,
+        nTopGenes=3000,
+        ls_gene=None,
+        vstFlavor="v2",
+        rEnv=None,
+        comps=50,
+        njobs=4,
+        sctOnly=False,
+        **dt_kwargsToSct,
+    ):
         from joblib import Parallel, delayed
+
         layer = self.rawLayer if layer is None else layer
         if batchKey is None:
-            ad_sct = normalizeBySCT_r(self.ad, layer=layer, nTopGenes=nTopGenes, ls_gene=ls_gene, vstFlavor=vstFlavor, returnOnlyVarGenes=True, doCorrectUmi=False, rEnv=rEnv, runSctOnly=True, **dt_kwargsToSct)
-            self.ad.var['highly_variable'] = ad_sct.var['highly_variable']
-            self.ad.var['highly_variable_rank'] = ad_sct.var['highly_variable_rank']
+            ad_sct = normalizeBySCT_r(
+                self.ad,
+                layer=layer,
+                nTopGenes=nTopGenes,
+                ls_gene=ls_gene,
+                vstFlavor=vstFlavor,
+                returnOnlyVarGenes=True,
+                doCorrectUmi=False,
+                rEnv=rEnv,
+                runSctOnly=True,
+                **dt_kwargsToSct,
+            )
+            self.ad.var["highly_variable"] = ad_sct.var["highly_variable"]
+            self.ad.var["highly_variable_rank"] = ad_sct.var["highly_variable_rank"]
             self.ad.uns["sct_vst_pickle"] = ad_sct.uns["sct_vst_pickle"]
             self.ad.uns["sct_clip_range"] = ad_sct.uns["sct_clip_range"]
-            ls_hvg = ad_sct.var.loc[ad_sct.var['highly_variable']].index.to_list()
+            ls_hvg = ad_sct.var.loc[ad_sct.var["highly_variable"]].index.to_list()
             self.getSctRes(ls_gene=ls_hvg, forceOverwrite=True)
 
         else:
-            self.ad.uns['sctModels'] = {}
+            self.ad.uns["sctModels"] = {}
 
             # from concurrent.futures import ProcessPoolExecutor
             # executor = ProcessPoolExecutor(njobs)
@@ -1009,19 +1109,39 @@ class NormAnndata(object):
 
             lsAd_sct = []
             ls_sample = []
-            for sample, _ad in basic.splitAdata(self.ad, batchKey, copy=True, needName=True):
+            for sample, _ad in basic.splitAdata(
+                self.ad, batchKey, copy=True, needName=True
+            ):
                 lsAd_sct.append(_ad)
                 ls_sample.append(sample)
             lsAd_sct = Parallel(n_jobs=njobs)(
-                delayed(normalizeBySCT_r)(_ad, layer=layer, nTopGenes=nTopGenes, ls_gene=ls_gene, vstFlavor=vstFlavor, returnOnlyVarGenes=True, doCorrectUmi=False, rEnv=rEnv, runSctOnly=True, **dt_kwargsToSct) for _ad in lsAd_sct
+                delayed(normalizeBySCT_r)(
+                    _ad,
+                    layer=layer,
+                    nTopGenes=nTopGenes,
+                    ls_gene=ls_gene,
+                    vstFlavor=vstFlavor,
+                    returnOnlyVarGenes=True,
+                    doCorrectUmi=False,
+                    rEnv=rEnv,
+                    runSctOnly=True,
+                    **dt_kwargsToSct,
+                )
+                for _ad in lsAd_sct
             )
 
             for ad_sct, sample in zip(lsAd_sct, ls_sample):
-                self.ad.uns['sctModels'][f'{sample}_sct_vst_pickle'] = ad_sct.uns["sct_vst_pickle"]
-                self.ad.uns['sctModels'][f'{sample}_sct_clip_range'] = ad_sct.uns["sct_clip_range"]
+                self.ad.uns["sctModels"][f"{sample}_sct_vst_pickle"] = ad_sct.uns[
+                    "sct_vst_pickle"
+                ]
+                self.ad.uns["sctModels"][f"{sample}_sct_clip_range"] = ad_sct.uns[
+                    "sct_clip_range"
+                ]
 
-            ls_hvg, _ = getHvgGeneFromSctAdata(lsAd_sct, nTopGenes=nTopGenes, nTopGenesEachAd=nTopGenes)
-            self.ad.var['highly_variable'] = self.ad.var.index.isin(ls_hvg)
+            ls_hvg, _ = getHvgGeneFromSctAdata(
+                lsAd_sct, nTopGenes=nTopGenes, nTopGenesEachAd=nTopGenes
+            )
+            self.ad.var["highly_variable"] = self.ad.var.index.isin(ls_hvg)
 
             if sctOnly:
                 pass
@@ -1031,29 +1151,125 @@ class NormAnndata(object):
         if sctOnly:
             pass
         else:
-            ad_resi = sc.AnnData(self.ad.obsm['sct_residual'])
-            ad_resi.var['highly_variable']=True
+            ad_resi = sc.AnnData(self.ad.obsm["sct_residual"])
+            ad_resi.var["highly_variable"] = True
 
             sc.tl.pca(ad_resi, n_comps=comps, use_highly_variable=True)
-            self.ad.obsm['X_pca'] = ad_resi.obsm['X_pca'].copy()
-            self.ad.uns['pca'] = ad_resi.uns['pca'].copy()
-
+            self.ad.obsm["X_pca"] = ad_resi.obsm["X_pca"].copy()
+            self.ad.uns["pca"] = ad_resi.uns["pca"].copy()
 
     def getSctRes(self, ls_gene, layer=None, forceOverwrite=False, batchKey=None):
         layer = self.rawLayer if layer is None else layer
         if batchKey is None:
-            getSctResiduals(self.ad, ls_gene, layer=layer, forceOverwrite=forceOverwrite)
+            getSctResiduals(
+                self.ad, ls_gene, layer=layer, forceOverwrite=forceOverwrite
+            )
         else:
-            dt_sctModels = self.ad.uns.get('sctModels', {})
+            dt_sctModels = self.ad.uns.get("sctModels", {})
             if dt_sctModels == {}:
                 logger.warning("sctModels is not found in adata.uns['sctModels']")
                 dt_sctModels = self.ad.uns
 
             lsAd = []
-            for sample, _ad in basic.splitAdata(self.ad, batchKey, copy=True, needName=True):
-                getSctResiduals(_ad, ls_gene, layer=layer, forceOverwrite=forceOverwrite, sctVstPickle=dt_sctModels[f'{sample}_sct_vst_pickle'], sctClipRange=dt_sctModels[f'{sample}_sct_clip_range'])
+            for sample, _ad in basic.splitAdata(
+                self.ad, batchKey, copy=True, needName=True
+            ):
+                getSctResiduals(
+                    _ad,
+                    ls_gene,
+                    layer=layer,
+                    forceOverwrite=forceOverwrite,
+                    sctVstPickle=dt_sctModels[f"{sample}_sct_vst_pickle"],
+                    sctClipRange=dt_sctModels[f"{sample}_sct_clip_range"],
+                )
                 lsAd.append(_ad)
-            df_resi = pd.concat([_ad.obsm['sct_residual'] for _ad in lsAd], axis=0).reindex(index=self.ad.obs.index)
-            self.ad.obsm['sct_residual'] = df_resi.copy()
+            df_resi = pd.concat(
+                [_ad.obsm["sct_residual"] for _ad in lsAd], axis=0
+            ).reindex(index=self.ad.obs.index)
+            self.ad.obsm["sct_residual"] = df_resi.copy()
 
-        
+    def getScviEmbedding(
+        self,
+        nTopGenes=3000,
+        layer=None,
+        batchKey=None,
+        nLayers=2,
+        nLatent=30,
+        geneLikelihood="nb",
+        earlyStop=True,
+        categoricalCovariateKeys=None,
+        dt_kwargsToSetup={},
+        dt_kwargsToModel={},
+        dt_kwargsToTrain={},
+    ):
+        import scvi
+
+        scvi.settings.seed = 39
+
+        layer = self.rawLayer if layer is None else layer
+        sc.pp.highly_variable_genes(
+            self.ad,
+            n_top_genes=nTopGenes,
+            layer=layer,
+            batch_key=batchKey,
+            flavor="seurat_v3",
+        )
+        ad_scvi = self.ad[:, self.ad.var["highly_variable"]].copy()
+        scvi.model.SCVI.setup_anndata(
+            ad_scvi,
+            layer=layer,
+            batch_key=batchKey,
+            categorical_covariate_keys=categoricalCovariateKeys,
+            **dt_kwargsToSetup,
+        )
+        # model = scvi.model.SCVI(adata, n_layers=2, n_latent=30, gene_likelihood="nb")
+        model = scvi.model.SCVI(
+            ad_scvi,
+            n_layers=nLayers,
+            n_latent=nLatent,
+            gene_likelihood=geneLikelihood,
+            **dt_kwargsToModel,
+        )
+        model.train(early_stopping=earlyStop, **dt_kwargsToTrain)
+        ad_scvi.obsm["X_scvi"] = model.get_latent_representation()
+        self.ad.obsm["X_scvi"] = ad_scvi.obsm["X_scvi"].copy()
+
+    def integrateBySeurat(
+        self,
+        batch_key,
+        n_top_genes=5000,
+        layer="raw",
+        reduction: Literal["cca", "rpca", "rlsi"] = "cca",
+        normalization_method: Literal["LogNormalize", "SCT"] = "LogNormalize",
+        k_score=30,
+        dims=30,
+        k_filter=200,
+        k_weight=100,
+        identify_top_genes_by_seurat=False,
+        dt_integrateDataParams={},
+        saveSeurat=None,
+        returnData: Optional[Literal["ad", "so", "both"]] = None,
+        rEnv=None,
+    ):
+        ad = self.ad
+        if normalization_method == "SCT":
+            logger.warning(
+                "SCT normalization will be re-run and the previous SCT results will be overwritten"
+            )
+        return integrateBySeurat(
+            ad,
+            batch_key,
+            n_top_genes=n_top_genes,
+            layer=layer,
+            reduction=reduction,
+            normalization_method=normalization_method,
+            k_score=k_score,
+            dims=dims,
+            k_filter=k_filter,
+            k_weight=k_weight,
+            identify_top_genes_by_seurat=identify_top_genes_by_seurat,
+            dt_integrateDataParams=dt_integrateDataParams,
+            saveSeurat=saveSeurat,
+            returnData=returnData,
+            rEnv=rEnv,
+        )

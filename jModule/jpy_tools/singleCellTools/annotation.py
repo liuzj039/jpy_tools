@@ -1936,7 +1936,7 @@ class LabelTransferAnndata(object):
         threads=1,
         aucMaxRank=500,
         aucMaxPropotion=None,
-        label="AUCell",
+        label=None,
         calcThreshold=False,
         thresholdsHistCol=5,
         dt_kwargs2aucell={},
@@ -1972,5 +1972,6 @@ class LabelTransferAnndata(object):
         np.object = object
         from .geneEnrichInfo import getAUCellScore
         layer = self.queryLayer if layer is None else layer
+        label = f"{self.resultKey}_AUC" if label is None else label
         getAUCellScore(self.ad_query, dt_genes, layer, threads, aucMaxRank, aucMaxPropotion, label, calcThreshold, thresholdsHistCol, dt_kwargs2aucell, chunksize, **dt_kwargs)
             
