@@ -1393,6 +1393,7 @@ class LabelTransferAnndata(object):
         self,
         needLoc: bool = False,
         ls_removeCateKey: Optional[List[str]] = [],
+        ls_removeContinuousKey: Optional[List[str]] = [],
         dt_params2SCVIModel={},
         dt_params2SCANVIModel={},
         cutoff: float = 0.95,
@@ -1485,8 +1486,8 @@ class LabelTransferAnndata(object):
             max_epochs_update = max_epochs
 
         queryAdOrg = queryAd
-        refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel, *ls_removeCateKey, hvgBatch] >> F(filter, lambda x: x) >> F(set) >> F(list))
-        queryAd = basic.getPartialLayersAdata(queryAd, queryLayer, [*ls_removeCateKey, hvgBatch] >> F(filter, lambda x: x) >> F(set) >> F(list))
+        refAd = basic.getPartialLayersAdata(refAd, refLayer, [refLabel, *ls_removeCateKey, *ls_removeContinuousKey, hvgBatch] >> F(filter, lambda x: x) >> F(set) >> F(list))
+        queryAd = basic.getPartialLayersAdata(queryAd, queryLayer, [*ls_removeCateKey, *ls_removeContinuousKey, hvgBatch] >> F(filter, lambda x: x) >> F(set) >> F(list))
         refAd, queryAd = basic.getOverlap(refAd, queryAd)
         if not ls_removeCateKey:
             ls_removeCateKey = ["_batch"]
@@ -1507,7 +1508,7 @@ class LabelTransferAnndata(object):
 
         refAd = refAd[:, ad_merge.var.index].copy()
         queryAd = queryAd[:, ad_merge.var.index].copy()
-
+        ls_removeContinuousKey = ls_removeContinuousKey if ls_removeContinuousKey else None
         if mode == "online":
             # train model
             scvi.model.SCVI.setup_anndata(
@@ -1516,6 +1517,7 @@ class LabelTransferAnndata(object):
                 labels_key=refLabel,
                 batch_key=ls_removeCateKey[0],
                 categorical_covariate_keys=ls_removeCateKey[1:],
+                continuous_covariate_keys=ls_removeContinuousKey,
             )
             scvi.model.SCVI.setup_anndata(
                 queryAd,
@@ -1523,6 +1525,7 @@ class LabelTransferAnndata(object):
                 labels_key=refLabel,
                 batch_key=ls_removeCateKey[0],
                 categorical_covariate_keys=ls_removeCateKey[1:],
+                continuous_covariate_keys=ls_removeContinuousKey,
             )
 
             scvi_model = scvi.model.SCVI(refAd, **dt_params2SCVIModel)
@@ -1584,6 +1587,7 @@ class LabelTransferAnndata(object):
                 labels_key=refLabel,
                 batch_key=ls_removeCateKey[0],
                 categorical_covariate_keys=ls_removeCateKey[1:],
+                continuous_covariate_keys=ls_removeContinuousKey,
             )
             scvi_model = scvi.model.SCVI(ad_merge, **dt_params2SCVIModel)
             scvi_model.train(

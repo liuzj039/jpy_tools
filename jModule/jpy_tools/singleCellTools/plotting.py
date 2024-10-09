@@ -1701,6 +1701,7 @@ class PlotAnndata(object):
                 ax.yaxis.set_tick_params(labelleft=False)
                 
             ax.xaxis.label.set_visible(True)
+            ax.yaxis.label.set_visible(True)
         # if italicTitle:
         #         ax.set_title(ax.get_title(), fontstyle='italic')
         
@@ -1938,7 +1939,7 @@ class PlotAnndata(object):
         h.add_legends()
         return h
 
-    def geneCompare(self, g1, g2, min_g1=0, max_g1=None, min_g2=0, max_g2=None, cellSize=2, layer='normalize_log', figsize=(10, 6)):
+    def geneCompare(self, g1, g2, n1=None, n2=None, min_g1=0, max_g1=None, min_g2=0, max_g2=None, cellSize=2, layer='normalize_log', figsize=(10, 6)):
         ad = self.ad
         _ad = ad[:, [g1, g2]].copy()
         df_for2dScatter = _ad.to_df(layer)
@@ -1988,6 +1989,9 @@ class PlotAnndata(object):
         ax2.spines['right'].set_visible(False)
         ax2.spines['bottom'].set_visible(False)
         ax2.spines['left'].set_visible(False)
-        ax2.set(xticks=[0, 100], xticklabels=[min_g1, max_g1], yticks=[0, 100], yticklabels=[min_g2, max_g2], xlabel=g1, ylabel=g2)
-        fig.suptitle(f"{g1} vs {g2}", fontsize=12)
+        n1 = n1 if n1 is not None else g1
+        n2 = n2 if n2 is not None else g2
+
+        ax2.set(xticks=[0, 100], xticklabels=[min_g1, max_g1], yticks=[0, 100], yticklabels=[min_g2, max_g2], xlabel=n1, ylabel=n2)
+        fig.suptitle(f"{n1} vs {n2}", fontsize=12)
         return fig

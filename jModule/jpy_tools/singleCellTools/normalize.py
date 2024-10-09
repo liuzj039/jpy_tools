@@ -839,8 +839,10 @@ def integrateBySeurat(
     dtR_integrateDataParams$`k.weight` <- k.weight
     so.combined <- DescTools::DoCall(IntegrateData, dtR_integrateDataParams)
     DefaultAssay(so.combined) <- 'integrated'
+    so.combined <- ScaleData(so.combined, verbose = FALSE)
     """
     )
+
     if not saveSeurat is None:
         rEnv["saveSeurat"] = saveSeurat
         R("saveRDS(so.combined, file = saveSeurat)")  # save seurat object

@@ -119,7 +119,7 @@ def geneFilterSampleSeparately(ad, batchKay, layer, minCells) -> List[str]:
 
 
 def getOverlap(ad_a: anndata.AnnData, ad_b: anndata.AnnData, copy=False):
-    ls_geneOverlap = list(ad_a.var.index & ad_b.var.index)
+    ls_geneOverlap = list(set(ad_a.var.index) & set(ad_b.var.index))
     logger.info(f"Used Gene Counts: {len(ls_geneOverlap)}")
     if copy:
         return ad_a[:, ls_geneOverlap].copy(), ad_b[:, ls_geneOverlap].copy()

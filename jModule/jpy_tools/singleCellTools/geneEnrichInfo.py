@@ -514,7 +514,7 @@ def calculateEnrichScoreByCellex(
         mtx_geneExpRatio = (
             basic.ad2df(adata, layer=layer)
             .groupby(adata.obs[clusterName])
-            .apply(lambda df: (df > 0).mean())
+            .apply(lambda df: (df > 0).sum() / df.shape[0])
             .T
         )
         df_geneExpRatio = (
