@@ -62,6 +62,8 @@ class DeAnndata(object):
         self.controlName = controlName
         if resultKey is None:
             self.resultKey = f"de_{self.groupby}"
+        else:
+            self.resultKey = resultKey
 
         # if self.resultKey not in self.ad.uns:
         #     self.ad.uns[self.resultKey] = {}
@@ -138,8 +140,151 @@ class DeAnndata(object):
         self.ad.uns[f'{self.resultKey}_MetaNeighborUS'] = df_res
         return df_res
     
+    def scDist(
+            self, scaleMtxObsm:str, randomEffects:Union[str, list], cluster:str=None, fixedEffects:str=None, calCellDistance=False, minCells=50, **dt_kargs
+    ):  
+        """
+        Perform scDist analysis on the AnnData object.
+
+        Parameters:
+            scaleMtxObsm (str): The key for the scaled matrix in the obsm attribute of the AnnData object.
+            randomEffects (Union[str, list]): The random effects to include in the model.
+            cluster (str, optional): The column name in the observation metadata that indicates the cluster information. Defaults to None.
+            fixedEffects (str, optional): The fixed effects to include in the model. Defaults to None.
+            **dt_kargs: Additional keyword arguments to pass to the scDist function.
+
+        Returns:
+            None
+        """
+        import rpy2.robjects as ro
+        from rpy2.robjects.packages import importr
+        from ..rTools import py2r, r2py
+        R = ro.r
+
+        scDist = importr('scDist')
+        R('set.seed')(39)
+        condition_v_celltype_distance = R("""
+        function(normalized_counts,
+            meta.data,
+            fixed.effects,
+            random.effects=c(),
+            clusters,
+            d=20,
+            truncate=FALSE,
+            min.counts.per.cell=20,
+            weights=NULL) {
+        out.full <- scDist::scDist(normalized_counts=normalized_counts,
+                            meta.data = meta.data,
+                            fixed.effects = fixed.effects,
+                            random.effects = random.effects,
+                            clusters = clusters,
+                            d=d,
+                            truncate=truncate,
+                            min.count.per.cell=min.counts.per.cell,
+                            weights = weights)
+
+        meta.data$cell.type <- meta.data[[clusters]]
+        meta.data$cluster <- "A"
+
+        cell.types <- unique(meta.data$cell.type)
+        nc <- length(cell.types)
+        D <- matrix(0, nrow=nc, ncol=nc)
+        for(i in 1:nc) {
+            for(j in 1:nc) {
+            if(i < j) {
+                next
+            } else if(i == j) {
+                next
+            }
+            ixs <- which(meta.data$cell.type %in% c(cell.types[i], cell.types[j]))
+            expr.sub <- as.matrix(normalized_counts[,ixs])
+            meta.sub <- meta.data[ixs,]
+            cat(i, " ", j, "\n")
+            try({
+                out <- scDist(expr.sub,meta.sub,fixed.effects="cell.type",
+                            random.effects=random.effects,
+                            clusters="cluster")
+                D[i,j] <- out$results$Dist.
+            })
+            }
+        }
+
+
+        rownames(D) <- cell.types
+        colnames(D) <- rownames(D)
+        D <- D[rownames(out.full$results),rownames(out.full$results)]
+
+        D <- D + t(D)
+
+        D <- cbind(D, out.full$results$Dist.)
+        colnames(D)[14] <- "condition"
+
+        df <- reshape2::melt(D)
+
+        library(tidyverse)
+
+        df.sub <- df |> filter(value > 10^{-10}) |>
+            filter(Var1 != "condition") |>
+            filter(Var2 != "condition")
+
+        df.sub2 <- df |> filter(Var2 == "condition")
+
+        p <- ggplot(data=df.sub,aes(x=Var1, y = value)) +
+            geom_boxplot() +
+            geom_jitter(width = 0.2, alpha = 0.5) +
+            geom_point(data=df.sub2, aes(x=Var1, y=value), pch="*",
+                    color="red", size=5) +
+            theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+            xlab("Cell type") + ylab("Distance")
+
+        out <- list()
+        out$D <- D
+        out$plot <- p
+        return(out)
+        }
+        """)
+
+        control = self.controlName
+        ad = self.ad
+        cluster = self.clusterKey if cluster is None else cluster
+        if fixedEffects is None:
+            fixedEffects = self.groupby
+        ls_randomEffects = [randomEffects] if isinstance(randomEffects, str) else randomEffects
+        ls_allTreatment = [x for x in ad.obs[fixedEffects].unique() if x != control]
+        lsDf_res = []
+        lsDf_cellDist = []
+        for treatment in ls_allTreatment:
+            _ad = ad[ad.obs[fixedEffects].isin([control, treatment])]
+            ls_removeCluster = _ad.obs[[fixedEffects, cluster]].value_counts().unstack().min(0).loc[lambda _: _ < minCells].index.to_list()
+            if len(ls_removeCluster) > 0:
+                logger.warning(f"remove {ls_removeCluster} because of less than {minCells} cells")
+                _ad = _ad[~_ad.obs[cluster].isin(ls_removeCluster)]
+
+            dfR_mtx = py2r(_ad.obsm[scaleMtxObsm].T)
+            dfR_meta = py2r(_ad.obs[[cluster, fixedEffects, *ls_randomEffects]])
+            scdRes = scDist.scDist(dfR_mtx, dfR_meta, fixed_effects=fixedEffects, random_effects=R.c(*ls_randomEffects), clusters=cluster, **dt_kargs)
+            df_scdist = r2py(scdRes.rx2['results']).reset_index().rename(columns={'index':'Cluster'})
+            df_scdist['Treatment'] = treatment
+            lsDf_res.append(df_scdist)
+            if calCellDistance:
+                scdRes_ctDistance = condition_v_celltype_distance (dfR_mtx, dfR_meta, fixedEffects, R.c(*ls_randomEffects), cluster, **dt_kargs)
+                df_ctDistance = scdRes_ctDistance.rx2['D'] >> F(r2py)
+                df_ctDistance = df_ctDistance.assign(Treatment=treatment).reset_index().rename(columns={'index':'Cluster'})
+                lsDf_cellDist.append(df_ctDistance)
+
+        df_res = pd.concat(lsDf_res, axis=0, ignore_index=True)
+        self.ad.uns[f'{self.resultKey}_scDist'] = df_res
+        if calCellDistance:
+            df_ctDistance = pd.concat(lsDf_res, axis=0, ignore_index=True)
+            self.ad.uns[f'{self.resultKey}_scDist_ctDistance'] = df_ctDistance
+
+
+        
+
+        
+
     def identifyDegUsePseudoBulk(
-            self, groupby:str=None, replicateKey:str=None, npseudoRep:int=None, clusterKey:str = None, method:Literal['DESeq2', 'edgeR']='edgeR', groups:Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]=None, 
+            self, groupby:str=None, replicateKey:str=None, npseudoRep:int=None, clusterKey:str = None, method:Literal['DESeq2', 'edgeR', 'pydeseq2']='edgeR', groups:Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]=None, 
             randomSeed:int=39, shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None, njobs:int=1, layer:str = 'raw'
         ) -> pd.DataFrame:
         """
@@ -167,9 +312,9 @@ class DeAnndata(object):
         
         from .geneEnrichInfo import findDegUsePseudobulk, findDegUsePseudoRep
         from .basic import splitAdata
-        if replicateKey is None and npseudoRep is None:
+        if (replicateKey is None) and (npseudoRep is None):
             raise ValueError("replicateKey and npseudoRep cannot be both None")
-        if replicateKey is not None and npseudoRep is not None:
+        if (replicateKey is not None) and (npseudoRep is not None):
             raise ValueError("replicateKey and npseudoRep cannot be both not None")
         
         if groupby is None:
@@ -486,8 +631,28 @@ class EnhancedAnndata(object):
         """
         return EnhancedAnndata(self.ad[key], rawLayer=self.rawLayer, reinit=False)
     
-    def to_df(self, layer=None) -> pd.DataFrame:
-        return self.ad.to_df(layer=layer)
+    def to_df(self, layer=None, forceDense=True, dtype=np.float32) -> pd.DataFrame:
+        import scipy.sparse as ss
+        ad = self.ad
+        layer = self.rawLayer if layer is None else layer
+
+        mtx = ad.layers[layer].copy()
+
+        # if dtype != np.float32:
+        #     forceDense = True
+        #     logger.warning("forceDense is set to True because dtype is not float32")
+        
+        if ss.issparse(mtx):
+            df = pd.DataFrame.sparse.from_spmatrix(mtx, index = ad.obs.index, columns=ad.var.index)
+            if dtype != np.float32:
+                df = df.astype(dtype)
+            if forceDense:
+                df = df.sparse.to_dense()
+        else:
+            df = pd.DataFrame(mtx, index = ad.obs.index, columns=ad.var.index, dtype=dtype)  
+
+        return df
+
 
     def addRef(self, ad_ref: sc.AnnData, refLabel:str, refLayer:str = 'raw', resultKey:str=None):
         """
@@ -513,6 +678,29 @@ class EnhancedAnndata(object):
         """
         self.de = DeAnndata(self.ad, groupby=groupby, clusterKey=clusterKey, controlName=controlName, resultKey=resultKey)
 
+    @classmethod
+    def extractWoInfo(cls, wo) -> sc.AnnData:
+        """
+        Extracts the relevant information from a WGCNA object and creates an AnnData object.
+        """
+        ad = wo.datExpr.copy()
+        ad.var["module"] = wo.datExpr.var["moduleColors"]
+        ad.varm["kME"] = wo.signedKME.rename(columns=lambda _: _.split("kME")[-1]).copy()
+        ad.uns["kME"] = (
+            wo.signedKME.assign(geneModule=wo.datExpr.var["moduleColors"])
+            .rename(columns=lambda _: _.split("kME")[-1])
+            .melt(
+                ignore_index=False,
+                id_vars="geneModule",
+                value_name="kME",
+                var_name="kmeModule",
+            )
+            .rename_axis("gene")
+            .reset_index()
+        )
+        ad.varp['TOM'] = wo.TOM
+        ad.obsm['ME'] = wo.MEs.rename(columns=lambda _: _.split("ME")[-1])
+        return ad
     # set uns obs var obsm varm layers X
     @property
     def uns(self):

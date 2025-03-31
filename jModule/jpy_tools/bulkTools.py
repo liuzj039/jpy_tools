@@ -164,6 +164,24 @@ def deByDeseq2(ad, layer, groupDesign, ls_obs, contrast, shrink:Optional[Literal
         res = r2py(rl['res'])
     return res.copy()
 
+def deByPydeseq2(ad, layer, designFactor, contrast):
+    from pydeseq2.dds import DeseqDataSet
+    from pydeseq2.default_inference import DefaultInference
+    from pydeseq2.ds import DeseqStats
+    inference = DefaultInference(n_cpus=1)
+    ad.X = ad.layers[layer].copy()
+    dds = DeseqDataSet(
+        adata=ad,
+        design_factors=designFactor,
+        refit_cooks=True,
+        inference=inference,
+        quiet=True
+    )
+    dds.deseq2()
+    ds = DeseqStats(dds, contrast=contrast, inference=inference)
+    ds.summary()
+    return ds.results_df
+
 def deByDeseq2_old(ad, layer, group_design: str, threads=1):
     '''> For each pair of groups in the `group_design` column, run DESeq2 and store the results in `ad.uns[f"deseq2_{group_design}"]`
 

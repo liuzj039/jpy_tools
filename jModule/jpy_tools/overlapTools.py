@@ -15,6 +15,7 @@ import pandas as pd
 import numpy as np
 import scipy
 from joblib import Parallel, delayed
+from loguru import logger
 
 
 class GeneOverlapBase(object):
@@ -152,7 +153,10 @@ class GeneOverlapBase(object):
                     chi2P = diagS
                     fisherP = diagS
             except:
-                assert False, (comp1, comp2, N, m, n1, n2)
+                logger.error(comp1, comp2, N, m, n1, n2)
+                chi2P = 1
+                fisherP = 1
+
             qmod = m / n1 if n1 > 0 else 0
         jaccard = m / (n1 + n2 - m) if (n1 + n2 - m) > 0 else 0
         return comp1, comp2, N, m, n1, n2, N_n1, n1_n2, smodP, jaccard, qmod, chi2P, fisherP

@@ -1419,7 +1419,8 @@ class PlotAnndata(object):
 
     def heatmapGeneExp(
             self, ls_group: Union[None, List[str]], ls_leftAnno:List[str], dt_genes:Dict[str, List[str]], layer='normalize_log', height=10, width=10, cmap='Reds', standardScale=None, showGeneCounts=False,
-            addGeneName:bool=False, addGeneCatName:bool=True, geneSpace=0.005, cellSpace=0.003, needExp=False, useObsm=False, cellSplitBy=None, dt_forChunk={}, **dt_forHeatmap):
+            addGeneName:bool=False, addGeneCatName:bool=True, geneSpace=0.005, cellSpace=0.003, needExp=False, useObsm=False, cellSplitBy=None, 
+            dt_forChunk={}, dt_groupRename={}, dt_geneRename={}, **dt_forHeatmap):
         '''The `heatmapGeneExp` function generates a heatmap of gene expression in a single-cell RNA sequencing dataset, with options for customization such as color mapping, scaling, and showing gene counts.
 
         Parameters
@@ -1474,7 +1475,7 @@ class PlotAnndata(object):
         for group in ls_leftAnno[::-1]:
             ls_obsGroup = ad_pb.obs[group]
             h.add_left(
-                mp.Colors(ls_obsGroup, palette=self.getAdColors(group), label=group, **dt_forChunk), size=0.15, pad=pad, name=group
+                mp.Colors(ls_obsGroup, palette=self.getAdColors(group), label=dt_groupRename.get(group, group), **dt_forChunk), size=0.15, pad=pad, name=dt_groupRename.get(group, group)
             )
             pad=0
 
@@ -1489,7 +1490,7 @@ class PlotAnndata(object):
             )
         if addGeneName:
             h.add_bottom(
-                mp.Labels(ls_genes)
+                mp.Labels(ls_genes >> F(map, lambda _: dt_geneRename.get(_, _)) >> F(list))
             )
         if cellSplitBy:
             h.hsplit(labels=ad_pb.obs[cellSplitBy], order=ad_pb.obs[cellSplitBy].cat.categories.tolist(), spacing=cellSpace)
@@ -1502,7 +1503,7 @@ class PlotAnndata(object):
     def _embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
                   cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0,
                   figsize=(8,6), legendCol=1, legendInFig=False, legendFigArtistKws={'weight':'bold'}, fc_legendInFig=lambda _: _.split(':')[0], needLegend=True, subsample=None, showTickLabels=False, italicTitle=None, tightLayout=False,
-                  fc_additional = lambda _: _, colorUseObsm=None,
+                  fc_additional = lambda _: _, colorUseObsm=None, cbTitle=None,
                   dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}) -> plt.Figure:
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
 
@@ -1601,8 +1602,13 @@ class PlotAnndata(object):
             legend = False
             
         # print(italicTitle)
-        df['x'] = ad.obsm[embed][:,0]
-        df['y'] = ad.obsm[embed][:,1]
+        if isinstance(ad.obsm[embed], pd.DataFrame):
+            ar = ad.obsm[embed].values
+            df['x'] = ar[:,0]
+            df['y'] = ar[:,1]
+        else:
+            df['x'] = ad.obsm[embed][:,0]
+            df['y'] = ad.obsm[embed][:,1]
         
         if groupby:
             df['groupby'] = ad.obs[groupby]
@@ -1690,7 +1696,7 @@ class PlotAnndata(object):
                 from matplotlib.colors import Normalize
                 from legendkit import colorart
                 fig.transAxes = fig.transFigure
-                colorart(cmap=cmap, norm=Normalize(vmin, vmax), ax=fig, loc='out right center', deviation=-0.07, height=figsize[1] * 3)
+                colorart(cmap=cmap, norm=Normalize(vmin, vmax), ax=fig, loc='out right center', deviation=-0.07, height=figsize[1] * 3, title=cbTitle)
         
         for ax in fig.axes:
             if showTickLabels:
@@ -1724,7 +1730,7 @@ class PlotAnndata(object):
     def embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
                   cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0,
                   figsize=(8,6), legendCol=1, legendInFig=False, legendFigArtistKws={'weight':'bold'}, fc_legendInFig=lambda _: _.split(':')[0], needLegend=True, subsample=None, showTickLabels=False, italicTitle=None, tightLayout=False,
-                  fc_additional=lambda _: _, colorUseObsm=None,
+                  fc_additional=lambda _: _, colorUseObsm=None, cbTitle=None,
                   dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
 
@@ -1770,7 +1776,7 @@ class PlotAnndata(object):
                 embed=embed, color=color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, 
                 cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, 
                 italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, 
-                legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, 
+                legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, cbTitle=cbTitle,
                 showTickLabels=showTickLabels, dt_theme=dt_theme, tightLayout=tightLayout, colorUseObsm=colorUseObsm, fc_additional=fc_additional,legendFigArtistKws=legendFigArtistKws)
         if isinstance(color, str):
             return self._embedding(**dt_kwargs)
@@ -1913,7 +1919,7 @@ class PlotAnndata(object):
                 plt.rcParams.update(dt_rc)
         return ax
     
-    def clusterCompareHeatmap(self, source, target, scaleAxis=0, figsize=(8,8), dendrogram=True):
+    def clusterCompareHeatmap(self, source, target, sourceLabel=None, targetLabel=None, scaleAxis=0, figsize=(8,8), dendrogram=True):
         ad = self.ad
         df_counts = ad.obs[[source, target]].value_counts().unstack().fillna(0).astype(int)
         if scaleAxis is None:
@@ -1933,13 +1939,13 @@ class PlotAnndata(object):
             h.add_dendrogram('left', method='ward')
             h.add_dendrogram('bottom', method='ward')
 
-        h.add_left(mp.Title(source))
-        h.add_bottom(mp.Title(target))
+        h.add_left(mp.Title(source if sourceLabel is None else sourceLabel))
+        h.add_bottom(mp.Title(target if targetLabel is None else targetLabel))
 
         h.add_legends()
         return h
 
-    def geneCompare(self, g1, g2, n1=None, n2=None, min_g1=0, max_g1=None, min_g2=0, max_g2=None, cellSize=2, layer='normalize_log', figsize=(10, 6)):
+    def geneCompare(self, g1, g2, n1=None, n2=None, embedding='X_umap', min_g1=0, max_g1=None, min_g2=0, max_g2=None, cellSize=2, layer='normalize_log', figsize=(10, 6)):
         ad = self.ad
         _ad = ad[:, [g1, g2]].copy()
         df_for2dScatter = _ad.to_df(layer)
@@ -1949,8 +1955,9 @@ class PlotAnndata(object):
         if max_g2 is None:
             max_g2 = df_for2dScatter[g2].max()
         
-        df_for2dScatter['x'] = ad.obsm['X_umap'][:, 0]
-        df_for2dScatter['y'] = ad.obsm['X_umap'][:, 1]
+        embedding = f"X_{embedding}" if not embedding.startswith('X_') else embedding
+        df_for2dScatter['x'] = ad.obsm[embedding][:, 0]
+        df_for2dScatter['y'] = ad.obsm[embedding][:, 1]
         df_for2dScatter = df_for2dScatter.sort_values('total')
 
         lowestRgb = 0.9

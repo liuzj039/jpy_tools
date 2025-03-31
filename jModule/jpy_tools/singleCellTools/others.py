@@ -1157,7 +1157,7 @@ def clusteringAndCalculateShilouetteScore(
         )
         IPython.display.display(p)
 
-    return dt_score
+    return {x:dt_score[x] for x in sorted(dt_score.keys(), key=lambda _: dt_score[_], reverse=True)}
 
 
 def sketchBasedLabelTransfer(

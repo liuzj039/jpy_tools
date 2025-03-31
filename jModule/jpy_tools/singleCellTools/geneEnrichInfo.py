@@ -511,19 +511,47 @@ def calculateEnrichScoreByCellex(
         mtx_enrichScore = eso.results["esmu"].reindex(adata.var.index).fillna(0)
         adata.varm[f"{kayAddedPrefix}_cellexES"] = mtx_enrichScore
 
-        mtx_geneExpRatio = (
-            basic.ad2df(adata, layer=layer)
-            .groupby(adata.obs[clusterName])
-            .apply(lambda df: (df > 0).sum() / df.shape[0])
-            .T
+        # mtx_geneExpRatio = (
+        #     basic.ad2df(adata, layer=layer)
+        #     .groupby(adata.obs[clusterName])
+        #     .apply(lambda df: (df > 0).sum() / df.shape[0])
+        #     .T
+        # )
+        # df_geneExpRatio = (
+        #     mtx_geneExpRatio.rename_axis(index="gene", columns=clusterName)
+        #     .melt(ignore_index=False, value_name="expressed_ratio")
+        #     .reset_index()
+        # )
+        # df_geneExpRatio = (
+        #     (basic.ad2df(adata, layer=layer) > 0)
+        #     .groupby(adata.obs[clusterName])
+        #     .apply(lambda df: df.sum() / df.shape[0]).T
+        #     .rename_axis(index="gene", columns=clusterName)
+        #     .melt(ignore_index=False, value_name="expressed_ratio")
+        #     .reset_index()
+        # )
+
+        ls_cluster = adata.obs[clusterName].unique()
+
+        dt_geneExpRatioInCluster = {}
+        for cluster in ls_cluster:
+            ls_index = adata.obs[clusterName].pipe(lambda sr: sr[sr == cluster]).index
+            _ad = adata[ls_index]
+            _ar = (_ad.layers[layer] > 0).mean(0)
+            if isinstance(_ar, np.matrix):
+                _ar = _ar.A1
+            dt_geneExpRatioInCluster[cluster] = pd.Series(_ar, index=_ad.var.index)
+
+        mtx_geneExpRatioInCluster = pd.DataFrame.from_dict(
+            dt_geneExpRatioInCluster
         )
         df_geneExpRatio = (
-            mtx_geneExpRatio.rename_axis(index="gene", columns=clusterName)
+            mtx_geneExpRatioInCluster.rename_axis(index="gene", columns=clusterName)
             .melt(ignore_index=False, value_name="expressed_ratio")
             .reset_index()
         )
 
-        ls_cluster = adata.obs[clusterName].unique()
+        
         # mtx_binary = (adata.to_df(layer) > 0).astype(int)
 
         # dt_geneExpRatioOtherCluster = {}
@@ -2251,7 +2279,7 @@ def getGeneMeanAndExpressedRatioGroups(ad:sc.AnnData, groupby:Union[str, List[st
             ad.var.loc[_ad.var.index, f'{group}_{sample}_expressedCount'] = _ad.var[f'{group}_{sample}_expressedCount']
 
 def findDegUsePseudobulk(
-        ad:sc.AnnData, layer:str, compareKey:str, replicateKey:str, method:Literal['DESeq2', 'edgeR'], groups:Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]=None, 
+        ad:sc.AnnData, layer:str, compareKey:str, replicateKey:str, method:Literal['DESeq2', 'edgeR', 'pydeseq2'], groups:Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]=None, 
         shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None, njobs:int=1
     ) -> pd.DataFrame:
     '''The function `findDegUsePseudobulk` performs differential expression analysis using either DESeq2 or edgeR methods on single-cell RNA-seq data, comparing groups specified by a compareKey and replicateKey.
@@ -2283,7 +2311,7 @@ def findDegUsePseudobulk(
     from rpy2.robjects.packages import importr
     from itertools import combinations
     from . import geneEnrichInfo
-    from ..bulkTools import deByDeseq2, deByEdger
+    from ..bulkTools import deByDeseq2, deByEdger, deByPydeseq2
     R = ro.r
 
     if method == 'DESeq2':
@@ -2292,6 +2320,8 @@ def findDegUsePseudobulk(
     elif method == 'edgeR':
         importr("edgeR")
         logger.info("LRT test wrapped with edgeR")
+    elif method == 'pydeseq2':
+        logger.info("Wald test wrapped with pydeseq2")
     else:
         assert False, "wrong method"
     ad_merged = geneEnrichInfo._mergeData(ad, [replicateKey, compareKey], layer=layer)
@@ -2308,6 +2338,10 @@ def findDegUsePseudobulk(
         assert len([x for x in groups if x in allGroups]) == len(groups), "Some group not found in compareKey"
         if method == 'DESeq2':
             ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByDeseq2)(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, a, b), shrink=shrink) for a,b in combinations(groups, 2))
+        elif method == 'pydeseq2':
+            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByPydeseq2)(
+                ad_merged, 'raw', compareKey, [compareKey, a, b]) for a,b in combinations(groups, 2)
+            )
         else:
             ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByEdger)(ad_merged, 'raw', compareKey, f"x{a}-x{b}") for a,b in combinations(groups, 2))
         for i,(a,b) in enumerate(combinations(groups, 2)):
@@ -2328,9 +2362,15 @@ def findDegUsePseudobulk(
         a = control
         if method == 'DESeq2':
             ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByDeseq2)(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, b, a), shrink=shrink) for b in groups)
+        elif method == 'pydeseq2':
+            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByPydeseq2)(
+                ad_merged, 'raw', compareKey, [compareKey, b, a]) for b in groups
+            )
         else:
             ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByEdger)(ad_merged, 'raw', compareKey, f"x{b}-x{a}") for b in groups)
         for i,b in enumerate(groups):
+            if ls_res[i] is None:
+                continue
             ls_res[i] = ls_res[i].assign(a=a, b=b)
         # ls_res = []
         # for b in groups:
@@ -2345,7 +2385,7 @@ def findDegUsePseudobulk(
 
 
 def findDegUsePseudoRep(
-        ad:sc.AnnData, layer:str, compareKey:str, npseudoRep:int, method:Literal['DESeq2', 'edgeR'], groups:Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]=None, 
+        ad:sc.AnnData, layer:str, compareKey:str, npseudoRep:int, method:Literal['DESeq2', 'edgeR', 'pydeseq2'], groups:Union[None, Tuple[str, ...], Tuple[str, Tuple[str, ...]]]=None, 
         randomSeed:int=39, shrink:Optional[Literal["apeglm", "ashr", "normal"]]=None, njobs:int=1
     ) -> pd.DataFrame:
     '''The function `findDegUsePseudoRep` generates pseudoreplicates for each sample in an AnnData object and then uses these pseudoreplicates to perform differential expression analysis.

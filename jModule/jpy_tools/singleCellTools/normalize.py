@@ -1195,6 +1195,7 @@ class NormAnndata(object):
         nTopGenes=3000,
         layer=None,
         batchKey=None,
+        hvgSpan=0.3,
         nLayers=2,
         nLatent=30,
         geneLikelihood="nb",
@@ -1215,6 +1216,7 @@ class NormAnndata(object):
             layer=layer,
             batch_key=batchKey,
             flavor="seurat_v3",
+            span=hvgSpan
         )
         ad_scvi = self.ad[:, self.ad.var["highly_variable"]].copy()
         scvi.model.SCVI.setup_anndata(

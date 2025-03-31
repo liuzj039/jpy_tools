@@ -1886,7 +1886,7 @@ class LabelTransferAnndata(object):
         
         ad_query = self.ad_query
         if mode == "merge":
-            ad_ref = self.ad_query
+            ad_ref = self.ad_ref
         elif mode == "online":
             ad_ref = self.ad_ref
         else:
@@ -1898,7 +1898,7 @@ class LabelTransferAnndata(object):
             queryLabel = refLabel
 
         assert refLabel in ad_ref.obs.columns, f"refLabel {refLabel} not in ad_ref.obs.columns"
-        assert refLabel in ad_query.obs.columns, f"refLabel {refLabel} not in ad_ref.obs.columns"
+        assert queryLabel in ad_query.obs.columns, f"refLabel {queryLabel} not in ad_ref.obs.columns"
 
         assert studyCol in ad_ref.obs.columns, f"studyCol {studyCol} not in ad_ref.obs.columns"
         assert studyCol in ad_query.obs.columns, f"studyCol {studyCol} not in ad_query.obs.columns"
@@ -1908,6 +1908,13 @@ class LabelTransferAnndata(object):
         logger.info(f"{refLayer} is used for refAd, {queryLayer} is used for queryAd")
         ad_ref.X = ad_ref.layers[refLayer]
         ad_query.X = ad_query.layers[queryLayer]
+        if mode == "merge":
+            ad_ref.obs['temp'] = ad_ref.obs[refLabel]
+            ad_query.obs['temp'] = ad_query.obs[queryLabel]
+            ad_ref = sc.concat([ad_ref, ad_query], label='temp_2', keys=['ref', 'query'])
+            ad_query = ad_ref
+            refLabel = 'temp'
+            queryLabel = 'temp'
 
         if ls_hvg is None:
             ar_hvg = pymn.variableGenes(ad_ref, study_col=studyCol, return_vect=True)
@@ -1922,6 +1929,7 @@ class LabelTransferAnndata(object):
             df_ptrained = pymn.trainModel(ad_ref, study_col=studyCol, ct_col=refLabel)
         else:
             ad_query = ad_query[:, ad_query.var.index.isin(ls_hvg)].copy()
+            ad_query.var['highly_variable'] = True
             if fastVersion:
                 ad_query.obs[studyCol] = ad_query.obs[studyCol].astype(str)
                 ad_query.obs[refLabel] = ad_query.obs[refLabel].astype(str)
