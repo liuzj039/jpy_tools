@@ -664,6 +664,7 @@ class EnhancedAnndata(object):
             refLayer (str, optional): The layer of the reference dataset to be used. Defaults to 'raw'.
             resultKey (str, optional): The key to store the result. Defaults to None.
         """
+        assert isinstance(ad_ref, sc.AnnData), "ad_ref must be an instance of sc.AnnData"
         self.anno = LabelTransferAnndata(ad_ref, self.ad, refLabel=refLabel, refLayer=refLayer, queryLayer=self.rawLayer, resultKey=resultKey)
     
     def initDe(self, clusterKey: str, groupby: str, controlName: str, resultKey: str = None):
@@ -753,10 +754,6 @@ class EnhancedAnndata(object):
     @property
     def varp(self):
         return self.ad.varp
-    
-    @varp.setter
-    def varm(self, value):
-        self.ad.varp = value
 
     @property
     def layers(self):

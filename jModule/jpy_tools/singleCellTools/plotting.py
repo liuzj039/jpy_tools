@@ -1500,10 +1500,10 @@ class PlotAnndata(object):
         else:
             return h
     
-    def _embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
+    def _embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, alpha=1,
                   cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0,
                   figsize=(8,6), legendCol=1, legendInFig=False, legendFigArtistKws={'weight':'bold'}, fc_legendInFig=lambda _: _.split(':')[0], needLegend=True, subsample=None, showTickLabels=False, italicTitle=None, tightLayout=False,
-                  fc_additional = lambda _: _, colorUseObsm=None, cbTitle=None,
+                  fc_additional = lambda _: _, colorUseObsm=None, cbTitle=None, spatialBgId=None, 
                   dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}) -> plt.Figure:
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
 
@@ -1549,12 +1549,17 @@ class PlotAnndata(object):
             axisLabel = embedLabel
         assert embed in self.ad.obsm.keys(), f"Embedding {embed} not found in AnnData"
 
+        if spatialBgId is None:
+            scaleFactor = 1
+        else:
+            scaleFactor = ad.uns['spatial'][spatialBgId]['scalefactors']['spot_diameter_fullres']
+
         if colorUseObsm is None:
             pass
         else:
             assert colorUseObsm in ad.obsm.keys(), f"Embedding {colorUseObsm} not found in AnnData"
             _ad = sc.AnnData(ss.csc_matrix(ad.shape), obs=ad.obs, var=ad.var)
-            _ad.obsm[embed] = ad.obsm[embed]
+            _ad.obsm[embed] = ad.obsm[embed] * scaleFactor
             _ad.obs = ad.obsm[colorUseObsm].combine_first(ad.obs)
             useObs = True
             ad.obs['embedding_color_temp'] = _ad.obs[color]
@@ -1641,7 +1646,7 @@ class PlotAnndata(object):
 
         g = (
             so.Plot(df, x='x', y='y')
-            .add(so.Dots(fillalpha=1, pointsize=size), color=color, legend=legend)
+            .add(so.Dots(fillalpha=alpha, alpha=alpha, pointsize=size), color=color, legend=legend)
             .share(x=share, y=share)
             .theme(dt_theme)
             .label(x=f'{axisLabel} 1', y=f'{axisLabel} 2', color='')
@@ -1724,13 +1729,20 @@ class PlotAnndata(object):
             titleLocY = suptitleLocation
             logger.info(f"Title location: {titleLocY}")
         fig.suptitle(title, y=titleLocY, va='baseline', fontstyle='italic' if italicTitle else 'normal')
-        
+
+        if spatialBgId is None:
+            pass
+        else:
+            ar_bg = ad.uns['spatial'][spatialBgId]['images']['hires']
+            ax.imshow(ar_bg, cmap=None, alpha=1)
+        plt.close()
+
         return fig
 
-    def embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, 
+    def embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, alpha=1,
                   cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0,
                   figsize=(8,6), legendCol=1, legendInFig=False, legendFigArtistKws={'weight':'bold'}, fc_legendInFig=lambda _: _.split(':')[0], needLegend=True, subsample=None, showTickLabels=False, italicTitle=None, tightLayout=False,
-                  fc_additional=lambda _: _, colorUseObsm=None, cbTitle=None,
+                  fc_additional=lambda _: _, colorUseObsm=None, cbTitle=None, spatialBgId=None, 
                   dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
 
@@ -1773,10 +1785,10 @@ class PlotAnndata(object):
             title = color
 
         dt_kwargs = dict(
-                embed=embed, color=color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, 
+                embed=embed, color=color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, alpha=alpha,
                 cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, 
                 italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, 
-                legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, cbTitle=cbTitle,
+                legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, cbTitle=cbTitle, spatialBgId=spatialBgId,
                 showTickLabels=showTickLabels, dt_theme=dt_theme, tightLayout=tightLayout, colorUseObsm=colorUseObsm, fc_additional=fc_additional,legendFigArtistKws=legendFigArtistKws)
         if isinstance(color, str):
             return self._embedding(**dt_kwargs)

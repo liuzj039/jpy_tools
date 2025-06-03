@@ -23,7 +23,13 @@ from typing import (
     Mapping,
     Callable,
 )
-import stlearn as st
+try:
+    import stlearn as st
+except ImportError:
+    logger.warning(
+        "stlearn is not installed, please install it. Some functions may not work properly."
+    )
+    
 import scipy.sparse as ss
 from ..otherTools import setSeed, F
 import warnings

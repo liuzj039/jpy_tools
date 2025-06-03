@@ -640,7 +640,12 @@ def getSctResiduals(
     if ("sct_residual" not in ad.obsm.keys()) or forceOverwrite:
         ls_gene = ls_gene
     else:
-        ls_gene = list(set(ls_gene) - set(ad.obsm["sct_residual"].columns))
+        if isinstance(ad.obsm["sct_residual"], pd.DataFrame):
+            ls_genePrev = list(ad.obsm["sct_residual"].columns)
+        else:
+            ls_genePrev = ad.uns['sct_residual_keys']
+        ls_geneRaw = ls_gene
+        ls_gene = list(set(ls_gene) - set(ls_genePrev))
     if len(ls_gene) == 0:
         return None
 
@@ -664,9 +669,19 @@ def getSctResiduals(
     if ("sct_residual" not in ad.obsm.keys()) or forceOverwrite:
         ad.obsm["sct_residual"] = df_residuals
     else:
-        ad.obsm["sct_residual"] = pd.concat(
-            [ad.obsm["sct_residual"], df_residuals], axis=1
+        if isinstance(ad.obsm["sct_residual"], pd.DataFrame):
+            df_prevRes = ad.obsm["sct_residual"]
+        else:
+            df_prevRes = pd.DataFrame(
+                ad.obsm["sct_residual"], columns=ad.uns['sct_residual_keys'], index=ad.obs_names
+            )
+
+        df_residuals = pd.concat(
+            [df_prevRes, df_residuals], axis=1
         )
+        df_residuals = df_residuals[ls_geneRaw]
+        ad.obsm["sct_residual"] = df_residuals.values
+        ad.uns['sct_residual_keys'] = ls_geneRaw
 
 
 @rcontext
@@ -1132,6 +1147,7 @@ class NormAnndata(object):
                 for _ad in lsAd_sct
             )
 
+            df_hvgRank = pd.DataFrame(index=self.ad.var.index)
             for ad_sct, sample in zip(lsAd_sct, ls_sample):
                 self.ad.uns["sctModels"][f"{sample}_sct_vst_pickle"] = ad_sct.uns[
                     "sct_vst_pickle"
@@ -1139,11 +1155,13 @@ class NormAnndata(object):
                 self.ad.uns["sctModels"][f"{sample}_sct_clip_range"] = ad_sct.uns[
                     "sct_clip_range"
                 ]
+                df_hvgRank[sample] = ad_sct.var['highly_variable_rank'].copy()
 
             ls_hvg, _ = getHvgGeneFromSctAdata(
                 lsAd_sct, nTopGenes=nTopGenes, nTopGenesEachAd=nTopGenes
             )
             self.ad.var["highly_variable"] = self.ad.var.index.isin(ls_hvg)
+            self.ad.varm["highly_variable_rank_sct"] = df_hvgRank
 
             if sctOnly:
                 pass
@@ -1185,10 +1203,94 @@ class NormAnndata(object):
                     sctClipRange=dt_sctModels[f"{sample}_sct_clip_range"],
                 )
                 lsAd.append(_ad)
+            
+            _ls = []
+            for _ad in lsAd:
+                if isinstance(_ad.obsm["sct_residual"], pd.DataFrame):
+                    _ls.append(_ad.obsm["sct_residual"])
+                else:
+                    _ls.append(
+                        pd.DataFrame(
+                            _ad.obsm["sct_residual"],
+                            columns=_ad.uns['sct_residual_keys'],
+                            index=_ad.obs.index
+                        )
+                    )
             df_resi = pd.concat(
-                [_ad.obsm["sct_residual"] for _ad in lsAd], axis=0
+               _ls, axis=0, join='inner'
             ).reindex(index=self.ad.obs.index)
             self.ad.obsm["sct_residual"] = df_resi.copy()
+            self.ad.uns['sct_residual_genes'] = df_resi.columns.to_list()
+
+    def getHvgGeneFromSctAdata(self, batchKey, nTopGenes=3000, nTopGenesEachAd=3000):
+        """> get the top  HVGs that are shared across all adatas
+
+        Parameters
+        ----------
+        ls_ad
+            a list of adata objects, must be `data` slot. Gene listed in all adata objects will be used.
+        nTopGenes, optional
+            the total number of genes to use for the analysis
+        nTopGenesEachAd, optional
+            the number of HVGs to use from each adata object
+
+        Returns
+        -------
+            A list of genes that are highly variable across all adatas.
+
+        """
+        import pickle
+        ead = self.ad
+        df_hvgRank = ead.varm["highly_variable_rank_sct"]
+        dt_sctModels = ead.uns['sctModels']
+        ls_sample = ead.obs[batchKey].unique().tolist()
+        
+        ls_allGenes = []
+        for sample in ls_sample:
+            vst_out = pickle.loads(eval(dt_sctModels[f"{sample}_sct_vst_pickle"]))
+            ls_allGenes.extend(list(vst_out[2].rownames))
+        ls_allGenes = (
+            pd.Series(ls_allGenes)
+            .value_counts()
+            .loc[lambda x: x == len(ls_sample)]
+            .index.to_list()
+        )
+
+        ls_allHvg = []
+        for sample in ls_sample:
+            ls_allHvg.extend(
+                df_hvgRank.sort_values(sample)
+                .dropna()
+                .index[:nTopGenesEachAd]
+                .to_list()
+            )
+        ls_allHvg = [x for x in ls_allHvg if x in ls_allGenes]
+        assert (
+            len(set(ls_allHvg)) > nTopGenes
+        ), "nTopGenes must be smaller than total number of HVGs"
+        ls_hvgCounts = pd.Series(ls_allHvg).value_counts()
+
+        ls_usedHvg = []
+        for hvgCounts in range(len(ls_sample), 0, -1):
+            ls_currentCountsHvg = ls_hvgCounts[ls_hvgCounts == hvgCounts].index.to_list()
+            if (len(ls_usedHvg) + len(ls_currentCountsHvg)) > nTopGenes:
+                break
+            ls_usedHvg.extend(ls_currentCountsHvg)
+
+        needAnotherCounts = nTopGenes - len(ls_usedHvg)
+        df_remainGeneRank = pd.DataFrame(index=list(set(ls_allGenes) - set(ls_usedHvg)))
+        for i, sample in enumerate(ls_sample):
+            df_remainGeneRank[f"{i}"] = df_hvgRank[sample]
+        df_remainGeneRank = df_remainGeneRank.sort_index()
+        df_remainGeneRank["count"] = pd.notna(df_remainGeneRank).sum(1)
+        df_remainGeneRank["median"] = df_remainGeneRank.drop(columns="count").apply(
+            "median", axis=1
+        )
+        df_remainGeneRank = df_remainGeneRank.sort_values(
+            ["count", "median"], ascending=[False, True]
+        )
+        ls_usedHvg.extend(df_remainGeneRank.iloc[:needAnotherCounts].index.to_list())
+        return ls_usedHvg, df_remainGeneRank
 
     def getScviEmbedding(
         self,
