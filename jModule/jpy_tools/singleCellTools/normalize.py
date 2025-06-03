@@ -1171,7 +1171,9 @@ class NormAnndata(object):
         if sctOnly:
             pass
         else:
-            ad_resi = sc.AnnData(self.ad.obsm["sct_residual"])
+            ad_resi = sc.AnnData(
+                pd.DataFrame(self.ad.obsm["sct_residual"], index=self.ad.obs.index, columns=self.ad.uns['sct_residual_keys'])
+            )
             ad_resi.var["highly_variable"] = True
 
             sc.tl.pca(ad_resi, n_comps=comps, use_highly_variable=True)
@@ -1219,8 +1221,10 @@ class NormAnndata(object):
             df_resi = pd.concat(
                _ls, axis=0, join='inner'
             ).reindex(index=self.ad.obs.index)
-            self.ad.obsm["sct_residual"] = df_resi.copy()
-            self.ad.uns['sct_residual_genes'] = df_resi.columns.to_list()
+            self.ad.obsm["sct_residual"] = df_resi.values
+            self.ad.uns['sct_residual_keys'] = df_resi.columns.to_list()
+            # self.ad.obsm["sct_residual"] = df_resi.copy()
+            # self.ad.uns['sct_residual_genes'] = df_resi.columns.to_list()
 
     def getHvgGeneFromSctAdata(self, batchKey, nTopGenes=3000, nTopGenesEachAd=3000):
         """> get the top  HVGs that are shared across all adatas
@@ -1259,7 +1263,7 @@ class NormAnndata(object):
         ls_allHvg = []
         for sample in ls_sample:
             ls_allHvg.extend(
-                df_hvgRank.sort_values(sample)
+                df_hvgRank.sort_values(sample)[sample]
                 .dropna()
                 .index[:nTopGenesEachAd]
                 .to_list()
