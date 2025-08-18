@@ -1503,7 +1503,7 @@ class PlotAnndata(object):
     def _embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, alpha=1,
                   cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0,
                   figsize=(8,6), legendCol=1, legendInFig=False, legendFigArtistKws={'weight':'bold'}, fc_legendInFig=lambda _: _.split(':')[0], needLegend=True, subsample=None, showTickLabels=False, italicTitle=None, tightLayout=False,
-                  fc_additional = lambda _: _, colorUseObsm=None, cbTitle=None, spatialBgId=None, 
+                  fc_additional = lambda _: _, colorUseObsm=None, cbTitle=None, spatialBgId=None, dt_idRename=None,
                   dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}) -> plt.Figure:
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
 
@@ -1564,7 +1564,9 @@ class PlotAnndata(object):
             useObs = True
             ad.obs['embedding_color_temp'] = _ad.obs[color]
             ad = _ad
-            
+        
+        if dt_idRename is None:
+            dt_idRename = {}
 
         if groupby is None:
             pass
@@ -1575,7 +1577,9 @@ class PlotAnndata(object):
                 assert set(ls_group) <= set(ad.obs[groupby].cat.categories), f"Groups {set(ls_group) - set(ad.obs[groupby].cat.categories)} not found in AnnData"
         if title is None:
             title = color
+        color = dt_idRename.get(color, color)
 
+        isNumeric = True
         if useObs is None:
             if color in ad.obs.columns:
                 useObs = True
@@ -1600,11 +1604,13 @@ class PlotAnndata(object):
             else:
                 df = ad.obs[[color]].copy()
                 legend = False
-                useObs = False
+                # useObs = False
+                isNumeric = False
         else:
             italicTitle = True if italicTitle is None else italicTitle
             df = ad[:, color].to_df(layer)
             legend = False
+            isNumeric = False
             
         # print(italicTitle)
         if isinstance(ad.obsm[embed], pd.DataFrame):
@@ -1623,23 +1629,34 @@ class PlotAnndata(object):
         if subsample:
             df = df.sample(subsample, random_state=39)
 
-        if useObs:
+        if isNumeric:
             df[color] = df[color].cat.add_categories('None')
             df[color] = df[color].cat.reorder_categories(['None',*df[color].cat.categories[:-1]])
             df.loc[lambda _: ~_[color].isin(ls_color), color] = 'None'
             df_clusterLabelLoc = df.dropna(subset=[color]).groupby([color, 'groupby'])[['x', 'y']].agg('median').reset_index()
             df_clusterLabelLoc = df_clusterLabelLoc.query(f"`{color}` != 'None'")
 
-        if useObs & (not groupby is None) & addBackground:
+        if (not groupby is None) & addBackground:
             # set cells from other groups to grey color
             lsDf = []
-            for group in ls_group:
-                _df = df.copy()
-                _df.loc[lambda _: _['groupby'] != group, color]  = 'None'
-                _df = _df.assign(groupby=group)
-                lsDf.append(_df)
-            df = pd.concat(lsDf).reset_index(drop=True)
-            # print(ls_group)
+            if isNumeric:
+                for group in ls_group:
+                    _df = df.copy()
+                    _df.loc[lambda _: _['groupby'] != group, color]  = 'None'
+                    _df = _df.assign(groupby=group)
+                    lsDf.append(_df)
+                df = pd.concat(lsDf).reset_index(drop=True)
+                # print(ls_group)
+            else:
+                df['groupby'] = df['groupby'].astype('category').cat.set_categories(ls_group)
+                df = df.sort_values(color)
+                lsDf = []
+                for group in ls_group:
+                    _df = df.copy()
+                    _df.loc[lambda _: _['groupby'] != group, color]  = vmin
+                    _df = _df.assign(groupby=group)
+                    lsDf.append(_df)
+                df = pd.concat(lsDf).reset_index(drop=True)
             df['groupby'] = df['groupby'].astype('category').cat.set_categories(ls_group)
 
         df = df.sort_values(color)
@@ -1653,7 +1670,7 @@ class PlotAnndata(object):
             # .layout(size=figsize)
         )
 
-        if useObs:
+        if isNumeric:
             if legendInFig:
                 df_clusterLabelLoc[color] = df_clusterLabelLoc[color].map(fc_legendInFig)
                 dt_textKws = dict(halign='center', valign='center')
@@ -1687,7 +1704,7 @@ class PlotAnndata(object):
             fig.tight_layout()
 
         if needLegend:
-            if useObs:
+            if isNumeric:
                 dt_colors = dt_colors.copy()
                 dt_colors.pop('None')
 
@@ -1742,7 +1759,7 @@ class PlotAnndata(object):
     def embedding(self, embed='umap', color=None, title=None, layer=None, groupby=None, wrap=4, size=2, alpha=1,
                   cmap='Reds', vmin=0, vmax=None, ls_color=None, ls_group=None, addBackground=False, share=True, axisLabel=None, useObs=None, titleLocY = 0,
                   figsize=(8,6), legendCol=1, legendInFig=False, legendFigArtistKws={'weight':'bold'}, fc_legendInFig=lambda _: _.split(':')[0], needLegend=True, subsample=None, showTickLabels=False, italicTitle=None, tightLayout=False,
-                  fc_additional=lambda _: _, colorUseObsm=None, cbTitle=None, spatialBgId=None, 
+                  fc_additional=lambda _: _, colorUseObsm=None, cbTitle=None, spatialBgId=None, dt_idRename=None,
                   dt_theme={'ytick.left':False, 'ytick.labelleft':False, 'xtick.bottom':False, 'xtick.labelbottom':False, 'legend.markerscale': 3}):
         '''The `embedding` function in Python generates a scatter plot of data points based on a specified embedding, with the option to color the points based on a specified variable, and additional customization options.
 
@@ -1787,7 +1804,7 @@ class PlotAnndata(object):
         dt_kwargs = dict(
                 embed=embed, color=color, title=title, layer=layer, groupby=groupby, wrap=wrap, size=size, alpha=alpha,
                 cmap=cmap, vmin=vmin, vmax=vmax, ls_color=ls_color, ls_group=ls_group, addBackground=addBackground, share=share, 
-                italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, 
+                italicTitle=italicTitle, axisLabel=axisLabel, useObs=useObs, titleLocY=titleLocY, figsize=figsize, legendCol=legendCol, dt_idRename=dt_idRename, 
                 legendInFig=legendInFig, fc_legendInFig=fc_legendInFig, needLegend=needLegend, subsample=subsample, cbTitle=cbTitle, spatialBgId=spatialBgId,
                 showTickLabels=showTickLabels, dt_theme=dt_theme, tightLayout=tightLayout, colorUseObsm=colorUseObsm, fc_additional=fc_additional,legendFigArtistKws=legendFigArtistKws)
         if isinstance(color, str):
@@ -1865,25 +1882,49 @@ class PlotAnndata(object):
         return p
 
 
-    def clusterPercentage(self, x, y, addCounts=True, figsize=(5, 4), fc_after = lambda _: _, dt_theme={}):
+    def clusterPercentage(self, x, y, addCounts=True, figsize=(5, 4), fc_after = lambda _: _, dt_theme={}, swap=False):
         ad = self.ad
         dt_colors = self.getAdColors(y)
 
         sr_counts = ad.obs.value_counts([x, y]).unstack().fillna(0).astype(int).sum(1)
         df_ratio = ad.obs.value_counts([x, y]).unstack().fillna(0).astype(int).apply(lambda x: x/x.sum(), 1) * 100
         df_ratio = df_ratio.stack().rename('ratio').reset_index()
-
-        g = (
-            so.Plot(df_ratio, x, y='ratio', color=y)
-            .add(so.Bar(alpha=1), so.Stack())
-            .label(y='Percentage (%)')
-            .scale(color=dt_colors)
-            .layout(size=figsize)
-            .theme(dt_theme)
-        )
+        if swap:
+            g = (
+                so.Plot(df_ratio, x='ratio', y=x, color=y)
+                .add(so.Bar(alpha=1), so.Stack())
+                .label(x='Percentage (%)')
+                .scale(color=dt_colors)
+                .layout(size=figsize)
+                .theme(dt_theme)
+            )
+        else:
+            g = (
+                so.Plot(df_ratio, x, y='ratio', color=y)
+                .add(so.Bar(alpha=1), so.Stack())
+                .label(y='Percentage (%)')
+                .scale(color=dt_colors)
+                .layout(size=figsize)
+                .theme(dt_theme)
+            )
         g = fc_after(g)
         if addCounts:
-            g = g.add(so.Text(artist_kws={'rotation': 90}, valign='baseline'), data={}, x=sr_counts.keys(), y=[100] * len(sr_counts), text=[f"N = {x}" for x in sr_counts], color=None)
+            if swap:
+                g = g.add(
+                    so.Text(
+                        artist_kws={'rotation': 0}, halign='left'
+                        ), 
+                        data={}, y=sr_counts.keys(), x=[100] * len(sr_counts), 
+                        text=[f"N = {x}" for x in sr_counts], color=None
+                        )
+            else:
+                g = g.add(
+                    so.Text(
+                        artist_kws={'rotation': 90}, valign='baseline'
+                        ), 
+                        data={}, x=sr_counts.keys(), y=[100] * len(sr_counts), 
+                        text=[f"N = {x}" for x in sr_counts], color=None
+                        )
 
         p = g.plot()
         p._repr_png_()

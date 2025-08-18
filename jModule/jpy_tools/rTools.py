@@ -162,9 +162,9 @@ def py2r(x, name=None, on_disk=None, verbose=0):
         x = py2r_disk(x)
 
     else:
-        if sp.issparse(x):
-            # workaround for: https://github.com/theislab/anndata2ri/issues/47
-            x = anndata2ri.scipy2ri.py2rpy(x)
+        # if sp.issparse(x):
+        #     # workaround for: https://github.com/theislab/anndata2ri/issues/47
+        #     x = anndata2ri.scipy2ri.py2rpy(x)
 
         with localconverter(
             ro.default_converter

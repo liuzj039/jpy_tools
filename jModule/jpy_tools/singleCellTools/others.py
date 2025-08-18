@@ -894,7 +894,7 @@ def mergeClusterUseScshc(ad: sc.AnnData, ls_hvg: List[str], clusterKey:str, newC
 
 def calucatePvalueForEachSplitUseScshc(
         ad: sc.AnnData, ls_hvg: List[str], clusterKey: str, batchKey: Optional[str]=None, layer: str='raw', 
-        alpha: float=0.05, posthoc: bool=True, num_PCs: int=30, cores: int=12, rCores: int = 1
+        alpha: float=0.05, posthoc: bool=True, num_PCs: int=30, cores: int=12, rCores: int = 1, figsize=(15, 5),
     ):
     '''The function `calucatePvalueForEachSplitUseScshc` calculates p-values for each split in a hierarchical clustering dendrogram using the scSHC package in R.
 
@@ -984,8 +984,10 @@ def calucatePvalueForEachSplitUseScshc(
     R1 = scipy.cluster.hierarchy.dendrogram(linkage, color_threshold=0, no_plot=True)
     dt_label = {leaf: ls_label[leaf] for leaf in R1["leaves"]}
     # print(dt_label)
-    fig, ax = plt.subplots(figsize=(15, 5))
+    fig, ax = plt.subplots(figsize=figsize)
     dn = scipy.cluster.hierarchy.dendrogram(linkage, color_threshold=0, ax=ax, leaf_label_func=lambda x:dt_label[x])
+    ax.spines.right.set_visible(False)
+    ax.spines.top.set_visible(False)
     plt.show()
 
     nd_root, lsNd_sub = scipy.cluster.hierarchy.to_tree(linkage, rd=True)
@@ -1042,8 +1044,10 @@ def calucatePvalueForEachSplitUseScshc(
     ls_label = ad_pseudobulk.obs[clusterKey].to_list()
     R1 = scipy.cluster.hierarchy.dendrogram(linkage, color_threshold=0, no_plot=True)
     dt_label = {leaf: ls_label[leaf] for leaf in R1["leaves"]}
-    fig, ax = plt.subplots(figsize=(15, 5))
+    fig, ax = plt.subplots(figsize=figsize)
     dn = scipy.cluster.hierarchy.dendrogram(linkage, color_threshold=0, ax=ax, leaf_label_func=lambda x:dt_label[x])
+    ax.spines.right.set_visible(False)
+    ax.spines.top.set_visible(False)
     ls_signPos = []
     for ls_x, ls_y in zip(dn['icoord'], dn['dcoord']):
         ls_signPos.append([(ls_x[0]+ls_x[-1]) / 2, ls_y[1]])

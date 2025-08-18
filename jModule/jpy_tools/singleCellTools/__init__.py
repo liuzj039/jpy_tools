@@ -163,6 +163,7 @@ class DeAnndata(object):
 
         scDist = importr('scDist')
         R('set.seed')(39)
+        assert isinstance(self.ad.obsm[scaleMtxObsm], pd.DataFrame), f"{scaleMtxObsm} should be a DataFrame in ad.obsm, but got {type(self.ad.obsm[scaleMtxObsm])}"
         condition_v_celltype_distance = R("""
         function(normalized_counts,
             meta.data,
@@ -509,7 +510,7 @@ class ClusterAnndata(object):
     
     def calculateSplitPvalueByScshc(
         self, ls_hvg: List[str], clusterKey: str, batchKey: Optional[str]=None, layer: str=None, 
-        alpha: float=0.05, posthoc: bool=True, num_PCs: int=30, cores: int=12, rCores: int = 1, resultKey=None
+        alpha: float=0.05, posthoc: bool=True, num_PCs: int=30, cores: int=12, rCores: int = 1, resultKey=None, figsize=(15,5)
     ):
         from .others import calucatePvalueForEachSplitUseScshc
         ad = self.ad
@@ -517,7 +518,7 @@ class ClusterAnndata(object):
         if resultKey is None:
             resultKey = f"scshc_{clusterKey}"
         dt_p, linkage = calucatePvalueForEachSplitUseScshc(
-            ad, ls_hvg, clusterKey, batchKey=batchKey, layer=layer, alpha=alpha, posthoc=posthoc, num_PCs=num_PCs, cores=cores, rCores=rCores
+            ad, ls_hvg, clusterKey, batchKey=batchKey, layer=layer, alpha=alpha, posthoc=posthoc, num_PCs=num_PCs, cores=cores, rCores=rCores, figsize=figsize
         )
         ad.uns[f"{resultKey}_pvalue"] = dt_p
         ad.uns[f"{resultKey}_linkage"] = linkage
