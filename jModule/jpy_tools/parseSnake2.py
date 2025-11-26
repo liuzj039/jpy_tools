@@ -129,6 +129,7 @@ class SnakeRule(object):
         threads: int,
         gpu: int = 0,
         wildCard: str = "sample",
+        conda: str = None,
         priority: int = 0,
     ):
         self.name = name
@@ -144,6 +145,10 @@ class SnakeRule(object):
         self.needRuleLs = []
         self.input = " " * 4 + "input:\n"
         self.params = " " * 4 + "params:\n" + " " * 8 + f"gpu = {self.gpu},\n"
+        if conda is None:
+            self.conda = ""
+        else:
+            self.conda = " " * 4 + f'conda: "{conda}"\n'
         # self.outFile = outFile
         self.wildCard = wildCard
         self.outFile = f"{{{self.wildCard}}}.finished"
@@ -292,7 +297,7 @@ for column in {needAddRuleDirLs}:
         )
 
     def getMain(self):
-        return f"{self._df_content}{self.main}{self.input}{self.output}{self.params}{self.threads}{self.priority}{self.shell}"
+        return f"{self._df_content}{self.main}{self.input}{self.output}{self.params}{self.threads}{self.priority}{self.conda}{self.shell}"
 
     def parseDfToInput(self, fromRule: "SnakeRule"):
         df, selfWildCard, fromWildCard, fromResultDir = (

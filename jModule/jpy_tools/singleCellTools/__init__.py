@@ -333,13 +333,15 @@ class DeAnndata(object):
                 _groups = [self.controlName, [x for x in ls_allSample if x != self.controlName]]
             if replicateKey is not None:
                 df_res = findDegUsePseudobulk(_ad, compareKey=groupby, replicateKey=replicateKey, method=method, groups=_groups, shrink=shrink, njobs=njobs, layer=layer)
-                df_res = df_res.assign(cluster=cluster)
+                if isinstance(df_res, pd.DataFrame) and df_res.shape[0] > 0:
+                    df_res = df_res.assign(cluster=cluster)
                 lsDf_res.append(df_res)
             elif npseudoRep is not None:
                 df_res = findDegUsePseudoRep(_ad, compareKey=groupby, npseudoRep=npseudoRep, method=method, groups=_groups, shrink=shrink, njobs=njobs, layer=layer)
                 df_res = df_res.assign(cluster=cluster)
                 lsDf_res.append(df_res)
-        df_res = pd.concat(lsDf_res, axis=0, ignore_index=True)
+        lsDf_res = [x for x in lsDf_res if isinstance(x, pd.DataFrame) and x.shape[0] > 0]
+        df_res = pd.concat(lsDf_res, axis=0)
         self.ad.uns[f'{self.resultKey}_deg'] = df_res
         return df_res
         

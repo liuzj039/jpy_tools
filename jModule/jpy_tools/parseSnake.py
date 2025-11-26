@@ -64,7 +64,7 @@ class SnakeHeader:
 
     def __init__(self, snakeFile: SnakeMakeFile, configPath: str):
         self.path = configPath
-        self.yaml = yaml.load(open(self.path))
+        self.yaml = yaml.safe_load(open(self.path))
         if not (("pipelineDir" in self.yaml) & ("resultDir" in self.yaml)):
             logging.warn("pipelineDir or resultDir not in the yaml file")
         self.text = f'configfile: "{self.path}"\n'

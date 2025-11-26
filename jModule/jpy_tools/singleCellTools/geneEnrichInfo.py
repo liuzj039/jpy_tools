@@ -2337,13 +2337,13 @@ def findDegUsePseudobulk(
         logger.info("Pairwise mode")
         assert len([x for x in groups if x in allGroups]) == len(groups), "Some group not found in compareKey"
         if method == 'DESeq2':
-            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByDeseq2)(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, a, b), shrink=shrink) for a,b in combinations(groups, 2))
+            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByDeseq2)(ad_merged, 'raw', R(f"~ {compareKey}"), [compareKey], R.c(compareKey, b, a), shrink=shrink) for a,b in combinations(groups, 2))
         elif method == 'pydeseq2':
             ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByPydeseq2)(
-                ad_merged, 'raw', compareKey, [compareKey, a, b]) for a,b in combinations(groups, 2)
+                ad_merged, 'raw', compareKey, [compareKey, b, a]) for a,b in combinations(groups, 2)
             )
         else:
-            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByEdger)(ad_merged, 'raw', compareKey, f"x{a}-x{b}") for a,b in combinations(groups, 2))
+            ls_res = Parallel(n_jobs=njobs, backend='multiprocessing')(delayed(deByEdger)(ad_merged, 'raw', compareKey, f"x{b}-x{a}") for a,b in combinations(groups, 2))
         for i,(a,b) in enumerate(combinations(groups, 2)):
             ls_res[i] = ls_res[i].assign(a=a, b=b)
         # ls_res = []
@@ -2380,8 +2380,13 @@ def findDegUsePseudobulk(
         #     else:
         #         df_res = deByEdger(ad_merged, 'raw', compareKey, f"{compareKey}{a}-{compareKey}{b}").assign(a=a, b=b)
         #         ls_res.append(df_res)
-    df_res = pd.concat(ls_res)
-    return df_res
+    ls_res = [x for x in ls_res if isinstance(x, pd.DataFrame)]
+    if len(ls_res) == 0:
+        logger.warning("No result found")
+        return None
+    else:
+        df_res = pd.concat(ls_res)
+        return df_res
 
 
 def findDegUsePseudoRep(

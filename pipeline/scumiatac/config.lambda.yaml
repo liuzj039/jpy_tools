@@ -1,0 +1,19 @@
+resultDir:
+  "/datapool/data/Users/zhijian/projects/scumiatac/result_lambda/"
+pipelineDir:
+  "/datapool/data/Users/zhijian/projects/scumiatac/pipeline/"
+adapterFa:
+  '/datapool/data/Users/zhijian/projects/scumiatac/pipeline/adapter.fa'
+genomeFa:
+  '/datapool/home/zhijian/data/wheat/lambda/lambda.fa.gz'
+sample:
+  lDNAATAC_1:
+    fq1:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/7.round_7_official_junyi/F25A040010044_LIBbtfunR_1117/lDNAATAC-1/lDNAATAC-1_L1_1.fq.gz'
+    fq2:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/7.round_7_official_junyi/F25A040010044_LIBbtfunR_1117/lDNAATAC-1/lDNAATAC-1_L1_2.fq.gz'
+  lDNAATAC_2:
+    fq1:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/7.round_7_official_junyi/F25A040010044_LIBbtfunR_1117/lDNAATAC-2/lDNAATAC-2_L1_1.fq.gz'
+    fq2:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/7.round_7_official_junyi/F25A040010044_LIBbtfunR_1117/lDNAATAC-2/lDNAATAC-2_L1_2.fq.gz'

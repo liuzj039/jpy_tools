@@ -1,0 +1,65 @@
+resultDir:
+  "/datapool/data/Users/zhijian/projects/scumiatac/result/"
+pipelineDir:
+  "/datapool/data/Users/zhijian/projects/scumiatac/pipeline/"
+adapterFa:
+  '/datapool/data/Users/zhijian/projects/scumiatac/pipeline/adapter.fa'
+genomeFa:
+  '/datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz'
+sample:
+  ATACP1000_1:
+    fq1:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-1_L1_1.fq.gz'
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-1_L2_1.fq.gz'
+    fq2:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-1_L1_2.fq.gz'
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-1_L2_2.fq.gz'
+
+  ATACP1000_2:
+    fq1:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-2_L1_1.fq.gz'
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-2_L2_1.fq.gz'
+    fq2:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-2_L1_2.fq.gz'
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-2_L2_2.fq.gz'
+  ATACP500_1:
+    fq1:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L1_1.fq.gz'
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L2_1.fq.gz'
+    fq2:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L1_2.fq.gz'
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L2_2.fq.gz'
+  ATACP500_2:
+    fq1:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-2_L1_1.fq.gz'
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-2_L2_1.fq.gz'
+    fq2:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-2_L1_2.fq.gz'
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-2_L2_2.fq.gz'
+  ATACSC:
+    fq1:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACSC_L1_1.fq.gz'
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACSC_L2_1.fq.gz'
+    fq2:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACSC_L1_2.fq.gz'
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACSC_L2_2.fq.gz'
+  ATAC_MORE_CYCLE_WT_1:
+    fq1:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/5.round_5_official_junyi/F25A040008526_LIBslkxnR_1024/ATACF-WT-1/ATACF-WT-1_L1_1.fq.gz'
+    fq2:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/5.round_5_official_junyi/F25A040008526_LIBslkxnR_1024/ATACF-WT-1/ATACF-WT-1_L1_2.fq.gz'
+  ATAC_MORE_CYCLE_WT_2:
+    fq1:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/5.round_5_official_junyi/F25A040008526_LIBslkxnR_1024/ATACF-WT-2/ATACF-WT-2_L1_1.fq.gz'
+    fq2: 
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/5.round_5_official_junyi/F25A040008526_LIBslkxnR_1024/ATACF-WT-2/ATACF-WT-2_L1_2.fq.gz'
+  ATAC_LESS_CYCLE_WT_1:
+    fq1:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/6.round_6_official/F25A040009496_LIBjrmfcR_251031/SCATAC-WT-1/SCATAC-WT-1_L1_1.fq.gz'
+    fq2:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/6.round_6_official/F25A040009496_LIBjrmfcR_251031/SCATAC-WT-1/SCATAC-WT-1_L1_2.fq.gz'
+  ATAC_LESS_CYCLE_WT_2:
+    fq1:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/6.round_6_official/F25A040009496_LIBjrmfcR_251031/SCATAC-WT-2/SCATAC-WT-2_L1_1.fq.gz'
+    fq2:
+      - '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/6.round_6_official/F25A040009496_LIBjrmfcR_251031/SCATAC-WT-2/SCATAC-WT-2_L1_2.fq.gz'

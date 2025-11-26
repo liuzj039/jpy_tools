@@ -1096,6 +1096,7 @@ class NormAnndata(object):
             self.ad.uns["sct_clip_range"] = ad_sct.uns["sct_clip_range"]
             ls_hvg = ad_sct.var.loc[ad_sct.var["highly_variable"]].index.to_list()
             self.getSctRes(ls_gene=ls_hvg, forceOverwrite=True)
+            self.ad.uns['sct_residual_keys'] = ls_hvg
 
         else:
             self.ad.uns["sctModels"] = {}

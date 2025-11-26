@@ -1,0 +1,366 @@
+import pandas as pd
+#configfile: "/datapool/data/Users/zhijian/projects/scumiatac/pipeline/config.yaml"
+pipelineDir = config['pipelineDir']
+resultDir = config["resultDir"].rstrip("/") + "/"
+pipelineDir = config["pipelineDir"].rstrip("/") + "/"
+
+
+## get parameter of rule `concat_fastq` ##
+_ls = []
+i = 1
+for sample in config['sample'].keys():
+    _ls_fq1 = []
+    _ls_fq2 = []
+    for fq1 in config['sample'][sample]['fq1']:
+        fq2 = config['sample'][sample]['fq2'][config['sample'][sample]['fq1'].index(fq1)]
+        _ls_fq1.append(fq1)
+        _ls_fq2.append(fq2)
+    _ls.append({
+        'sample': sample,
+        'fq1': _ls_fq1,
+        'fq2': _ls_fq2,
+    })
+df_concat = pd.DataFrame(_ls)
+df_concat = df_concat.assign(
+    concatFq1=lambda _:  _['sample'] + ".R1.fastq.gz",
+    concatFq2=lambda _:  _['sample'] + ".R2.fastq.gz",
+)
+df_concat = df_concat.set_index('sample')
+df_concat
+                    
+for column in ['concatFq1', 'concatFq2']:
+    df_concat[column] = resultDir + 'step1_concat_fastq/' + df_concat[column]
+
+
+## get parameter of rule `qc` ##
+df_qc = df_concat[['concatFq1', 'concatFq2']].copy()
+df_qc = df_qc.assign(
+    qcr1=lambda _: _.index + ".R1_qc.fastq.gz",
+    qcr2=lambda _: _.index + ".R2_qc.fastq.gz",
+    html=lambda _: _.index + ".fastp.html",
+    json=lambda _: _.index + ".fastp.json",
+)
+df_qc
+for column in ['qcr1', 'qcr2', 'html', 'json']:
+    df_qc[column] = resultDir + 'step2_qc/' + df_qc[column]
+
+
+## get parameter of rule `umi` ##
+df_umi = df_qc[[]]
+df_umi = df_umi.assign(
+    umifq1=lambda _: _.index + ".R1_umi.fastq.gz",
+    umifq2=lambda _: _.index + ".R2_umi.fastq.gz",
+    umilog=lambda _: _.index + ".umi.log",
+    umierror=lambda _: _.index + ".umi.error",
+    tempdir=lambda _: _.index + "_umi_tempdir/",
+)
+df_umi
+for column in ['umifq1', 'umifq2', 'umilog', 'umierror']:
+    df_umi[column] = resultDir + 'step3_umi/' + df_umi[column]
+
+
+## get parameter of rule `trim` ##
+df_trim = df_umi[['umifq1', 'umifq2']]
+df_trim = df_trim.assign(
+    base=lambda _: _.index + "_trimmed.fq.gz",
+    fq1=lambda _: _.index + "_trimmed_1P.fq.gz",
+    fq2=lambda _: _.index + "_trimmed_2P.fq.gz",
+    finalFq1=lambda _: _.index + "_final_1P.fq.gz",
+    finalFq2=lambda _: _.index + "_final_2P.fq.gz",
+    finalBase=lambda _: _.index + "_final.fq.gz",
+    adapterFa=config['adapterFa'],
+    fpHtml=lambda _: _.index + "_fastp.html",
+    fpJson=lambda _: _.index + "_fastp.json",
+)
+df_trim
+for column in ['base', 'fq1', 'fq2', 'finalFq1', 'finalFq2', 'finalBase', 'fpHtml', 'fpJson']:
+    df_trim[column] = resultDir + 'step4_trim/' + df_trim[column]
+
+
+## get parameter of rule `bwa` ##
+df_bwa = df_trim[[]]
+df_bwa = df_bwa.assign(
+    bam = lambda _: _.index + ".bwa.bam",
+    genome = config['genomeFa']
+)
+df_bwa
+for column in ['bam']:
+    df_bwa[column] = resultDir + 'step5_bwa/' + df_bwa[column]
+
+
+## get parameter of rule `bam_qc` ##
+df_bamQc = df_bwa[[]]
+df_bamQc = df_bamQc.assign(
+    bamqc=lambda _: _.index + ".qc.bam",
+)
+df_bamQc
+for column in ['bamqc']:
+    df_bamQc[column] = resultDir + 'step6_bam_qc/' + df_bamQc[column]
+
+
+## get parameter of rule `dedup` ##
+df_dedup = df_bamQc[[]]
+df_dedup = df_dedup.assign(
+    dedup_bam=lambda _: _.index + ".dedup.bam",
+    family=lambda _: _.index + ".family.txt",
+)
+df_dedup
+for column in ['dedup_bam', 'family']:
+    df_dedup[column] = resultDir + 'step7_dedup/' + df_dedup[column]
+
+
+## get parameter of rule `umiMapping` ##
+df_getFqAndMapping = df_dedup[[]]
+df_getFqAndMapping = df_getFqAndMapping.assign(
+    renameBam=lambda _: _.index + ".renamed.dedup.bam",
+    umiFq1=lambda _: _.index+'_1_fq.gz',
+    umiFq2=lambda _: _.index+'_2_fq.gz',
+    mapping=lambda _: _.index + '.mapping.bam',
+    genomeFa=config['genomeFa']
+)
+df_getFqAndMapping
+for column in ['umiFq1', 'umiFq2', 'mapping', 'renameBam']:
+    df_getFqAndMapping[column] = resultDir + 'step8_umiMapping/' + df_getFqAndMapping[column]
+
+rule all:
+    input:
+        umiMappingFinished = [resultDir + 'step8_umiMapping/' + "" + sample + ".finished" for sample in df_getFqAndMapping.index],
+
+# parameter's dataframe of concat_fastq: 
+# | sample      | fq1                                                                                                                                                                                                        | fq2                                                                                                                                                                                                        | concatFq1               | concatFq2               |
+# |:------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:------------------------|:------------------------|
+# | ATACP1000_1 | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-1_L1_1.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-1_L2_1.fq.gz'] | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-1_L1_2.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-1_L2_2.fq.gz'] | ATACP1000_1.R1.fastq.gz | ATACP1000_1.R2.fastq.gz |
+# | ATACP1000_2 | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-2_L1_1.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-2_L2_1.fq.gz'] | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-2_L1_2.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-2_L2_2.fq.gz'] | ATACP1000_2.R1.fastq.gz | ATACP1000_2.R2.fastq.gz |
+# | ATACP500_1  | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L1_1.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L2_1.fq.gz']   | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L1_2.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L2_2.fq.gz']   | ATACP500_1.R1.fastq.gz  | ATACP500_1.R2.fastq.gz  |
+# | ATACP500_2  | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-2_L1_1.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-2_L2_1.fq.gz']   | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-2_L1_2.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-2_L2_2.fq.gz']   | ATACP500_2.R1.fastq.gz  | ATACP500_2.R2.fastq.gz  |
+# | ATACSC      | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACSC_L1_1.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACSC_L2_1.fq.gz']           | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACSC_L1_2.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACSC_L2_2.fq.gz']           | ATACSC.R1.fastq.gz      | ATACSC.R2.fastq.gz      |
+rule concat_fastq:
+    input:
+        fq1 = lambda wildcard: df_concat.at[wildcard.sample, 'fq1'],
+        fq2 = lambda wildcard: df_concat.at[wildcard.sample, 'fq2'],
+    output:
+        concat_fastqFinished = resultDir + 'step1_concat_fastq/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        concatFq1 = lambda wildcard: df_concat.at[wildcard.sample, 'concatFq1'],
+        concatFq2 = lambda wildcard: df_concat.at[wildcard.sample, 'concatFq2'],
+    threads:1
+    priority:0
+    shell:
+        """
+cat {input.fq1} > {params.concatFq1} && cat {input.fq2} > {params.concatFq2}
+touch {output.concat_fastqFinished}
+        """
+
+# parameter's dataframe of qc: 
+# | sample      | concatFq1               | concatFq2               | qcr1                       | qcr2                       | html                   | json                   |
+# |:------------|:------------------------|:------------------------|:---------------------------|:---------------------------|:-----------------------|:-----------------------|
+# | ATACP1000_1 | ATACP1000_1.R1.fastq.gz | ATACP1000_1.R2.fastq.gz | ATACP1000_1.R1_qc.fastq.gz | ATACP1000_1.R2_qc.fastq.gz | ATACP1000_1.fastp.html | ATACP1000_1.fastp.json |
+# | ATACP1000_2 | ATACP1000_2.R1.fastq.gz | ATACP1000_2.R2.fastq.gz | ATACP1000_2.R1_qc.fastq.gz | ATACP1000_2.R2_qc.fastq.gz | ATACP1000_2.fastp.html | ATACP1000_2.fastp.json |
+# | ATACP500_1  | ATACP500_1.R1.fastq.gz  | ATACP500_1.R2.fastq.gz  | ATACP500_1.R1_qc.fastq.gz  | ATACP500_1.R2_qc.fastq.gz  | ATACP500_1.fastp.html  | ATACP500_1.fastp.json  |
+# | ATACP500_2  | ATACP500_2.R1.fastq.gz  | ATACP500_2.R2.fastq.gz  | ATACP500_2.R1_qc.fastq.gz  | ATACP500_2.R2_qc.fastq.gz  | ATACP500_2.fastp.html  | ATACP500_2.fastp.json  |
+# | ATACSC      | ATACSC.R1.fastq.gz      | ATACSC.R2.fastq.gz      | ATACSC.R1_qc.fastq.gz      | ATACSC.R2_qc.fastq.gz      | ATACSC.fastp.html      | ATACSC.fastp.json      |
+rule qc:
+    input:
+        concat_fastqFinished = resultDir + 'step1_concat_fastq/' + '{sample}.finished',
+    output:
+        qcFinished = resultDir + 'step2_qc/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        concatFq1 = lambda wildcard: df_concat.at[wildcard.sample, 'concatFq1'],
+        concatFq2 = lambda wildcard: df_concat.at[wildcard.sample, 'concatFq2'],
+        qcr1 = lambda wildcard: df_qc.at[wildcard.sample, 'qcr1'],
+        qcr2 = lambda wildcard: df_qc.at[wildcard.sample, 'qcr2'],
+        html = lambda wildcard: df_qc.at[wildcard.sample, 'html'],
+        json = lambda wildcard: df_qc.at[wildcard.sample, 'json'],
+    threads:4
+    priority:0
+    conda: "scumiatac"
+    shell:
+        """
+fastp -i {params.concatFq1} -I {params.concatFq2} -o {params.qcr1} -O {params.qcr2} --html {params.html} --json {params.json} --thread {threads} -Q -L -A
+touch {output.qcFinished}
+        """
+
+rule umi:
+    input:
+        qcFinished = resultDir + 'step2_qc/' + '{sample}.finished',
+    output:
+        umiFinished = resultDir + 'step3_umi/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        qcr1 = lambda wildcard: df_qc.at[wildcard.sample, 'qcr1'],
+        qcr2 = lambda wildcard: df_qc.at[wildcard.sample, 'qcr2'],
+        umifq1 = lambda wildcard: df_umi.at[wildcard.sample, 'umifq1'],
+        umifq2 = lambda wildcard: df_umi.at[wildcard.sample, 'umifq2'],
+        umilog = lambda wildcard: df_umi.at[wildcard.sample, 'umilog'],
+        umierror = lambda wildcard: df_umi.at[wildcard.sample, 'umierror'],
+        tempdir = lambda wildcard: df_umi.at[wildcard.sample, 'tempdir'],
+    threads:1
+    priority:0
+    shell:
+        """
+umi_tools extract --extract-method=string --bc-pattern='CCCCCCCCNNNNNN' --bc-pattern2='CCCCCCCCNNNNNN'     -I {params.qcr1} -S {params.umifq1} --quality-filter-threshold=20 --quality-encoding='phred33'         --read2-in={params.qcr2}  --read2-out={params.umifq2}              -L {params.umilog} -E {params.umierror} --temp-dir={params.tempdir} && rm {params.qcr1} {params.qcr2}
+touch {output.umiFinished}
+        """
+
+# parameter's dataframe of trim: 
+# | sample      | umifq1                      | umifq2                      | base                      | fq1                          | fq2                          | finalFq1                   | finalFq2                   | finalBase               | adapterFa                                                           | fpHtml                 | fpJson                 |
+# |:------------|:----------------------------|:----------------------------|:--------------------------|:-----------------------------|:-----------------------------|:---------------------------|:---------------------------|:------------------------|:--------------------------------------------------------------------|:-----------------------|:-----------------------|
+# | ATACP1000_1 | ATACP1000_1.R1_umi.fastq.gz | ATACP1000_1.R2_umi.fastq.gz | ATACP1000_1_trimmed.fq.gz | ATACP1000_1_trimmed_1P.fq.gz | ATACP1000_1_trimmed_2P.fq.gz | ATACP1000_1_final_1P.fq.gz | ATACP1000_1_final_2P.fq.gz | ATACP1000_1_final.fq.gz | /datapool/data/Users/zhijian/projects/scumiatac/pipeline/adapter.fa | ATACP1000_1_fastp.html | ATACP1000_1_fastp.json |
+# | ATACP1000_2 | ATACP1000_2.R1_umi.fastq.gz | ATACP1000_2.R2_umi.fastq.gz | ATACP1000_2_trimmed.fq.gz | ATACP1000_2_trimmed_1P.fq.gz | ATACP1000_2_trimmed_2P.fq.gz | ATACP1000_2_final_1P.fq.gz | ATACP1000_2_final_2P.fq.gz | ATACP1000_2_final.fq.gz | /datapool/data/Users/zhijian/projects/scumiatac/pipeline/adapter.fa | ATACP1000_2_fastp.html | ATACP1000_2_fastp.json |
+# | ATACP500_1  | ATACP500_1.R1_umi.fastq.gz  | ATACP500_1.R2_umi.fastq.gz  | ATACP500_1_trimmed.fq.gz  | ATACP500_1_trimmed_1P.fq.gz  | ATACP500_1_trimmed_2P.fq.gz  | ATACP500_1_final_1P.fq.gz  | ATACP500_1_final_2P.fq.gz  | ATACP500_1_final.fq.gz  | /datapool/data/Users/zhijian/projects/scumiatac/pipeline/adapter.fa | ATACP500_1_fastp.html  | ATACP500_1_fastp.json  |
+# | ATACP500_2  | ATACP500_2.R1_umi.fastq.gz  | ATACP500_2.R2_umi.fastq.gz  | ATACP500_2_trimmed.fq.gz  | ATACP500_2_trimmed_1P.fq.gz  | ATACP500_2_trimmed_2P.fq.gz  | ATACP500_2_final_1P.fq.gz  | ATACP500_2_final_2P.fq.gz  | ATACP500_2_final.fq.gz  | /datapool/data/Users/zhijian/projects/scumiatac/pipeline/adapter.fa | ATACP500_2_fastp.html  | ATACP500_2_fastp.json  |
+# | ATACSC      | ATACSC.R1_umi.fastq.gz      | ATACSC.R2_umi.fastq.gz      | ATACSC_trimmed.fq.gz      | ATACSC_trimmed_1P.fq.gz      | ATACSC_trimmed_2P.fq.gz      | ATACSC_final_1P.fq.gz      | ATACSC_final_2P.fq.gz      | ATACSC_final.fq.gz      | /datapool/data/Users/zhijian/projects/scumiatac/pipeline/adapter.fa | ATACSC_fastp.html      | ATACSC_fastp.json      |
+rule trim:
+    input:
+        umiFinished = resultDir + 'step3_umi/' + '{sample}.finished',
+    output:
+        trimFinished = resultDir + 'step4_trim/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        umifq1 = lambda wildcard: df_umi.at[wildcard.sample, 'umifq1'],
+        umifq2 = lambda wildcard: df_umi.at[wildcard.sample, 'umifq2'],
+        base = lambda wildcard: df_trim.at[wildcard.sample, 'base'],
+        fq1 = lambda wildcard: df_trim.at[wildcard.sample, 'fq1'],
+        fq2 = lambda wildcard: df_trim.at[wildcard.sample, 'fq2'],
+        finalFq1 = lambda wildcard: df_trim.at[wildcard.sample, 'finalFq1'],
+        finalFq2 = lambda wildcard: df_trim.at[wildcard.sample, 'finalFq2'],
+        finalBase = lambda wildcard: df_trim.at[wildcard.sample, 'finalBase'],
+        adapterFa = lambda wildcard: df_trim.at[wildcard.sample, 'adapterFa'],
+        fpHtml = lambda wildcard: df_trim.at[wildcard.sample, 'fpHtml'],
+        fpJson = lambda wildcard: df_trim.at[wildcard.sample, 'fpJson'],
+    threads:16
+    priority:0
+    conda: "scumiatac"
+    shell:
+        """
+trimmomatic PE -Xmx16G -threads {threads} {params.umifq1} {params.umifq2} -baseout {params.base} HEADCROP:19 && rm {params.umifq1} {params.umifq2}
+trimmomatic PE -Xmx16G -threads {threads} {params.fq1} {params.fq2} -baseout {params.finalBase} ILLUMINACLIP:{params.adapterFa}:2:30:11:8:true MINLEN:70 AVGQUAL:20
+rm {params.fq1} {params.fq2}
+fastp -i {params.finalFq1} -I {params.finalFq2} -o {params.fq1} -O {params.fq2} --html {params.fpHtml} --json {params.fpJson} --thread {threads} -Q -L -A
+rm {params.fq1} {params.fq2}
+touch {output.trimFinished}
+        """
+
+# parameter's dataframe of bwa: 
+# | sample      | bam                 | genome                                                       |
+# |:------------|:--------------------|:-------------------------------------------------------------|
+# | ATACP1000_1 | ATACP1000_1.bwa.bam | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
+# | ATACP1000_2 | ATACP1000_2.bwa.bam | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
+# | ATACP500_1  | ATACP500_1.bwa.bam  | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
+# | ATACP500_2  | ATACP500_2.bwa.bam  | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
+# | ATACSC      | ATACSC.bwa.bam      | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
+rule bwa:
+    input:
+        trimFinished = resultDir + 'step4_trim/' + '{sample}.finished',
+    output:
+        bwaFinished = resultDir + 'step5_bwa/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        finalFq1 = lambda wildcard: df_trim.at[wildcard.sample, 'finalFq1'],
+        finalFq2 = lambda wildcard: df_trim.at[wildcard.sample, 'finalFq2'],
+        genome = lambda wildcard: df_bwa.at[wildcard.sample, 'genome'],
+        bam = lambda wildcard: df_bwa.at[wildcard.sample, 'bam'],
+    threads:32
+    priority:0
+    shell:
+        """
+bwa mem -t {threads} {params.genome} {params.finalFq1} {params.finalFq2} | samtools sort -@ {threads} -o {params.bam} -
+samtools index -c {params.bam} -@ {threads}
+touch {output.bwaFinished}
+        """
+
+# parameter's dataframe of bam_qc: 
+# | sample      | bamqc              |
+# |:------------|:-------------------|
+# | ATACP1000_1 | ATACP1000_1.qc.bam |
+# | ATACP1000_2 | ATACP1000_2.qc.bam |
+# | ATACP500_1  | ATACP500_1.qc.bam  |
+# | ATACP500_2  | ATACP500_2.qc.bam  |
+# | ATACSC      | ATACSC.qc.bam      |
+rule bam_qc:
+    input:
+        bwaFinished = resultDir + 'step5_bwa/' + '{sample}.finished',
+    output:
+        bam_qcFinished = resultDir + 'step6_bam_qc/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        bam = lambda wildcard: df_bwa.at[wildcard.sample, 'bam'],
+        bamqc = lambda wildcard: df_bamQc.at[wildcard.sample, 'bamqc'],
+    threads:16
+    priority:0
+    shell:
+        """
+samtools sort -n -@ {threads} {params.bam} -o {params.bamqc}.name_sorted.bam
+python /datapool/data/Users/zhijian/projects/scumiatac/pipeline/scripts/bamFilterAndQc.py {params.bamqc}.name_sorted.bam {params.bamqc}.name_sorted.qc.bam
+samtools sort -@ {threads} {params.bam}.name_sorted.qc.bam -o {params.bamqc}
+samtool index -c {params.bamqc} -@ {threads}
+rm {params.bamqc}.name_sorted.bam {params.bamqc}.name_sorted.qc.bam
+touch {output.bam_qcFinished}
+        """
+
+# parameter's dataframe of dedup: 
+# | sample      | dedup_bam             | family                 |
+# |:------------|:----------------------|:-----------------------|
+# | ATACP1000_1 | ATACP1000_1.dedup.bam | ATACP1000_1.family.txt |
+# | ATACP1000_2 | ATACP1000_2.dedup.bam | ATACP1000_2.family.txt |
+# | ATACP500_1  | ATACP500_1.dedup.bam  | ATACP500_1.family.txt  |
+# | ATACP500_2  | ATACP500_2.dedup.bam  | ATACP500_2.family.txt  |
+# | ATACSC      | ATACSC.dedup.bam      | ATACSC.family.txt      |
+rule dedup:
+    input:
+        bam_qcFinished = resultDir + 'step6_bam_qc/' + '{sample}.finished',
+    output:
+        dedupFinished = resultDir + 'step7_dedup/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        bamqc = lambda wildcard: df_bamQc.at[wildcard.sample, 'bamqc'],
+        dedup_bam = lambda wildcard: df_dedup.at[wildcard.sample, 'dedup_bam'],
+        family = lambda wildcard: df_dedup.at[wildcard.sample, 'family'],
+    threads:8
+    priority:0
+    conda: "scumiatac"
+    shell:
+        """
+       
+_JAVA_OPTIONS="-Xmx16g" fgbio GroupReadsByUmi --input={params.bamqc} --output={params.bamqc}.gp.bam                      --strategy=adjacency --edits=1 --min-map-q=20 --threads {threads} --family-size-histogram={params.family}
+__JAVA_OPTIONS="-Xmx16g" fgbio CallMolecularConsensusReads   --input={params.bamqc}.gp.bam   --output={params.dedup_bam}   --min-reads=5   --min-input-base-quality=20   --threads {threads}
+rm {params.bamqc}.gp.bam           
+touch {output.dedupFinished}
+        """
+
+# parameter's dataframe of umiMapping: 
+# | sample      | renameBam                     | umiFq1              | umiFq2              | mapping                 | genomeFa                                                     |
+# |:------------|:------------------------------|:--------------------|:--------------------|:------------------------|:-------------------------------------------------------------|
+# | ATACP1000_1 | ATACP1000_1.renamed.dedup.bam | ATACP1000_1_1_fq.gz | ATACP1000_1_2_fq.gz | ATACP1000_1.mapping.bam | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
+# | ATACP1000_2 | ATACP1000_2.renamed.dedup.bam | ATACP1000_2_1_fq.gz | ATACP1000_2_2_fq.gz | ATACP1000_2.mapping.bam | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
+# | ATACP500_1  | ATACP500_1.renamed.dedup.bam  | ATACP500_1_1_fq.gz  | ATACP500_1_2_fq.gz  | ATACP500_1.mapping.bam  | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
+# | ATACP500_2  | ATACP500_2.renamed.dedup.bam  | ATACP500_2_1_fq.gz  | ATACP500_2_2_fq.gz  | ATACP500_2.mapping.bam  | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
+# | ATACSC      | ATACSC.renamed.dedup.bam      | ATACSC_1_fq.gz      | ATACSC_2_fq.gz      | ATACSC.mapping.bam      | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
+rule umiMapping:
+    input:
+        dedupFinished = resultDir + 'step7_dedup/' + '{sample}.finished',
+        genomeFa = lambda wildcard: df_getFqAndMapping.at[wildcard.sample, 'genomeFa'],
+    output:
+        umiMappingFinished = resultDir + 'step8_umiMapping/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        dedup_bam = lambda wildcard: df_dedup.at[wildcard.sample, 'dedup_bam'],
+        umiFq1 = lambda wildcard: df_getFqAndMapping.at[wildcard.sample, 'umiFq1'],
+        umiFq2 = lambda wildcard: df_getFqAndMapping.at[wildcard.sample, 'umiFq2'],
+        mapping = lambda wildcard: df_getFqAndMapping.at[wildcard.sample, 'mapping'],
+        renameBam = lambda wildcard: df_getFqAndMapping.at[wildcard.sample, 'renameBam'],
+    threads:16
+    priority:0
+    shell:
+        """
+python /datapool/data/Users/zhijian/projects/scumiatac/pipeline/scripts/rename_dedup_bam.py {params.dedup_bam} {params.renameBam}
+samtools fastq -@ {threads} -1 {params.umiFq1} -2 {params.umiFq2} -n {params.renameBam}
+bwa mem -t {threads} {input.genomeFa} {params.umiFq1} {params.umiFq2} | samtools sort -@ {threads} -o {params.mapping} -
+samtools index -c {params.mapping} -@ {threads}
+rm {params.renameBam}
+touch {output.umiMappingFinished}
+        """
+
+
