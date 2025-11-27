@@ -122,18 +122,25 @@ df_getFqAndMapping
 for column in ['umiFq1', 'umiFq2', 'mapping', 'renameBam']:
     df_getFqAndMapping[column] = resultDir + 'step8_umiMapping/' + df_getFqAndMapping[column]
 
+
+## get parameter of rule `getUmiTagLmdb` ##
+df_getUmiTagLmdb = df_getFqAndMapping[[]]
+df_getUmiTagLmdb = df_getUmiTagLmdb.assign(
+    umiTagLmdb=lambda _: _.index + ".umi_tag.lmdb",
+)
+df_getUmiTagLmdb
+for column in ['umiTagLmdb']:
+    df_getUmiTagLmdb[column] = resultDir + 'step9_getUmiTagLmdb/' + df_getUmiTagLmdb[column]
+
 rule all:
     input:
         umiMappingFinished = [resultDir + 'step8_umiMapping/' + "" + sample + ".finished" for sample in df_getFqAndMapping.index],
+        getUmiTagLmdbFinished = [resultDir + 'step9_getUmiTagLmdb/' + "" + sample + ".finished" for sample in df_getUmiTagLmdb.index],
 
 # parameter's dataframe of concat_fastq: 
-# | sample      | fq1                                                                                                                                                                                                        | fq2                                                                                                                                                                                                        | concatFq1               | concatFq2               |
-# |:------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:------------------------|:------------------------|
-# | ATACP1000_1 | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-1_L1_1.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-1_L2_1.fq.gz'] | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-1_L1_2.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-1_L2_2.fq.gz'] | ATACP1000_1.R1.fastq.gz | ATACP1000_1.R2.fastq.gz |
-# | ATACP1000_2 | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-2_L1_1.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-2_L2_1.fq.gz'] | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-2_L1_2.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP1000-2_L2_2.fq.gz'] | ATACP1000_2.R1.fastq.gz | ATACP1000_2.R2.fastq.gz |
-# | ATACP500_1  | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L1_1.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L2_1.fq.gz']   | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L1_2.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L2_2.fq.gz']   | ATACP500_1.R1.fastq.gz  | ATACP500_1.R2.fastq.gz  |
-# | ATACP500_2  | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-2_L1_1.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-2_L2_1.fq.gz']   | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-2_L1_2.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-2_L2_2.fq.gz']   | ATACP500_2.R1.fastq.gz  | ATACP500_2.R2.fastq.gz  |
-# | ATACSC      | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACSC_L1_1.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACSC_L2_1.fq.gz']           | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACSC_L1_2.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACSC_L2_2.fq.gz']           | ATACSC.R1.fastq.gz      | ATACSC.R2.fastq.gz      |
+# | sample     | fq1                                                                                                                                                                                                      | fq2                                                                                                                                                                                                      | concatFq1              | concatFq2              |
+# |:-----------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-----------------------|:-----------------------|
+# | ATACP500_1 | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L1_1.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L2_1.fq.gz'] | ['/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L1_2.fq.gz', '/datapool/data/Users/zhijian/projects/scumiatac/rawdata/4.round_4_official/ATACP500-1_L2_2.fq.gz'] | ATACP500_1.R1.fastq.gz | ATACP500_1.R2.fastq.gz |
 rule concat_fastq:
     input:
         fq1 = lambda wildcard: df_concat.at[wildcard.sample, 'fq1'],
@@ -153,13 +160,9 @@ touch {output.concat_fastqFinished}
         """
 
 # parameter's dataframe of qc: 
-# | sample      | concatFq1               | concatFq2               | qcr1                       | qcr2                       | html                   | json                   |
-# |:------------|:------------------------|:------------------------|:---------------------------|:---------------------------|:-----------------------|:-----------------------|
-# | ATACP1000_1 | ATACP1000_1.R1.fastq.gz | ATACP1000_1.R2.fastq.gz | ATACP1000_1.R1_qc.fastq.gz | ATACP1000_1.R2_qc.fastq.gz | ATACP1000_1.fastp.html | ATACP1000_1.fastp.json |
-# | ATACP1000_2 | ATACP1000_2.R1.fastq.gz | ATACP1000_2.R2.fastq.gz | ATACP1000_2.R1_qc.fastq.gz | ATACP1000_2.R2_qc.fastq.gz | ATACP1000_2.fastp.html | ATACP1000_2.fastp.json |
-# | ATACP500_1  | ATACP500_1.R1.fastq.gz  | ATACP500_1.R2.fastq.gz  | ATACP500_1.R1_qc.fastq.gz  | ATACP500_1.R2_qc.fastq.gz  | ATACP500_1.fastp.html  | ATACP500_1.fastp.json  |
-# | ATACP500_2  | ATACP500_2.R1.fastq.gz  | ATACP500_2.R2.fastq.gz  | ATACP500_2.R1_qc.fastq.gz  | ATACP500_2.R2_qc.fastq.gz  | ATACP500_2.fastp.html  | ATACP500_2.fastp.json  |
-# | ATACSC      | ATACSC.R1.fastq.gz      | ATACSC.R2.fastq.gz      | ATACSC.R1_qc.fastq.gz      | ATACSC.R2_qc.fastq.gz      | ATACSC.fastp.html      | ATACSC.fastp.json      |
+# | sample     | concatFq1              | concatFq2              | qcr1                      | qcr2                      | html                  | json                  |
+# |:-----------|:-----------------------|:-----------------------|:--------------------------|:--------------------------|:----------------------|:----------------------|
+# | ATACP500_1 | ATACP500_1.R1.fastq.gz | ATACP500_1.R2.fastq.gz | ATACP500_1.R1_qc.fastq.gz | ATACP500_1.R2_qc.fastq.gz | ATACP500_1.fastp.html | ATACP500_1.fastp.json |
 rule qc:
     input:
         concat_fastqFinished = resultDir + 'step1_concat_fastq/' + '{sample}.finished',
@@ -205,13 +208,9 @@ touch {output.umiFinished}
         """
 
 # parameter's dataframe of trim: 
-# | sample      | umifq1                      | umifq2                      | base                      | fq1                          | fq2                          | finalFq1                   | finalFq2                   | finalBase               | adapterFa                                                           | fpHtml                 | fpJson                 |
-# |:------------|:----------------------------|:----------------------------|:--------------------------|:-----------------------------|:-----------------------------|:---------------------------|:---------------------------|:------------------------|:--------------------------------------------------------------------|:-----------------------|:-----------------------|
-# | ATACP1000_1 | ATACP1000_1.R1_umi.fastq.gz | ATACP1000_1.R2_umi.fastq.gz | ATACP1000_1_trimmed.fq.gz | ATACP1000_1_trimmed_1P.fq.gz | ATACP1000_1_trimmed_2P.fq.gz | ATACP1000_1_final_1P.fq.gz | ATACP1000_1_final_2P.fq.gz | ATACP1000_1_final.fq.gz | /datapool/data/Users/zhijian/projects/scumiatac/pipeline/adapter.fa | ATACP1000_1_fastp.html | ATACP1000_1_fastp.json |
-# | ATACP1000_2 | ATACP1000_2.R1_umi.fastq.gz | ATACP1000_2.R2_umi.fastq.gz | ATACP1000_2_trimmed.fq.gz | ATACP1000_2_trimmed_1P.fq.gz | ATACP1000_2_trimmed_2P.fq.gz | ATACP1000_2_final_1P.fq.gz | ATACP1000_2_final_2P.fq.gz | ATACP1000_2_final.fq.gz | /datapool/data/Users/zhijian/projects/scumiatac/pipeline/adapter.fa | ATACP1000_2_fastp.html | ATACP1000_2_fastp.json |
-# | ATACP500_1  | ATACP500_1.R1_umi.fastq.gz  | ATACP500_1.R2_umi.fastq.gz  | ATACP500_1_trimmed.fq.gz  | ATACP500_1_trimmed_1P.fq.gz  | ATACP500_1_trimmed_2P.fq.gz  | ATACP500_1_final_1P.fq.gz  | ATACP500_1_final_2P.fq.gz  | ATACP500_1_final.fq.gz  | /datapool/data/Users/zhijian/projects/scumiatac/pipeline/adapter.fa | ATACP500_1_fastp.html  | ATACP500_1_fastp.json  |
-# | ATACP500_2  | ATACP500_2.R1_umi.fastq.gz  | ATACP500_2.R2_umi.fastq.gz  | ATACP500_2_trimmed.fq.gz  | ATACP500_2_trimmed_1P.fq.gz  | ATACP500_2_trimmed_2P.fq.gz  | ATACP500_2_final_1P.fq.gz  | ATACP500_2_final_2P.fq.gz  | ATACP500_2_final.fq.gz  | /datapool/data/Users/zhijian/projects/scumiatac/pipeline/adapter.fa | ATACP500_2_fastp.html  | ATACP500_2_fastp.json  |
-# | ATACSC      | ATACSC.R1_umi.fastq.gz      | ATACSC.R2_umi.fastq.gz      | ATACSC_trimmed.fq.gz      | ATACSC_trimmed_1P.fq.gz      | ATACSC_trimmed_2P.fq.gz      | ATACSC_final_1P.fq.gz      | ATACSC_final_2P.fq.gz      | ATACSC_final.fq.gz      | /datapool/data/Users/zhijian/projects/scumiatac/pipeline/adapter.fa | ATACSC_fastp.html      | ATACSC_fastp.json      |
+# | sample     | umifq1                     | umifq2                     | base                     | fq1                         | fq2                         | finalFq1                  | finalFq2                  | finalBase              | adapterFa                                                           | fpHtml                | fpJson                |
+# |:-----------|:---------------------------|:---------------------------|:-------------------------|:----------------------------|:----------------------------|:--------------------------|:--------------------------|:-----------------------|:--------------------------------------------------------------------|:----------------------|:----------------------|
+# | ATACP500_1 | ATACP500_1.R1_umi.fastq.gz | ATACP500_1.R2_umi.fastq.gz | ATACP500_1_trimmed.fq.gz | ATACP500_1_trimmed_1P.fq.gz | ATACP500_1_trimmed_2P.fq.gz | ATACP500_1_final_1P.fq.gz | ATACP500_1_final_2P.fq.gz | ATACP500_1_final.fq.gz | /datapool/data/Users/zhijian/projects/scumiatac/pipeline/adapter.fa | ATACP500_1_fastp.html | ATACP500_1_fastp.json |
 rule trim:
     input:
         umiFinished = resultDir + 'step3_umi/' + '{sample}.finished',
@@ -235,22 +234,19 @@ rule trim:
     conda: "scumiatac"
     shell:
         """
-trimmomatic PE -Xmx16G -threads {threads} {params.umifq1} {params.umifq2} -baseout {params.base} HEADCROP:19 && rm {params.umifq1} {params.umifq2}
+# trimmomatic PE -Xmx16G -threads {threads} {params.umifq1} {params.umifq2} -baseout {params.base} HEADCROP:19 
 trimmomatic PE -Xmx16G -threads {threads} {params.fq1} {params.fq2} -baseout {params.finalBase} ILLUMINACLIP:{params.adapterFa}:2:30:11:8:true MINLEN:70 AVGQUAL:20
 rm {params.fq1} {params.fq2}
 fastp -i {params.finalFq1} -I {params.finalFq2} -o {params.fq1} -O {params.fq2} --html {params.fpHtml} --json {params.fpJson} --thread {threads} -Q -L -A
-rm {params.fq1} {params.fq2}
+rm {params.fq1} {params.fq2} 
+# rm {params.umifq1} {params.umifq2}
 touch {output.trimFinished}
         """
 
 # parameter's dataframe of bwa: 
-# | sample      | bam                 | genome                                                       |
-# |:------------|:--------------------|:-------------------------------------------------------------|
-# | ATACP1000_1 | ATACP1000_1.bwa.bam | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
-# | ATACP1000_2 | ATACP1000_2.bwa.bam | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
-# | ATACP500_1  | ATACP500_1.bwa.bam  | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
-# | ATACP500_2  | ATACP500_2.bwa.bam  | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
-# | ATACSC      | ATACSC.bwa.bam      | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
+# | sample     | bam                | genome                                                       |
+# |:-----------|:-------------------|:-------------------------------------------------------------|
+# | ATACP500_1 | ATACP500_1.bwa.bam | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
 rule bwa:
     input:
         trimFinished = resultDir + 'step4_trim/' + '{sample}.finished',
@@ -272,13 +268,9 @@ touch {output.bwaFinished}
         """
 
 # parameter's dataframe of bam_qc: 
-# | sample      | bamqc              |
-# |:------------|:-------------------|
-# | ATACP1000_1 | ATACP1000_1.qc.bam |
-# | ATACP1000_2 | ATACP1000_2.qc.bam |
-# | ATACP500_1  | ATACP500_1.qc.bam  |
-# | ATACP500_2  | ATACP500_2.qc.bam  |
-# | ATACSC      | ATACSC.qc.bam      |
+# | sample     | bamqc             |
+# |:-----------|:------------------|
+# | ATACP500_1 | ATACP500_1.qc.bam |
 rule bam_qc:
     input:
         bwaFinished = resultDir + 'step5_bwa/' + '{sample}.finished',
@@ -294,20 +286,16 @@ rule bam_qc:
         """
 samtools sort -n -@ {threads} {params.bam} -o {params.bamqc}.name_sorted.bam
 python /datapool/data/Users/zhijian/projects/scumiatac/pipeline/scripts/bamFilterAndQc.py {params.bamqc}.name_sorted.bam {params.bamqc}.name_sorted.qc.bam
-samtools sort -@ {threads} {params.bam}.name_sorted.qc.bam -o {params.bamqc}
+samtools sort -@ {threads} {params.bamqc}.name_sorted.qc.bam -o {params.bamqc}
 samtool index -c {params.bamqc} -@ {threads}
 rm {params.bamqc}.name_sorted.bam {params.bamqc}.name_sorted.qc.bam
 touch {output.bam_qcFinished}
         """
 
 # parameter's dataframe of dedup: 
-# | sample      | dedup_bam             | family                 |
-# |:------------|:----------------------|:-----------------------|
-# | ATACP1000_1 | ATACP1000_1.dedup.bam | ATACP1000_1.family.txt |
-# | ATACP1000_2 | ATACP1000_2.dedup.bam | ATACP1000_2.family.txt |
-# | ATACP500_1  | ATACP500_1.dedup.bam  | ATACP500_1.family.txt  |
-# | ATACP500_2  | ATACP500_2.dedup.bam  | ATACP500_2.family.txt  |
-# | ATACSC      | ATACSC.dedup.bam      | ATACSC.family.txt      |
+# | sample     | dedup_bam            | family                |
+# |:-----------|:---------------------|:----------------------|
+# | ATACP500_1 | ATACP500_1.dedup.bam | ATACP500_1.family.txt |
 rule dedup:
     input:
         bam_qcFinished = resultDir + 'step6_bam_qc/' + '{sample}.finished',
@@ -325,19 +313,15 @@ rule dedup:
         """
        
 _JAVA_OPTIONS="-Xmx16g" fgbio GroupReadsByUmi --input={params.bamqc} --output={params.bamqc}.gp.bam                      --strategy=adjacency --edits=1 --min-map-q=20 --threads {threads} --family-size-histogram={params.family}
-__JAVA_OPTIONS="-Xmx16g" fgbio CallMolecularConsensusReads   --input={params.bamqc}.gp.bam   --output={params.dedup_bam}   --min-reads=5   --min-input-base-quality=20   --threads {threads}
+__JAVA_OPTIONS="-Xmx16g" fgbio CallMolecularConsensusReads   --input={params.bamqc}.gp.bam   --output={params.dedup_bam}   --min-reads=2   --min-input-base-quality=20   --threads {threads}
 rm {params.bamqc}.gp.bam           
 touch {output.dedupFinished}
         """
 
 # parameter's dataframe of umiMapping: 
-# | sample      | renameBam                     | umiFq1              | umiFq2              | mapping                 | genomeFa                                                     |
-# |:------------|:------------------------------|:--------------------|:--------------------|:------------------------|:-------------------------------------------------------------|
-# | ATACP1000_1 | ATACP1000_1.renamed.dedup.bam | ATACP1000_1_1_fq.gz | ATACP1000_1_2_fq.gz | ATACP1000_1.mapping.bam | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
-# | ATACP1000_2 | ATACP1000_2.renamed.dedup.bam | ATACP1000_2_1_fq.gz | ATACP1000_2_2_fq.gz | ATACP1000_2.mapping.bam | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
-# | ATACP500_1  | ATACP500_1.renamed.dedup.bam  | ATACP500_1_1_fq.gz  | ATACP500_1_2_fq.gz  | ATACP500_1.mapping.bam  | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
-# | ATACP500_2  | ATACP500_2.renamed.dedup.bam  | ATACP500_2_1_fq.gz  | ATACP500_2_2_fq.gz  | ATACP500_2.mapping.bam  | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
-# | ATACSC      | ATACSC.renamed.dedup.bam      | ATACSC_1_fq.gz      | ATACSC_2_fq.gz      | ATACSC.mapping.bam      | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
+# | sample     | renameBam                    | umiFq1             | umiFq2             | mapping                | genomeFa                                                     |
+# |:-----------|:-----------------------------|:-------------------|:-------------------|:-----------------------|:-------------------------------------------------------------|
+# | ATACP500_1 | ATACP500_1.renamed.dedup.bam | ATACP500_1_1_fq.gz | ATACP500_1_2_fq.gz | ATACP500_1.mapping.bam | /datapool/home/zhijian/data/wheat/genome/3.ref.mask.fasta.gz |
 rule umiMapping:
     input:
         dedupFinished = resultDir + 'step7_dedup/' + '{sample}.finished',
@@ -355,12 +339,35 @@ rule umiMapping:
     priority:0
     shell:
         """
+samtools index -c {params.dedup_bam} -@ {threads}
 python /datapool/data/Users/zhijian/projects/scumiatac/pipeline/scripts/rename_dedup_bam.py {params.dedup_bam} {params.renameBam}
 samtools fastq -@ {threads} -1 {params.umiFq1} -2 {params.umiFq2} -n {params.renameBam}
 bwa mem -t {threads} {input.genomeFa} {params.umiFq1} {params.umiFq2} | samtools sort -@ {threads} -o {params.mapping} -
 samtools index -c {params.mapping} -@ {threads}
-rm {params.renameBam}
+rm {params.dedup_bam}
 touch {output.umiMappingFinished}
+        """
+
+# parameter's dataframe of getUmiTagLmdb: 
+# | sample     | umiTagLmdb              |
+# |:-----------|:------------------------|
+# | ATACP500_1 | ATACP500_1.umi_tag.lmdb |
+rule getUmiTagLmdb:
+    input:
+        umiMappingFinished = resultDir + 'step8_umiMapping/' + '{sample}.finished',
+    output:
+        getUmiTagLmdbFinished = resultDir + 'step9_getUmiTagLmdb/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        renameBam = lambda wildcard: df_getFqAndMapping.at[wildcard.sample, 'renameBam'],
+        umiTagLmdb = lambda wildcard: df_getUmiTagLmdb.at[wildcard.sample, 'umiTagLmdb'],
+    threads:1
+    priority:0
+    shell:
+        """
+python /datapool/data/Users/zhijian/projects/scumiatac/pipeline/scripts/save_umi_tag_lmdb.py {params.renameBam} {params.umiTagLmdb}
+                             
+touch {output.getUmiTagLmdbFinished}
         """
 
 

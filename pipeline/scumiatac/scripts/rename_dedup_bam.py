@@ -26,7 +26,7 @@ def main(input_bam, output_bam):
     print(f"[*] 开始处理...")
     
     # 2. 打开输入输出文件
-    with pysam.AlignmentFile(input_bam, "rb") as infile, \
+    with pysam.AlignmentFile(input_bam, "rb", check_sq=False) as infile, \
          pysam.AlignmentFile(output_bam, "wb", template=infile) as outfile:
         
         # 使用 tqdm 显示进度
@@ -52,6 +52,7 @@ def main(input_bam, output_bam):
                 rx = read.get_tag("RX")
             except KeyError:
                 rx = "None"
+            
             
             # 这里按照你的需求：强行改名保持格式统一
             
