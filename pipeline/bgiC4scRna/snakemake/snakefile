@@ -1,0 +1,93 @@
+import pandas as pd
+#configfile: "/datapool/data/Users/zhijian/github/jpy_tools/pipeline/bgiC4scRna/snakemake/config.yaml"
+pipelineDir = config['pipelineDir']
+resultDir = config["resultDir"].rstrip("/") + "/"
+pipelineDir = config["pipelineDir"].rstrip("/") + "/"
+sampleLs = list(config['samples'].keys())
+
+## get parameter of rule `runStarsolo` ##
+df_runDnbc = pd.DataFrame(config["samples"]).T.assign(
+    ref=config["refDir"], res=config["resultDir"], dnbc=config["dnbc4toolsPath"], sample=lambda _: _.index
+).assign(
+    res=lambda _: _.res + '/' + _.index + '/',
+)
+
+
+## get parameter of rule `runDnbc` ##
+df_runDnbc = pd.DataFrame(config["samples"]).T.assign(
+    ref=config["refDir"], res=config["resultDir"], dnbc=config["dnbc4toolsPath"], sample=lambda _: _.index
+).assign(
+    res=lambda _: _.res + '/' + _.index + '/',
+)
+
+rule all:
+    input:
+        runDnbcFinished = [resultDir + 'step2_runDnbc/' + "" + sample + ".finished" for sample in df_runDnbc.index],
+
+# parameter's dataframe of runStarsolo: 
+# |       | cf1                                                                                                           | cf2                                                                                                           | of1                                                                                                            | of2                                                                                                            |   expectcells | ref                                       | res                                                                  | dnbc                                                                         | sample   |
+# |:------|:--------------------------------------------------------------------------------------------------------------|:--------------------------------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------|--------------:|:------------------------------------------|:---------------------------------------------------------------------|:-----------------------------------------------------------------------------|:---------|
+# | FW1-1 | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-1/FW1-1.cDNA.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-1/FW1-1.cDNA.R2_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-1/FW1-1.oligo.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-1/FW1-1.oligo.R2_001.fastq.gz |         10000 | /datapool/home/zhijian/data/mm10/dnbcRef/ | /datapool/home/zhijian/scripts/pipeline/bgiC4scRna/snakemake//FW1-1/ | /datapool/data/Users/zhijian/softwares/dnbc4tools/dnbc4tools2.1.3/dnbc4tools | FW1-1    |
+# | FW1-2 | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-2/FW1-2.cDNA.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-2/FW1-2.cDNA.R2_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-2/FW1-2.oligo.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-2/FW1-2.oligo.R2_001.fastq.gz |         10000 | /datapool/home/zhijian/data/mm10/dnbcRef/ | /datapool/home/zhijian/scripts/pipeline/bgiC4scRna/snakemake//FW1-2/ | /datapool/data/Users/zhijian/softwares/dnbc4tools/dnbc4tools2.1.3/dnbc4tools | FW1-2    |
+# | FW1-3 | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-3/FW1-3.cDNA.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-3/FW1-3.cDNA.R2_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-3/FW1-3.oligo.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-3/FW1-3.oligo.R2_001.fastq.gz |         10000 | /datapool/home/zhijian/data/mm10/dnbcRef/ | /datapool/home/zhijian/scripts/pipeline/bgiC4scRna/snakemake//FW1-3/ | /datapool/data/Users/zhijian/softwares/dnbc4tools/dnbc4tools2.1.3/dnbc4tools | FW1-3    |
+# | FW3-1 | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-1/FW3-1.cDNA.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-1/FW3-1.cDNA.R2_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-1/FW3-1.oligo.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-1/FW3-1.oligo.R2_001.fastq.gz |         10000 | /datapool/home/zhijian/data/mm10/dnbcRef/ | /datapool/home/zhijian/scripts/pipeline/bgiC4scRna/snakemake//FW3-1/ | /datapool/data/Users/zhijian/softwares/dnbc4tools/dnbc4tools2.1.3/dnbc4tools | FW3-1    |
+# | FW3-2 | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-2/FW3-2.cDNA.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-2/FW3-2.cDNA.R2_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-2/FW3-2.oligo.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-2/FW3-2.oligo.R2_001.fastq.gz |         10000 | /datapool/home/zhijian/data/mm10/dnbcRef/ | /datapool/home/zhijian/scripts/pipeline/bgiC4scRna/snakemake//FW3-2/ | /datapool/data/Users/zhijian/softwares/dnbc4tools/dnbc4tools2.1.3/dnbc4tools | FW3-2    |
+rule runStarsolo:
+    input:
+        cf1 = lambda wildcard: df_runDnbc.at[wildcard.sample, 'cf1'],
+        cf2 = lambda wildcard: df_runDnbc.at[wildcard.sample, 'cf2'],
+        of1 = lambda wildcard: df_runDnbc.at[wildcard.sample, 'of1'],
+        of2 = lambda wildcard: df_runDnbc.at[wildcard.sample, 'of2'],
+    output:
+        runStarsoloFinished = resultDir + 'step1_runStarsolo/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        ref = lambda wildcard: df_runDnbc.at[wildcard.sample, 'ref'],
+        res = lambda wildcard: df_runDnbc.at[wildcard.sample, 'res'],
+        expectcells = lambda wildcard: df_runDnbc.at[wildcard.sample, 'expectcells'],
+        dnbc = lambda wildcard: df_runDnbc.at[wildcard.sample, 'dnbc'],
+        sample = lambda wildcard: df_runDnbc.at[wildcard.sample, 'sample'],
+    threads:32
+    priority:20
+    shell:
+        """
+    mkdir -p {params.res}
+    cd {params.res}
+    {params.dnbc} rna run     --cDNAfastq1 {input.cf1}     --cDNAfastq2 {input.cf2}     --oligofastq1 {input.of1}     --oligofastq2 {input.of2}     --genomeDir {params.ref}     --name sample     --process {threads}     --expectCells {params.expectcells}     --outDir {params.res}
+touch {output.runStarsoloFinished}
+        """
+
+# parameter's dataframe of runDnbc: 
+# |       | cf1                                                                                                           | cf2                                                                                                           | of1                                                                                                            | of2                                                                                                            |   expectcells | ref                                       | res                                                                  | dnbc                                                                         | sample   |
+# |:------|:--------------------------------------------------------------------------------------------------------------|:--------------------------------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------|--------------:|:------------------------------------------|:---------------------------------------------------------------------|:-----------------------------------------------------------------------------|:---------|
+# | FW1-1 | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-1/FW1-1.cDNA.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-1/FW1-1.cDNA.R2_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-1/FW1-1.oligo.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-1/FW1-1.oligo.R2_001.fastq.gz |         10000 | /datapool/home/zhijian/data/mm10/dnbcRef/ | /datapool/home/zhijian/scripts/pipeline/bgiC4scRna/snakemake//FW1-1/ | /datapool/data/Users/zhijian/softwares/dnbc4tools/dnbc4tools2.1.3/dnbc4tools | FW1-1    |
+# | FW1-2 | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-2/FW1-2.cDNA.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-2/FW1-2.cDNA.R2_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-2/FW1-2.oligo.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-2/FW1-2.oligo.R2_001.fastq.gz |         10000 | /datapool/home/zhijian/data/mm10/dnbcRef/ | /datapool/home/zhijian/scripts/pipeline/bgiC4scRna/snakemake//FW1-2/ | /datapool/data/Users/zhijian/softwares/dnbc4tools/dnbc4tools2.1.3/dnbc4tools | FW1-2    |
+# | FW1-3 | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-3/FW1-3.cDNA.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-3/FW1-3.cDNA.R2_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-3/FW1-3.oligo.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-3/FW1-3.oligo.R2_001.fastq.gz |         10000 | /datapool/home/zhijian/data/mm10/dnbcRef/ | /datapool/home/zhijian/scripts/pipeline/bgiC4scRna/snakemake//FW1-3/ | /datapool/data/Users/zhijian/softwares/dnbc4tools/dnbc4tools2.1.3/dnbc4tools | FW1-3    |
+# | FW3-1 | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-1/FW3-1.cDNA.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-1/FW3-1.cDNA.R2_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-1/FW3-1.oligo.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-1/FW3-1.oligo.R2_001.fastq.gz |         10000 | /datapool/home/zhijian/data/mm10/dnbcRef/ | /datapool/home/zhijian/scripts/pipeline/bgiC4scRna/snakemake//FW3-1/ | /datapool/data/Users/zhijian/softwares/dnbc4tools/dnbc4tools2.1.3/dnbc4tools | FW3-1    |
+# | FW3-2 | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-2/FW3-2.cDNA.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-2/FW3-2.cDNA.R2_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-2/FW3-2.oligo.R1_001.fastq.gz | /datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-2/FW3-2.oligo.R2_001.fastq.gz |         10000 | /datapool/home/zhijian/data/mm10/dnbcRef/ | /datapool/home/zhijian/scripts/pipeline/bgiC4scRna/snakemake//FW3-2/ | /datapool/data/Users/zhijian/softwares/dnbc4tools/dnbc4tools2.1.3/dnbc4tools | FW3-2    |
+rule runDnbc:
+    input:
+        cf1 = lambda wildcard: df_runDnbc.at[wildcard.sample, 'cf1'],
+        cf2 = lambda wildcard: df_runDnbc.at[wildcard.sample, 'cf2'],
+        of1 = lambda wildcard: df_runDnbc.at[wildcard.sample, 'of1'],
+        of2 = lambda wildcard: df_runDnbc.at[wildcard.sample, 'of2'],
+    output:
+        runDnbcFinished = resultDir + 'step2_runDnbc/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        ref = lambda wildcard: df_runDnbc.at[wildcard.sample, 'ref'],
+        res = lambda wildcard: df_runDnbc.at[wildcard.sample, 'res'],
+        expectcells = lambda wildcard: df_runDnbc.at[wildcard.sample, 'expectcells'],
+        dnbc = lambda wildcard: df_runDnbc.at[wildcard.sample, 'dnbc'],
+        sample = lambda wildcard: df_runDnbc.at[wildcard.sample, 'sample'],
+    threads:32
+    priority:20
+    shell:
+        """
+    mkdir -p {params.res}
+    cd {params.res}
+    {params.dnbc} rna run     --cDNAfastq1 {input.cf1}     --cDNAfastq2 {input.cf2}     --oligofastq1 {input.of1}     --oligofastq2 {input.of2}     --genomeDir {params.ref}     --name sample     --threads {threads}     --expectcells {params.expectcells}     --outdir {params.res}
+touch {output.runDnbcFinished}
+        """
+
+

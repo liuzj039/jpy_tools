@@ -1,0 +1,153 @@
+resultDir:
+  '/datapool/home/zhijian/scripts/pipeline/bgiC4scRna/snakemake/'
+pipelineDir:
+  '/datapool/home/zhijian/scripts/pipeline/bgiC4scRna/snakemake/'
+dnbc4toolsPath:
+  '/datapool/data/Users/zhijian/softwares/dnbc4tools/dnbc4tools2.1.3/dnbc4tools'
+refDir:
+  '/datapool/home/zhijian/data/mm10/dnbcRef/'
+samples:
+  'FW1-1':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-1/FW1-1.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-1/FW1-1.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-1/FW1-1.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-1/FW1-1.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'FW1-2':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-2/FW1-2.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-2/FW1-2.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-2/FW1-2.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-2/FW1-2.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'FW1-3':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-3/FW1-3.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-3/FW1-3.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-3/FW1-3.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW1-3/FW1-3.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'FW3-1':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-1/FW3-1.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-1/FW3-1.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-1/FW3-1.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-1/FW3-1.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'FW3-2':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-2/FW3-2.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-2/FW3-2.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-2/FW3-2.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-2/FW3-2.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'FW3-3':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-3/FW3-3.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-3/FW3-3.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-3/FW3-3.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW3-3/FW3-3.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'FW5-1':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW5-1/FW5-1.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW5-1/FW5-1.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW5-1/FW5-1.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW5-1/FW5-1.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'FW5-2':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW5-2/FW5-2.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW5-2/FW5-2.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW5-2/FW5-2.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW5-2/FW5-2.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'FW5-3':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW5-3/FW5-3.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW5-3/FW5-3.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW5-3/FW5-3.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW5-3/FW5-3.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'FW16-1':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW16-1/FW16-1.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW16-1/FW16-1.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW16-1/FW16-1.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW16-1/FW16-1.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'FW16-2':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW16-2/FW16-2.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW16-2/FW16-2.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW16-2/FW16-2.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW16-2/FW16-2.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'FW16-3':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW16-3/FW16-3.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW16-3/FW16-3.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW16-3/FW16-3.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/FW16-3/FW16-3.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'MW1-1':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW1-1/MW1-1.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW1-1/MW1-1.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW1-1/MW1-1.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW1-1/MW1-1.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'MW1-2':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW1-2/MW1-2.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW1-2/MW1-2.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW1-2/MW1-2.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW1-2/MW1-2.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'MW1-3':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW1-3/MW1-3.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW1-3/MW1-3.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW1-3/MW1-3.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW1-3/MW1-3.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'MW3-1':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW3-1/MW3-1.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW3-1/MW3-1.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW3-1/MW3-1.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW3-1/MW3-1.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'MW3-2':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW3-2/MW3-2.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW3-2/MW3-2.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW3-2/MW3-2.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW3-2/MW3-2.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'MW3-3':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW3-3/MW3-3.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW3-3/MW3-3.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW3-3/MW3-3.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW3-3/MW3-3.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'MW5-1':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW5-1/MW5-1.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW5-1/MW5-1.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW5-1/MW5-1.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW5-1/MW5-1.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'MW5-2':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW5-2/MW5-2.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW5-2/MW5-2.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW5-2/MW5-2.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW5-2/MW5-2.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'MW5-3':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW5-3/MW5-3.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW5-3/MW5-3.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW5-3/MW5-3.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW5-3/MW5-3.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'MW16-1':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW16-1/MW16-1.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW16-1/MW16-1.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW16-1/MW16-1.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW16-1/MW16-1.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'MW16-2':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW16-2/MW16-2.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW16-2/MW16-2.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW16-2/MW16-2.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW16-2/MW16-2.oligo.R2_001.fastq.gz'
+    expectcells: 10000
+  'MW16-3':
+    cf1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW16-3/MW16-3.cDNA.R1_001.fastq.gz'
+    cf2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW16-3/MW16-3.cDNA.R2_001.fastq.gz'
+    of1: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW16-3/MW16-3.oligo.R1_001.fastq.gz'
+    of2: '/datapool/data/Users/zhijian/projects/mouseThymus/rawdata/GDRL25030508_std_1/MW16-3/MW16-3.oligo.R2_001.fastq.gz'
+    expectcells: 10000

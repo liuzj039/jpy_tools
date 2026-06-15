@@ -1,0 +1,189 @@
+import pandas as pd
+#configfile: "/datapool/data/Users/zhijian/github/jpy_tools/pipeline/mulocdeep/config.yaml"
+pipelineDir = config['pipelineDir']
+resultDir = config["resultDir"].rstrip("/") + "/"
+pipelineDir = config["pipelineDir"].rstrip("/") + "/"
+
+
+## get parameter of rule `splitFa` ##
+df_splitFa = pd.DataFrame(index=['AllFa'])
+df_splitFa = df_splitFa.assign(
+    resultDir='ResultDir/',
+    pepFa=config['pepFa'],
+    threads=config['threads'],
+    pipelineDir=pipelineDir,
+)
+df_splitFa
+                    
+for column in ['resultDir']:
+    df_splitFa[column] = resultDir + 'step1_splitFa/' + df_splitFa[column]
+
+
+## get parameter of rule `mulocDeep` ##
+df_mulocdeep = pd.DataFrame(index=range(1, config["threads"] + 1))
+df_mulocdeep.index = df_mulocdeep.index.astype(str)
+df_mulocdeep = df_mulocdeep.assign(
+    splitId=lambda _: _.index,
+    resultMuloc=lambda _: _.index.astype(str) + "/",
+    species=config["species"],
+    mulocdeepDir=config["mulocdeepDir"],
+    sample='AllFa'
+)
+df_mulocdeep.head(5)
+                    
+for column in ['resultMuloc']:
+    df_mulocdeep[column] = resultDir + 'step2_mulocDeep/' + df_mulocdeep[column]
+
+def parseDfToInput_mulocDeep_splitFa(wildcard):
+    selfWildCardUnique = True
+    if isinstance(df_mulocdeep.at[wildcard.splitId, 'sample'], list):
+        selfWildCardUnique = False
+    if selfWildCardUnique:
+        return resultDir + 'step1_splitFa/' + df_mulocdeep.at[wildcard.splitId, 'sample'] + '.finished'
+    else:
+        return [resultDir + 'step1_splitFa/' + x + '.finished' for x in df_mulocdeep.loc[wildcard.splitId, 'sample']]
+
+def parseDfToParams_mulocDeep_splitFa_resultDir(wildcard):
+    selfWildCardUnique = True
+    if isinstance(df_mulocdeep.at[wildcard.splitId, 'sample'], list):
+        selfWildCardUnique = False
+    if selfWildCardUnique:
+        fromSampleName = df_mulocdeep.at[wildcard.splitId, 'sample']
+        return df_splitFa.at[fromSampleName, 'resultDir']
+    else:
+        ls_fromSampleName = df_mulocdeep.loc[wildcard.splitId, 'sample']
+        return [df_splitFa.at[x, 'resultDir'] for x in ls_fromSampleName]
+
+
+## get parameter of rule `mergeRes` ##
+df_mergeRes = (
+    df_mulocdeep.groupby("sample")["splitId"]
+    .agg(list)
+    .pipe(pd.DataFrame)
+    .rename(columns={"index": "sampleSplit"})
+    .assign(dir_out=lambda df: df.index + "/", mulocDir="/")
+)
+df_mergeRes
+                    
+for column in ['dir_out']:
+    df_mergeRes[column] = resultDir + 'step3_mergeRes/' + df_mergeRes[column]
+for column in ['mulocDir']:
+    df_mergeRes[column] = resultDir + 'step2_mulocDeep/' + df_mergeRes[column]
+
+def parseDfToInput_mergeRes_mulocDeep(wildcard):
+    selfWildCardUnique = True
+    if isinstance(df_mergeRes.at[wildcard.sample, 'splitId'], list):
+        selfWildCardUnique = False
+    if selfWildCardUnique:
+        return resultDir + 'step2_mulocDeep/' + df_mergeRes.at[wildcard.sample, 'splitId'] + '.finished'
+    else:
+        return [resultDir + 'step2_mulocDeep/' + x + '.finished' for x in df_mergeRes.loc[wildcard.sample, 'splitId']]
+
+def parseDfToParams_mergeRes_mulocDeep_splitId(wildcard):
+    selfWildCardUnique = True
+    if isinstance(df_mergeRes.at[wildcard.sample, 'splitId'], list):
+        selfWildCardUnique = False
+    if selfWildCardUnique:
+        fromSampleName = df_mergeRes.at[wildcard.sample, 'splitId']
+        return df_mulocdeep.at[fromSampleName, 'splitId']
+    else:
+        ls_fromSampleName = df_mergeRes.loc[wildcard.sample, 'splitId']
+        return [df_mulocdeep.at[x, 'splitId'] for x in ls_fromSampleName]
+
+rule all:
+    input:
+        mergeResFinished = [resultDir + 'step3_mergeRes/' + "" + sample + ".finished" for sample in df_mergeRes.index],
+
+# parameter's dataframe of splitFa: 
+# |       | resultDir   | pepFa                                                                                                                                                                                                     |   threads | pipelineDir                                                               |
+# |:------|:------------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------:|:--------------------------------------------------------------------------|
+# | AllFa | ResultDir/  | /datapool/home/zhijian/data/wheat/cs_2_1/download.20260327.082251/Phytozome/PhytozomeV13/Taestivumcv_ChineseSpring/v2.1/annotation/Taestivumcv_ChineseSpring_725_v2.1.protein_primaryTranscriptOnly.fa.gz |        24 | /datapool/data/Users/zhijian/github/jpy_tools/pipeline/mulocdeep/scripts/ |
+rule splitFa:
+    input:
+        pepFa = lambda wildcard: df_splitFa.at[wildcard.sample, 'pepFa'],
+    output:
+        splitFaFinished = resultDir + 'step1_splitFa/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        threads = lambda wildcard: df_splitFa.at[wildcard.sample, 'threads'],
+        pipelineDir = lambda wildcard: df_splitFa.at[wildcard.sample, 'pipelineDir'],
+        resultDir = lambda wildcard: df_splitFa.at[wildcard.sample, 'resultDir'],
+    threads:1
+    priority:0
+    shell:
+        """
+cd {pipelineDir} && bash split_fa.sh {input.pepFa} {params.threads} {params.resultDir}
+touch {output.splitFaFinished}
+        """
+
+# parameter's dataframe of mulocDeep: 
+# |    |   splitId | resultMuloc   | species       | mulocdeepDir                                                   | sample   |
+# |---:|----------:|:--------------|:--------------|:---------------------------------------------------------------|:---------|
+# |  1 |         1 | 1/            | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# |  2 |         2 | 2/            | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# |  3 |         3 | 3/            | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# |  4 |         4 | 4/            | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# |  5 |         5 | 5/            | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# |  6 |         6 | 6/            | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# |  7 |         7 | 7/            | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# |  8 |         8 | 8/            | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# |  9 |         9 | 9/            | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 10 |        10 | 10/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 11 |        11 | 11/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 12 |        12 | 12/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 13 |        13 | 13/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 14 |        14 | 14/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 15 |        15 | 15/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 16 |        16 | 16/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 17 |        17 | 17/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 18 |        18 | 18/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 19 |        19 | 19/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 20 |        20 | 20/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 21 |        21 | 21/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 22 |        22 | 22/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 23 |        23 | 23/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+# | 24 |        24 | 24/           | viridiplantae | /datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/ | AllFa    |
+rule mulocDeep:
+    input:
+        splitFaFinished = parseDfToInput_mulocDeep_splitFa,
+    output:
+        mulocDeepFinished = resultDir + 'step2_mulocDeep/' + '{splitId}.finished',
+    params:
+        gpu = 0,
+        resultDir = parseDfToParams_mulocDeep_splitFa_resultDir,
+        splitId = lambda wildcard: df_mulocdeep.at[wildcard.splitId, 'splitId'],
+        resultMuloc = lambda wildcard: df_mulocdeep.at[wildcard.splitId, 'resultMuloc'],
+        mulocdeepDir = lambda wildcard: df_mulocdeep.at[wildcard.splitId, 'mulocdeepDir'],
+        species = lambda wildcard: df_mulocdeep.at[wildcard.splitId, 'species'],
+    threads:1
+    priority:0
+    conda: "mulocdeep"
+    shell:
+        """
+cd {params.mulocdeepDir} && python predict.py -input {params.resultDir}/{params.splitId}.fa -output {params.resultMuloc} -species {params.species}
+touch {output.mulocDeepFinished}
+        """
+
+# parameter's dataframe of mergeRes: 
+# | sample   | splitId                                                                                                                                 | dir_out   | mulocDir   |
+# |:---------|:----------------------------------------------------------------------------------------------------------------------------------------|:----------|:-----------|
+# | AllFa    | ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24'] | AllFa/    | /          |
+rule mergeRes:
+    input:
+        mulocDeepFinished = parseDfToInput_mergeRes_mulocDeep,
+    output:
+        mergeResFinished = resultDir + 'step3_mergeRes/' + '{sample}.finished',
+    params:
+        gpu = 0,
+        splitId = parseDfToParams_mergeRes_mulocDeep_splitId,
+        dir_out = lambda wildcard: df_mergeRes.at[wildcard.sample, 'dir_out'],
+        mulocDir = lambda wildcard: df_mergeRes.at[wildcard.sample, 'mulocDir'],
+    threads:1
+    priority:0
+    shell:
+        """
+cd {params.mulocDir} && cat ./*/sub_cellular_prediction.txt > {params.dir_out}/cellular.txt && cat ./*/sub_organellar_prediction.txt > {params.dir_out}/organellar.txt
+touch {output.mergeResFinished}
+        """
+
+

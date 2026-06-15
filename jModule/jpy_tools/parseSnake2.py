@@ -178,6 +178,7 @@ class SnakeRule(object):
         metaDfName: str,
         needAddRuleDirLs: Optional[Sequence[str]] = None,
         metaDf:Optional[pd.DataFrame]=None,
+        rule=None
     ):
         """
         add meta dataframe to snakerule. All meta information should store in this dataframe
@@ -189,15 +190,23 @@ class SnakeRule(object):
         needAddRuleDirLs : Optional[Sequence[str]]
             These columns will added by self.outputDir
         """
-        self.metaDfName = metaDfName
+        if rule is None:
+            rule = self
+            setAndInit = True
+        else:
+            setAndInit = False
+            
         if needAddRuleDirLs:
             self.code += f"""
 for column in {needAddRuleDirLs}:
-    {metaDfName}[column] = {self.outputDir} + {metaDfName}[column]
+    {metaDfName}[column] = {rule.outputDir} + {metaDfName}[column]
 """.lstrip(
                 "\n"
             )
-
+        if setAndInit is False:
+            print("Rule is specified, only add rule dir to specified columns")
+            return
+        self.metaDfName = metaDfName
         if not metaDf is None:
             self._df = metaDf
             self._df_content = (

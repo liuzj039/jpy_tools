@@ -1,0 +1,9 @@
+resultDir:
+  "/datapool/home/zhijian/data/wheat/cs_2_1/mulocdeep/"
+pipelineDir:
+  "/datapool/data/Users/zhijian/github/jpy_tools/pipeline/mulocdeep/scripts/"
+pepFa:
+  '/datapool/home/zhijian/data/wheat/cs_2_1/download.20260327.082251/Phytozome/PhytozomeV13/Taestivumcv_ChineseSpring/v2.1/annotation/Taestivumcv_ChineseSpring_725_v2.1.protein_primaryTranscriptOnly.fa.gz'
+threads: 24
+species: 'viridiplantae'
+mulocdeepDir: '/datapool/data/Users/zhijian/softwares/MulocDeepServerVersion/' 
